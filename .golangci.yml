@@ -1,0 +1,63 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - revive
+    - errorlint
+    - bodyclose
+    - misspell
+    - unconvert
+  settings:
+    revive:
+      confidence: 0.8
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+          arguments:
+            - allowed-packages:
+                - github.com/onsi/ginkgo/v2
+                - github.com/onsi/gomega
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: if-return
+        - name: increment-decrement
+        - name: var-naming
+        - name: var-declaration
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: deep-exit
+        - name: defer
+        - name: duplicated-imports
+        - name: string-of-int
+        - name: unused-parameter
+        - name: unused-receiver
+        - name: use-any
+        - name: cyclomatic
+          arguments: [20]
+        - name: function-result-limit
+          arguments: [3]
+          severity: error
+        - name: enforce-map-style
+          arguments: ["make"]
+        - name: early-return
+          arguments: ["preserve-scope"]
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      extra:
+        group-params: true
+    goimports:
+      local-prefixes:
+        - github.com/VTGare/logpose
