@@ -258,7 +258,7 @@ func (*view) rollingChart(c *ui.Context, title string, pts []stats.Point, sel *i
 			p := pts[i]
 			return fmt.Sprintf("%s · game %d · %s, %d of the last %d won", p.At.Format("Jan 2 15:04"), p.Game, pct(p.Rate), p.Wins, stats.RollingWindow)
 		}
-		chart.Plot(c, chart.Axes{Left: ticks, Bottom: dateTicks(pts, xs, 5)}, func(area ui.Element) {
+		chart.Plot(c, chart.Axes{Left: ticks, Bottom: dateTicks(pts, xs, 5), Label: axisLabel(c)}, func(area ui.Element) {
 			area.Label(label).Draw(func(p *ui.Painter, r ui.Rect) {
 				for _, tick := range ticks {
 					p.Line(r.X, chart.Y(r, tick.At), r.X+r.W, chart.Y(r, tick.At), 1, t.Border)
@@ -342,6 +342,28 @@ func turnOrderShort(m stats.Match) string {
 		return "1st"
 	default:
 		return "2nd"
+	}
+}
+
+// axisLabel builds tick labels that stay inside the plot. A label is centered on its tick, so
+// the ones at the ends of the bottom axis would hang half outside. They line up with the end
+// instead.
+func axisLabel(c *ui.Context) func(chart.Side, chart.Tick) {
+	return func(side chart.Side, t chart.Tick) {
+		text := func() { ui.Text(c, t.Label).NoWrap() }
+		switch {
+		case side == chart.Bottom && t.At > 0.95:
+			// The invisible copy keeps the axis row as tall as the text, and the real one ends
+			// at the tick.
+			ui.Box(c).Width(0).Children(func() {
+				ui.Text(c, t.Label).NoWrap().Invisible()
+				ui.Text(c, t.Label).NoWrap().Absolute().Right(0).Top(0)
+			})
+		case side == chart.Bottom && t.At < 0.05:
+			ui.Row(c).Width(0).Justify(ui.Start).Children(text)
+		default:
+			text()
+		}
 	}
 }
 
