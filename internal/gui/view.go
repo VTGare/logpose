@@ -6,6 +6,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/cards"
+	"github.com/VTGare/logpose/internal/live"
 	"github.com/VTGare/logpose/internal/stats"
 )
 
@@ -36,6 +37,8 @@ const (
 
 type view struct {
 	snap *snapshot
+	// live is the game in the sim right now, which the log follower updates on its own.
+	live live.State
 	art  *artCache
 	page string
 
@@ -68,6 +71,9 @@ func (v *view) build(c *ui.Context) {
 	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		v.sidebar(c)
 		ui.Column(c).Grow(1).Fill().Children(func() {
+			if v.snap.Loaded && v.live.Phase != live.Idle {
+				v.liveStrip(c)
+			}
 			switch {
 			case !v.snap.Loaded:
 				v.message(c, "Loading your games", "")

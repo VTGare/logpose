@@ -102,17 +102,40 @@ var _ = Describe("Record", func() {
 var _ = Describe("BuildOverview", func() {
 	luffy, kid := "OP13-001", "OP17-058"
 
-	It("is about the deck of the latest game", func() {
+	It("lists every deck played, latest first, with the deck of the latest game first", func() {
 		o := stats.BuildOverview(stats.Matches(build(
-			game{ago: time.Hour, mine: luffy, theirs: kid, won: true, first: true},
-			game{ago: 2 * time.Hour, mine: luffy, theirs: kid, won: false, first: false},
-			game{ago: 3 * time.Hour, mine: kid, theirs: luffy, won: true},
+			game{ago: time.Hour, mine: luffy, theirs: kid, won: true},
+			game{ago: 2 * time.Hour, mine: kid, theirs: luffy, won: true},
+			game{ago: 3 * time.Hour, mine: luffy, theirs: kid, won: false},
 		), me), now)
 		Expect(o.Deck).To(Equal(luffy))
-		Expect(o.Record).To(Equal(stats.Record{Wins: 1, Losses: 1}))
-		Expect(o.TurnOrder.First).To(Equal(stats.Record{Wins: 1}))
-		Expect(o.TurnOrder.Second).To(Equal(stats.Record{Losses: 1}))
-		Expect(o.OtherLeaders).To(Equal([]stats.LeaderRecord{{Leader: kid, Record: stats.Record{Wins: 1}}}))
+		Expect(o.Total).To(Equal(stats.Record{Wins: 2, Losses: 1}))
+		Expect(o.Decks).To(Equal([]stats.Deck{
+			{Leader: luffy, Record: stats.Record{Wins: 1, Losses: 1}, Last: now.Add(-time.Hour)},
+			{Leader: kid, Record: stats.Record{Wins: 1}, Last: now.Add(-2 * time.Hour)},
+		}))
+	})
+
+	It("splits this week from the week before", func() {
+		o := stats.BuildOverview(stats.Matches(build(
+			game{ago: time.Hour, mine: luffy, won: true},
+			game{ago: 6 * 24 * time.Hour, mine: luffy, won: false},
+			game{ago: 8 * 24 * time.Hour, mine: luffy, won: true},
+			game{ago: 20 * 24 * time.Hour, mine: luffy, won: true},
+		), me), now)
+		Expect(o.Week).To(Equal(stats.Record{Wins: 1, Losses: 1}))
+		Expect(o.PrevWeek).To(Equal(stats.Record{Wins: 1}))
+	})
+
+	It("keeps the last 10 results, oldest first", func() {
+		var gs []game
+		for i := range 12 {
+			gs = append(gs, game{ago: time.Duration(i+1) * time.Hour, mine: luffy, won: i == 0})
+		}
+		o := stats.BuildOverview(stats.Matches(build(gs...), me), now)
+		Expect(o.Last).To(HaveLen(stats.LastGames))
+		Expect(o.Last[9]).To(Equal(stats.Win))
+		Expect(o.Last[0]).To(Equal(stats.Loss))
 	})
 
 	It("counts today's games oldest first", func() {
@@ -137,10 +160,14 @@ var _ = Describe("BuildOverview", func() {
 		Expect(o.StreakResult).To(Equal(stats.Win))
 	})
 
-	It("rolls the win rate over the last 20 games once there are 20", func() {
+	It("rolls the win rate over the last 20 games with any leader once there are 20", func() {
 		var gs []game
 		for i := range 25 {
-			gs = append(gs, game{ago: time.Duration(i+1) * time.Hour, mine: luffy, won: i < 5})
+			mine := luffy
+			if i%2 == 0 {
+				mine = kid
+			}
+			gs = append(gs, game{ago: time.Duration(i+1) * time.Hour, mine: mine, won: i < 5})
 		}
 		o := stats.BuildOverview(stats.Matches(build(gs...), me), now)
 		Expect(o.Rolling).To(HaveLen(6))
@@ -252,5 +279,30 @@ var _ = Describe("SortMatchups", func() {
 		enough, few := stats.SplitBySample(stats.SortMatchups(lrs, stats.MostPlayed))
 		Expect(order(enough)).To(Equal([]string{"c", "b"}))
 		Expect(order(few)).To(Equal([]string{"a", "d"}))
+	})
+})
+
+var _ = Describe("VersusFor", func() {
+	luffy, kaido := "OP13-001", "OP17-058"
+	ms := stats.Matches(build(
+		game{mine: luffy, theirs: kaido, won: true, first: true, opponent: "Bob#2"},
+		game{mine: luffy, theirs: kaido, won: false},
+		game{mine: luffy, theirs: kaido, won: false, first: true},
+		game{mine: "OP01-001", theirs: kaido, won: true, opponent: "Bob#2"},
+		game{mine: luffy, theirs: "OP05-060", won: true},
+	), me)
+
+	It("sums the matchup with turn order, and the opponent across leaders", func() {
+		v := stats.VersusFor(ms, luffy, kaido, "Bob#2")
+		Expect(v.Matchup).To(Equal(stats.Record{Wins: 1, Losses: 2}))
+		Expect(v.TurnOrder.First).To(Equal(stats.Record{Wins: 1, Losses: 1}))
+		Expect(v.TurnOrder.Second).To(Equal(stats.Record{Losses: 1}))
+		Expect(v.Player).To(Equal(stats.Record{Wins: 2}))
+	})
+
+	It("has no matchup without the opponent's leader", func() {
+		v := stats.VersusFor(ms, luffy, "", "Bob#2")
+		Expect(v.Matchup.Games()).To(BeZero())
+		Expect(v.Player.Games()).To(Equal(2))
 	})
 })

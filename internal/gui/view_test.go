@@ -7,6 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/cards"
+	"github.com/VTGare/logpose/internal/live"
 	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
@@ -54,8 +55,17 @@ func tester(s *snapshot) (*view, *ui.Tester) {
 }
 
 var _ = Describe("view", func() {
-	It("shows the current deck and its turn order split", func() {
+	It("shows the session, the week and every deck played on the overview", func() {
 		_, tt := tester(testSnapshot(10))
+		for _, text := range []string{"Today", "Streak", "Last 7 days", "All time", "Your decks", "Monkey D. Luffy", "10 games · 1 h ago", "Recent matches"} {
+			Expect(tt.HasText(text)).To(BeTrue(), text)
+		}
+		Expect(tt.HasText("Turn order")).To(BeFalse())
+	})
+
+	It("shows the current deck and its turn order split on the Leaders page", func() {
+		_, tt := tester(testSnapshot(10))
+		Expect(tt.Click("Leaders")).To(Succeed())
 		for _, text := range []string{"Current deck", "Monkey D. Luffy", "50%", "5–5", "Turn order", "First", "Second"} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
@@ -87,12 +97,23 @@ var _ = Describe("view", func() {
 		Expect(tt.HasText("Kaido")).To(BeTrue())
 	})
 
+	It("shows a newly imported game on the Matches page", func() {
+		v, tt := tester(testSnapshot(10))
+		Expect(tt.Click("Matches")).To(Succeed())
+		s := testSnapshot(11)
+		s.Matches[0].Opp.Name = "Newcomer"
+		v.snap = s
+		tt.Frame()
+		Expect(tt.HasText("11 games · 6–5")).To(BeTrue())
+		Expect(tt.HasText("Newcomer")).To(BeTrue())
+	})
+
 	It("opens a leader's page from the overview", func() {
 		s := testSnapshot(10)
 		s.Matches[3].Me.Leader = "OP17-058"
 		s.Overview = stats.BuildOverview(s.Matches, now)
 		v, tt := tester(s)
-		Expect(tt.HasText("Your other leaders")).To(BeTrue())
+		Expect(tt.HasText("Your decks")).To(BeTrue())
 		Expect(tt.Click("Show Kaido")).To(Succeed())
 		Expect(v.page).To(Equal(pageLeaders))
 		Expect(v.leader).To(Equal("OP17-058"))
@@ -142,5 +163,41 @@ var _ = Describe("view", func() {
 	It("invites a first game when the sim is there but nothing is stored", func() {
 		_, tt := tester(&snapshot{Loaded: true, SimFound: true})
 		Expect(tt.HasText("Play a game in the sim")).To(BeTrue())
+	})
+
+	It("shows the lobby while the sim waits for a game", func() {
+		v, tt := tester(testSnapshot(10))
+		v.live = live.State{Phase: live.Lobby, Lobby: "XABCDEF", Hosting: true}
+		tt.Frame()
+		Expect(tt.HasText("Match found")).To(BeTrue())
+		Expect(tt.HasText("Ranked · XABCDEF")).To(BeTrue())
+	})
+
+	It("shows the history against the opponent in the sim", func() {
+		v, tt := tester(testSnapshot(10))
+		v.live = live.State{
+			Phase: live.Playing, Lobby: "QWERTY", First: me,
+			Players: []live.Player{
+				{ID: me, Leader: "OP13-001", Local: true, Life: 4, Hand: 6},
+				{ID: "Opp#2", Leader: "OP17-058", Life: 5, Hand: 5},
+			},
+		}
+		tt.Frame()
+		for _, text := range []string{
+			"vs Opp", "With Monkey D. Luffy vs Kaido", "5–5 · 50%", "Going first · 5–5",
+			"Against Opp", "4 life · 6 hand", "Casual · QWERTY",
+		} {
+			Expect(tt.HasText(text)).To(BeTrue(), text)
+		}
+	})
+
+	It("says when the sim didn't log the opponent's leader", func() {
+		v, tt := tester(testSnapshot(10))
+		v.live = live.State{Phase: live.Playing, Players: []live.Player{
+			{ID: me, Local: true}, {ID: "New#3"},
+		}}
+		tt.Frame()
+		Expect(tt.HasText("Leader not in the sim's log")).To(BeTrue())
+		Expect(tt.HasText("Against New")).To(BeFalse())
 	})
 })

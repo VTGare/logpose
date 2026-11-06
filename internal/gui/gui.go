@@ -1,14 +1,10 @@
 package gui
 
 import (
-	"bytes"
 	"context"
+	_ "embed"
 	"fmt"
-	"image"
-	"image/color"
-	"image/png"
 	"log/slog"
-	"math"
 	"net/http"
 	"sync"
 	"time"
@@ -18,6 +14,7 @@ import (
 
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/importer"
+	"github.com/VTGare/logpose/internal/live"
 	"github.com/VTGare/logpose/internal/sim"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
@@ -32,7 +29,12 @@ type Options struct {
 	// the catalog the sim's OPBounty pack carries.
 	CatalogPath string
 	Log         *slog.Logger
+	// Dev marks a test copy in the window title.
+	Dev bool
 }
+
+//go:embed assets/tray.png
+var trayIcon []byte
 
 // catalogMaxAge is how often the card catalog is refreshed. tcgcsv updates once a day.
 const catalogMaxAge = 24 * time.Hour
@@ -51,9 +53,14 @@ type app struct {
 }
 
 // Claim makes this the only running logpose. It returns false when another one is running,
-// which then shows its window, and this one should exit.
-func Claim() bool {
-	mygo.App.SetName("logpose")
+// which then shows its window, and this one should exit. A dev copy has its own name, so it
+// runs next to the real one.
+func Claim(dev bool) bool {
+	name := "logpose"
+	if dev {
+		name = "logpose-dev"
+	}
+	mygo.App.SetName(name)
 	return mygo.App.RequestSingleInstanceLock()
 }
 
@@ -69,8 +76,12 @@ func Run(ctx context.Context, opts Options) error {
 
 func (a *app) ready(ctx context.Context) {
 	a.view = newView(nil)
+	title := "logpose"
+	if a.opts.Dev {
+		title = "logpose (dev)"
+	}
 	a.win = mygo.NewWindow(mygo.WindowOptions{
-		Title:     "logpose",
+		Title:     title,
 		Width:     1180,
 		Height:    780,
 		MinWidth:  900,
@@ -96,6 +107,24 @@ func (a *app) ready(ctx context.Context) {
 	})
 	go a.start(ctx)
 	go a.refreshCatalog(ctx)
+	go a.follow(ctx)
+}
+
+// follow shows the game running in the sim, from its Player.log.
+func (a *app) follow(ctx context.Context) {
+	path, err := sim.PlayerLog()
+	if err != nil {
+		a.opts.Log.Warn("player log", "err", err)
+		return
+	}
+	f := &live.Follower{
+		Path:    path,
+		Running: sim.Running,
+		OnChange: func(s live.State) {
+			a.win.Update(func() { a.view.live = s })
+		},
+	}
+	_ = f.Run(ctx)
 }
 
 // refreshCatalog fetches card data for sets newer than the cached catalog, then shows it.
@@ -222,7 +251,7 @@ func (a *app) cardDB() *cards.DB {
 }
 
 func (a *app) setUpTray() {
-	tray, err := mygo.NewTray(mygo.TrayOptions{Icon: trayIcon(), ToolTip: "logpose"})
+	tray, err := mygo.NewTray(mygo.TrayOptions{Icon: trayIcon, ToolTip: "logpose"})
 	if err != nil {
 		a.opts.Log.Warn("tray", "err", err)
 		return
@@ -266,28 +295,4 @@ func (a *app) show() {
 func (a *app) quit() {
 	a.quitting = true
 	mygo.App.Quit()
-}
-
-// trayIcon draws the compass mark.
-func trayIcon() []byte {
-	const size = 32
-	img := image.NewRGBA(image.Rect(0, 0, size, size))
-	center := float64(size-1) / 2
-	ring := color.RGBA{55, 138, 221, 255}
-	needle := color.RGBA{226, 75, 74, 255}
-	for y := range size {
-		for x := range size {
-			dx, dy := float64(x)-center, float64(y)-center
-			d := math.Hypot(dx, dy)
-			switch {
-			case d > 12.5 && d < 15.5:
-				img.Set(x, y, ring)
-			case math.Abs(dx+dy) < 2.6 && d < 10:
-				img.Set(x, y, needle)
-			}
-		}
-	}
-	var b bytes.Buffer
-	_ = png.Encode(&b, img)
-	return b.Bytes()
 }

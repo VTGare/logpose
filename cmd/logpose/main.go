@@ -86,8 +86,9 @@ func runApp(ctx context.Context, args []string) (err error) {
 	fs := flag.NewFlagSet("logpose", flag.ExitOnError)
 	db := dbFlag(fs)
 	simDir := fs.String("sim", "", "OPTCGSim's folder, the one with OPTCGSim.exe (default: found from the running sim)")
+	dev := fs.Bool("dev", false, "run as a test copy next to the real logpose, with -db pointing at a scratch database")
 	_ = fs.Parse(args)
-	if !gui.Claim() {
+	if !gui.Claim(*dev) {
 		return nil
 	}
 
@@ -97,7 +98,7 @@ func runApp(ctx context.Context, args []string) (err error) {
 	}
 	defer func() { err = errors.Join(err, st.Close()) }()
 
-	opts := gui.Options{Store: st, Log: logger(), CatalogPath: filepath.Join(filepath.Dir(dbPath(*db)), "cards.json")}
+	opts := gui.Options{Store: st, Log: logger(), Dev: *dev, CatalogPath: filepath.Join(filepath.Dir(dbPath(*db)), "cards.json")}
 	if in, err := locateSim(ctx, st, *simDir); err == nil {
 		opts.Install = &in
 	} else {

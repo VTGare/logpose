@@ -63,3 +63,18 @@ func Locate() (Install, error) {
 	}
 	return Install{}, ErrNotFound
 }
+
+// PlayerLog is the sim's Unity log. The sim writes it as it plays, and renames it to
+// Player-prev.log when it starts again.
+func PlayerLog() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "AppData", "LocalLow", "Batsu", "OPTCGSim", "Player.log"), nil
+}
+
+func Running() bool {
+	_, err := runningExe()
+	return err == nil
+}

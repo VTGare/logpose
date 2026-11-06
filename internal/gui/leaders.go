@@ -66,7 +66,7 @@ func (v *view) leadersPage(c *ui.Context) {
 				turnOrderTile(c, l.TurnOrder).Grow(2).Basis(0)
 				v.playedTile(c, l).Grow(1).Basis(0)
 			})
-			v.rollingChart(c, l.Rolling, &v.leaderPoint)
+			v.rollingChart(c, "Win rate", l.Rolling, &v.leaderPoint)
 			v.matchupWall(c, l)
 			v.leaderRecent(c, l)
 		})

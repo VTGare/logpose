@@ -26,6 +26,8 @@ const (
 	artPortrait
 	// artBackdrop is the art blurred and darkened, which fills the banner behind everything.
 	artBackdrop
+	// artCrop is the top of the art of the full-size card, for deck thumbnails.
+	artCrop
 )
 
 type artKey struct {
@@ -92,6 +94,8 @@ func (a *artCache) load(k artKey) {
 		img = fadeRight(portrait(img), 0.3)
 	case k.kind == artBackdrop:
 		img = backdrop(portrait(img))
+	case k.kind == artCrop:
+		img = topArt(img)
 	}
 	a.mu.Lock()
 	a.images[k] = img
@@ -114,6 +118,17 @@ func portrait(img image.Image) image.Image {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
 	crop := image.Rect(b.Min.X+w*6/100, b.Min.Y+h*9/100, b.Max.X-w*6/100, b.Min.Y+h*58/100)
+	out := image.NewRGBA(image.Rect(0, 0, crop.Dx(), crop.Dy()))
+	draw.Draw(out, out.Bounds(), img, crop.Min, draw.Src)
+	return out
+}
+
+// topArt crops a card to the top of its art, above the "SAMPLE" watermark the sim's full-size
+// images carry across the lower art.
+func topArt(img image.Image) image.Image {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	crop := image.Rect(b.Min.X+w*6/100, b.Min.Y+h*10/100, b.Max.X-w*6/100, b.Min.Y+h*40/100)
 	out := image.NewRGBA(image.Rect(0, 0, crop.Dx(), crop.Dy()))
 	draw.Draw(out, out.Bounds(), img, crop.Min, draw.Src)
 	return out

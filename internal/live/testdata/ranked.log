@@ -1,0 +1,49 @@
+Load eMultiStyle Nationals
+Host with 1.44a
+Destroy Lobbies
+match ready on Room ID XABCDEF timed: True
+load foreign card 0
+Chose to go first
+deck filled, do shuffle
+shuffle deck for Alice​#1111
+Got shuffle: 1-2-3
+System.String[]
+[ReplaySync] RZ1|HDR|1.44a|2|RZ1
+[ReplaySync] RZ1|PLY|1|Alice​#1111|OP13-001
+[ReplaySync] RZ1|PLY|2|Bob​#2222|OP17-058
+[ReplaySync] RZ1|1|1|OP13-016|0|40|1|0|1|1|0|0|0
+[ReplaySync] RZ1|CHK|1|1|49|1|0|0|10|0|0|0|1|0
+[ReplaySync] RZ1|2|1|OP13-016|0|41|1|1|1|1|0|0|0
+[ReplaySync] RZ1|CHK|2|1|48|2|0|0|10|0|0|0|1|0
+[ReplaySync] RZ1|3|1|OP13-016|0|42|1|2|1|1|0|0|0
+[ReplaySync] RZ1|CHK|3|1|47|3|0|0|10|0|0|0|1|0
+[ReplaySync] RZ1|4|1|OP13-016|0|43|1|3|1|1|0|0|0
+[ReplaySync] RZ1|CHK|4|1|46|4|0|0|10|0|0|0|1|0
+[ReplaySync] RZ1|5|1|OP13-016|0|44|1|4|1|1|0|0|0
+[ReplaySync] RZ1|CHK|5|1|45|5|0|0|10|0|0|0|1|0
+Hand before Mulligan: [OP13-016,OP13-016,OP13-016,OP13-016,OP13-016]
+shuffle deck for Bob​#2222
+[ReplaySync] RZ1|6|2|OP17-056|0|40|1|0|1|1|0|0|0
+[ReplaySync] RZ1|CHK|6|2|49|1|0|0|10|0|0|0|1|0
+[ReplaySync] RZ1|7|2|OP17-056|0|41|1|1|1|1|0|0|0
+[ReplaySync] RZ1|CHK|7|2|48|2|0|0|10|0|0|0|1|0
+[ReplaySync] RZ1|8|2|OP17-056|0|42|1|2|1|1|0|0|0
+[ReplaySync] RZ1|CHK|8|2|47|3|0|0|10|0|0|0|1|0
+[ReplaySync] RZ1|9|2|OP17-056|0|43|1|3|1|1|0|0|0
+[ReplaySync] RZ1|CHK|9|2|46|4|0|0|10|0|0|0|1|0
+[ReplaySync] RZ1|10|2|OP17-056|0|44|1|4|1|1|0|0|0
+[ReplaySync] RZ1|CHK|10|2|45|5|0|0|10|0|0|0|1|0
+[ReplaySync] RZ1|11|1|OP13-016|0|30|3|0|1|1|0|0|0
+[ReplaySync] RZ1|CHK|11|1|39|5|0|5|10|0|0|0|1|0
+[ReplaySync] RZ1|12|1|Don|4|0|5|0|1|1|0|0|0
+[ReplaySync] RZ1|CHK|12|1|39|5|0|5|9|1|0|0|1|0
+[ReplaySync] RZ1|13|2|Don|4|0|5|0|1|1|0|0|0
+[ReplaySync] RZ1|CHK|13|2|39|6|0|4|9|1|0|0|1|0
+OPB_RESULT|win
+player requests win
+[CombatLog SaveMyLogLines] wrote OK | lines=10 | file=CombatLogs\AutoSaved\2026-11-05T14.37.06.log | exists=True | length=1
+Return to Main
+CLEAR SAVE QUEUE
+[ReplaySync] RZ1|HDR|1.44a|2|RZ1
+[ReplaySync] RZ1|PLY|1|Alice​#1111|OP13-001
+[ReplaySync] RZ1|1|2|Don|9|9900|5|0|1|1|1|0|0

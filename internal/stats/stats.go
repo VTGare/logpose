@@ -105,7 +105,7 @@ type LeaderRecord struct {
 type Point struct {
 	At   time.Time
 	Rate float64
-	// Game is the point's game number with the deck, counting from 1, and Wins the wins among
+	// Game is the point's game number among those the chart covers, counting from 1, and Wins the wins among
 	// the RollingWindow games up to it.
 	Game int
 	Wins int
@@ -114,33 +114,50 @@ type Point struct {
 // RollingWindow is how many games the rolling win rate averages.
 const RollingWindow = 20
 
+// Overview is the local player's play across every leader: the session, the week and their
+// decks.
 type Overview struct {
-	// Deck is the leader of the local player's latest game, which the overview is about.
-	Deck      string
-	Record    Record
-	TurnOrder TurnOrder
-	// Rolling is the win rate over the last RollingWindow games with Deck, oldest first. It
-	// starts once there are that many games.
-	Rolling []Point
+	// Deck is the leader of the local player's latest game.
+	Deck  string
+	Total Record
 	// Today is the results of today's games, oldest first.
 	Today       []Result
 	TodayRecord Record
 	TodayTime   time.Duration
+	// Last is the results of the latest games, at most LastGames, oldest first.
+	Last []Result
 	// Streak is the length of the latest run of wins or losses, and StreakResult which.
 	Streak       int
 	StreakResult Result
-	OtherLeaders []LeaderRecord
+	// Week is the last 7 days and PrevWeek the 7 before them.
+	Week, PrevWeek Record
+	// Rolling is the win rate over the last RollingWindow games with any leader, oldest first.
+	Rolling []Point
+	// Decks is every leader the local player played, latest first.
+	Decks []Deck
 	// FacedThisWeek is the opponents' leaders of the last 7 days, most played first.
 	FacedThisWeek []LeaderRecord
 	Recent        []Match
 }
+
+// Deck is one of the local player's leaders, in short.
+type Deck struct {
+	Leader string
+	Record Record
+	// Last is when the latest game with it ended.
+	Last time.Time
+}
+
+// LastGames is how many results Overview.Last holds.
+const LastGames = 10
 
 // Leader is everything about one of the local player's leaders.
 type Leader struct {
 	Leader    string
 	Record    Record
 	TurnOrder TurnOrder
-	// Rolling is as in Overview.
+	// Rolling is the win rate over the last RollingWindow games with it, oldest first. It
+	// starts once there are that many games.
 	Rolling []Point
 	// Matchups is the opponents' leaders faced with it, most played first.
 	Matchups []LeaderRecord
@@ -183,19 +200,31 @@ func BuildOverview(ms []Match, now time.Time) Overview {
 		return o
 	}
 	o.Deck = ms[0].Me.Leader
-	var deck []Match
+	weekAgo := now.AddDate(0, 0, -7)
+	twoWeeksAgo := now.AddDate(0, 0, -14)
+	decks := make(map[string]int)
 	for _, m := range ms {
-		if m.Me.Leader == o.Deck {
-			deck = append(deck, m)
-			o.Record.Add(m.Result)
-			o.TurnOrder.Add(m)
+		o.Total.Add(m.Result)
+		switch {
+		case m.PlayedAt.After(weekAgo):
+			o.Week.Add(m.Result)
+		case m.PlayedAt.After(twoWeeksAgo):
+			o.PrevWeek.Add(m.Result)
 		}
+		i, seen := decks[m.Me.Leader]
+		if !seen {
+			i = len(o.Decks)
+			decks[m.Me.Leader] = i
+			o.Decks = append(o.Decks, Deck{Leader: m.Me.Leader, Last: m.PlayedAt})
+		}
+		o.Decks[i].Record.Add(m.Result)
 	}
-	o.Rolling = rolling(deck)
+	for i := min(len(ms), LastGames) - 1; i >= 0; i-- {
+		o.Last = append(o.Last, ms[i].Result)
+	}
+	o.Rolling = rolling(ms)
 	o.today(ms, now)
 	o.Streak, o.StreakResult = streak(ms)
-	o.OtherLeaders = byLeader(ms, func(m Match) (string, bool) { return m.Me.Leader, m.Me.Leader != o.Deck })
-	weekAgo := now.AddDate(0, 0, -7)
 	o.FacedThisWeek = byLeader(ms, func(m Match) (string, bool) { return m.Opp.Leader, m.PlayedAt.After(weekAgo) })
 	o.Recent = ms[:min(len(ms), 8)]
 	return o
@@ -243,11 +272,11 @@ func streak(ms []Match) (int, Result) {
 	return n, res
 }
 
-func rolling(deck []Match) []Point {
+func rolling(games []Match) []Point {
 	var known []Match
-	for i := len(deck) - 1; i >= 0; i-- {
-		if deck[i].Result != Unknown {
-			known = append(known, deck[i])
+	for i := len(games) - 1; i >= 0; i-- {
+		if games[i].Result != Unknown {
+			known = append(known, games[i])
 		}
 	}
 	var out []Point
@@ -362,4 +391,30 @@ func SplitBySample(lrs []LeaderRecord) (enough, few []LeaderRecord) {
 		}
 	}
 	return enough, few
+}
+
+// Versus is the local player's history for a game about to be played.
+type Versus struct {
+	// Matchup is with the local player's leader against the opponent's.
+	Matchup   Record
+	TurnOrder TurnOrder
+	// Player is against the same opponent, with any leaders.
+	Player Record
+}
+
+// VersusFor sums the matches against an opponent. An empty leader leaves Matchup and TurnOrder
+// empty.
+func VersusFor(ms []Match, mine, theirs, opp string) Versus {
+	var v Versus
+	for _, m := range ms {
+		if opp != "" && m.Opp.ID == opp {
+			v.Player.Add(m.Result)
+		}
+		if mine == "" || theirs == "" || m.Me.Leader != mine || m.Opp.Leader != theirs {
+			continue
+		}
+		v.Matchup.Add(m.Result)
+		v.TurnOrder.Add(m)
+	}
+	return v
 }
