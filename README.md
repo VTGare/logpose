@@ -1,7 +1,8 @@
 # logpose
 
-A stat tracker for [OPTCG Simulator](https://www.patreon.com/Batsu) and a client for OPBounty
-ranked mode. It runs on Windows next to the sim.
+A stat tracker for [OPTCG Simulator](https://www.patreon.com/Batsu). It runs on Windows next to
+the sim and records your games from its logs, with no account needed. Logging in to OPBounty adds
+ranked play.
 
 Nothing is usable yet.
 
