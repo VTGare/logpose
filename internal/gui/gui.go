@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"log/slog"
 	"math"
+	"net/http"
 	"sync"
 	"time"
 
@@ -27,8 +28,14 @@ type Options struct {
 	// Install is the sim, or nil when it wasn't found. Without it logpose shows the games it
 	// already stored, with no card art and no new imports.
 	Install *sim.Install
-	Log     *slog.Logger
+	// CatalogPath caches the card catalog from tcgcsv.com. Empty means no refresh, and only
+	// the catalog the sim's OPBounty pack carries.
+	CatalogPath string
+	Log         *slog.Logger
 }
+
+// catalogMaxAge is how often the card catalog is refreshed. tcgcsv updates once a day.
+const catalogMaxAge = 24 * time.Hour
 
 type app struct {
 	opts Options
@@ -38,11 +45,19 @@ type app struct {
 
 	quitting bool
 
-	cardsOnce sync.Once
-	cards     *cards.DB
+	cardsMu sync.Mutex
+	pack    *cards.DB
+	cards   *cards.DB
 }
 
-// Run shows the window and the tray icon until the user quits.
+// Claim makes this the only running logpose. It returns false when another one is running,
+// which then shows its window, and this one should exit.
+func Claim() bool {
+	mygo.App.SetName("logpose")
+	return mygo.App.RequestSingleInstanceLock()
+}
+
+// Run shows the window and the tray icon until the user quits. Call Claim first.
 func Run(ctx context.Context, opts Options) error {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
@@ -70,6 +85,7 @@ func (a *app) ready(ctx context.Context) {
 		}
 	})
 	a.setUpTray()
+	mygo.App.OnSecondInstance(func([]string, string) { a.show() })
 
 	ctx, cancel := context.WithCancel(ctx)
 	mygo.App.OnWillQuit(func(*mygo.QuitEvent) {
@@ -79,6 +95,38 @@ func (a *app) ready(ctx context.Context) {
 		}
 	})
 	go a.start(ctx)
+	go a.refreshCatalog(ctx)
+}
+
+// refreshCatalog fetches card data for sets newer than the cached catalog, then shows it.
+// Without a network logpose keeps the cards it has.
+func (a *app) refreshCatalog(ctx context.Context) {
+	if a.opts.CatalogPath == "" {
+		return
+	}
+	cat, err := cards.LoadCatalog(a.opts.CatalogPath)
+	if err != nil {
+		a.opts.Log.Warn("card catalog", "err", err)
+		return
+	}
+	if !cat.Stale(time.Now(), catalogMaxAge) {
+		return
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	n, err := cat.Refresh(ctx, client, cards.TCGCSVBase)
+	if err != nil {
+		a.opts.Log.Warn("refresh card catalog", "err", err, "sets", n)
+		return
+	}
+	if err := cat.Save(a.opts.CatalogPath); err != nil {
+		a.opts.Log.Warn("save card catalog", "err", err)
+		return
+	}
+	a.opts.Log.Info("card catalog refreshed", "sets", n, "cards", len(cat.Cards))
+	a.cardsMu.Lock()
+	a.cards = nil
+	a.cardsMu.Unlock()
+	a.refresh(ctx)
 }
 
 // start shows what's stored, then imports and watches the sim's logs.
@@ -144,22 +192,33 @@ func (a *app) load(ctx context.Context) (*snapshot, error) {
 	}, nil
 }
 
-// cardDB loads the card database from the OPBounty client the sim ships, once. Without it,
-// cards have the names the logs give them and no colors.
+// cardDB builds the card database: the catalog in the OPBounty pack the sim ships, then the
+// cached tcgcsv catalog over it, which has newer sets. Names from the logs go on top in load.
+// Without either, cards have the logs' names and no colors.
 func (a *app) cardDB() *cards.DB {
-	a.cardsOnce.Do(func() {
-		a.cards = cards.NewDB()
-		if a.opts.Install == nil {
-			return
+	a.cardsMu.Lock()
+	defer a.cardsMu.Unlock()
+	if a.cards != nil {
+		return a.cards
+	}
+	if a.pack == nil {
+		a.pack = cards.NewDB()
+		if a.opts.Install != nil {
+			if db, err := cards.LoadPack(a.opts.Install.OPBountyPack()); err == nil {
+				a.pack = db
+			} else {
+				a.opts.Log.Warn("card database", "err", err)
+			}
 		}
-		db, err := cards.LoadPack(a.opts.Install.OPBountyPack())
-		if err != nil {
-			a.opts.Log.Warn("card database", "err", err)
-			return
+	}
+	db := a.pack.Clone()
+	if a.opts.CatalogPath != "" {
+		if cat, err := cards.LoadCatalog(a.opts.CatalogPath); err == nil {
+			cat.Apply(db)
 		}
-		a.cards = db
-	})
-	return a.cards
+	}
+	a.cards = db
+	return db
 }
 
 func (a *app) setUpTray() {

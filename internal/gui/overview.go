@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/chart"
@@ -13,13 +14,15 @@ func (v *view) overviewPage(c *ui.Context) {
 	o := v.snap.Overview
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
-			v.banner(c, o)
+			if v.leaderBanner(c.Key("deck"), o.Deck, "Current deck", o.Record).Clicked() {
+				v.openLeader(o.Deck)
+			}
 			ui.Row(c).Gap(12).AlignItems(ui.Stretch).Children(func() {
 				turnOrderTile(c, o.TurnOrder).Grow(2).Basis(0)
 				v.todayTile(c, o).Grow(1).Basis(0)
 				v.streakTile(c, o).Grow(1).Basis(0)
 			})
-			v.rollingChart(c, o)
+			v.rollingChart(c, o.Rolling, &v.rollingPoint)
 			ui.Row(c).Gap(12).AlignItems(ui.Stretch).Children(func() {
 				v.facedTile(c, o).Grow(1).Basis(0)
 				v.recentTile(c, o).Grow(1).Basis(0)
@@ -31,33 +34,67 @@ func (v *view) overviewPage(c *ui.Context) {
 	})
 }
 
-// banner is the current deck: its leader's art beside a panel in the leader's colors.
-func (v *view) banner(c *ui.Context, o stats.Overview) {
-	leader := v.snap.card(o.Deck)
+// bannerArtW is the width of the sharp art on the left of a leader banner.
+const bannerArtW = 300
+
+// leaderBanner is a leader's art over its own blurred backdrop, lit from the corners of the
+// panel by the leader's card colors, with its record. Without art the panel is plain dark, and
+// the glows are stronger.
+func (v *view) leaderBanner(c *ui.Context, code, label string, r stats.Record) ui.Element {
+	leader := v.snap.card(code)
 	cols := colorsOf(leader)
-	ui.Row(c).Height(180).Radius(12).Clip().Background(cols[0].Deep).AlignItems(ui.Stretch).Children(func() {
-		if art := v.art.get(o.Deck, artPortrait); art != nil {
-			ui.Image(c, art).Width(300).Fit(ui.Cover)
-		} else {
-			ui.Box(c).Width(300).Background(cols[0].Mid)
+	back := v.art.get(code, artBackdrop)
+	strength := 0.95
+	if back != nil {
+		strength = 0.6
+	}
+	return ui.Row(c).Height(180).Radius(12).Clip().Background(bannerBase).AlignItems(ui.Stretch).Draw(func(p *ui.Painter, rect ui.Rect) {
+		if back != nil {
+			p.Image(back, rect, ui.Cover)
 		}
-		ui.Column(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
-			ui.Row(c).Height(8).AlignItems(ui.Stretch).Children(func() {
-				for i, col := range cols {
-					ui.Box(c.Key(i)).Grow(1).Background(col.Mid)
-				}
-			})
-			ui.Column(c).Grow(1).Padding(18, 22).Gap(4).Justify(ui.End).Children(func() {
-				ui.Text(c, "Current deck").FontSize(12).TextColor(bannerTextMuted)
-				ui.Text(c, leader.Name).FontSize(26).Bold().TextColor(bannerText)
-				ui.Row(c).Gap(28).Margin(8, 0, 0, 0).Children(func() {
-					bannerStat(c, "Win rate", rateOrTooFew(o.Record))
-					bannerStat(c, "Record", record(o.Record))
-					bannerStat(c, "Games", fmt.Sprint(o.Record.Games()))
-				})
+		panel := ui.Rect{X: rect.X + bannerArtW, Y: rect.Y, W: rect.W - bannerArtW, H: rect.H}
+		glow(p, panel, cols, strength)
+	}).Children(func() {
+		if art := v.art.get(code, artPortrait); art != nil {
+			ui.Image(c, art).Width(bannerArtW).Fit(ui.Cover)
+		} else {
+			ui.Box(c).Width(bannerArtW)
+		}
+		ui.Column(c).Grow(1).Padding(18, 22).Gap(4).Justify(ui.End).Children(func() {
+			ui.Text(c, label).FontSize(12).TextColor(bannerTextMuted)
+			ui.Text(c, leader.Name).FontSize(26).Bold().TextColor(bannerText)
+			ui.Row(c).Gap(28).Margin(8, 0, 0, 0).Children(func() {
+				bannerStat(c, "Win rate", rateOrTooFew(r))
+				bannerStat(c, "Record", record(r))
+				bannerStat(c, "Games", fmt.Sprint(r.Games()))
 			})
 		})
 	})
+}
+
+// glow lights the banner's dark panel with the leader's colors: the first from the bottom left
+// and the second, or the first again, from the top right. Each is brightest in its corner and
+// fades fast, so the text in the middle stays on the dark base. A color only reads as itself
+// near full strength: yellow dimmed over dark turns olive.
+func glow(p *ui.Painter, r ui.Rect, cols []leaderColor, strength float64) {
+	second := cols[0]
+	if len(cols) > 1 {
+		second = cols[1]
+	}
+	radius := r.W * 0.78
+	p.FillRadialGradient(r, light(cols[0].Glow, ui.Point{X: 0, Y: 1.1}, radius, strength), 0)
+	p.FillRadialGradient(r, light(second.Glow, ui.Point{X: 1, Y: -0.1}, radius, strength), 0)
+}
+
+// light fades a color from strength at center to nothing at radius, along (1-t)^1.7.
+func light(col ui.Color, center ui.Point, radius float32, strength float64) ui.RadialGradient {
+	g := ui.RadialGradient{Center: center, Radius: radius}
+	for _, t := range []float32{0, 0.2, 0.4, 0.6, 0.8, 1} {
+		c := col
+		c.A = uint8(255 * strength * math.Pow(float64(1-t), 1.7))
+		g.Stops = append(g.Stops, ui.GradientStop{Color: c, At: t})
+	}
+	return g
 }
 
 func rateOrTooFew(r stats.Record) string {
@@ -95,38 +132,60 @@ func (*view) streakTile(c *ui.Context, o stats.Overview) ui.Element {
 			return
 		}
 		ui.Text(c, fmt.Sprintf("%s%d", resultLetter(o.StreakResult), o.Streak)).FontSize(24).Bold().TextColor(resultColor(o.StreakResult))
-		word := "wins"
+		word := map[bool]string{true: "win", false: "wins"}[o.Streak == 1]
 		if o.StreakResult == stats.Loss {
-			word = "losses"
+			word = map[bool]string{true: "loss", false: "losses"}[o.Streak == 1]
 		}
 		ui.Text(c, fmt.Sprintf("%d %s in a row", o.Streak, word)).FontSize(12).TextColor(t.TextMuted)
 	})
 }
 
-func (*view) rollingChart(c *ui.Context, o stats.Overview) {
+// rollingChart is the rolling win rate. sel is the point under the pointer, kept per chart.
+func (*view) rollingChart(c *ui.Context, pts []stats.Point, sel *int) {
 	t := c.Theme()
 	label := fmt.Sprintf("Win rate, rolling %d games", stats.RollingWindow)
 	tile(c, label, func() {
-		if len(o.Rolling) < 2 {
+		if len(pts) < 2 {
 			ui.Text(c, fmt.Sprintf("Shows up after %d games with this deck.", stats.RollingWindow+1)).TextColor(t.TextMuted)
 			return
 		}
-		x := chart.NewTime(o.Rolling[0].At, o.Rolling[len(o.Rolling)-1].At)
+		// Games, not time, along x: sessions are hours apart and games minutes apart, so a time
+		// axis is mostly flat lines between sessions.
+		x := chart.NewLinear(float64(pts[0].Game), float64(pts[len(pts)-1].Game))
 		y := chart.NewLinear(0, 1)
 		ticks := []chart.Tick{{At: 0, Label: "0%"}, {At: 0.5, Label: "50%"}, {At: 1, Label: "100%"}}
-		xs := make([]float32, len(o.Rolling))
-		ys := make([]float32, len(o.Rolling))
-		for i, p := range o.Rolling {
-			xs[i] = float32(x.At(p.At))
+		xs := make([]float32, len(pts))
+		ys := make([]float32, len(pts))
+		for i, p := range pts {
+			xs[i] = float32(x.At(float64(p.Game)))
 			ys[i] = float32(y.At(p.Rate))
 		}
-		chart.Plot(c, chart.Axes{Left: ticks, Bottom: x.Ticks(6)}, func(area ui.Element) {
+		describe := func(i int) string {
+			p := pts[i]
+			return fmt.Sprintf("%s · game %d · %s, %d of the last %d won", p.At.Format("Jan 2 15:04"), p.Game, pct(p.Rate), p.Wins, stats.RollingWindow)
+		}
+		chart.Plot(c, chart.Axes{Left: ticks, Bottom: dateTicks(pts, xs, 5)}, func(area ui.Element) {
 			area.Label(label).Draw(func(p *ui.Painter, r ui.Rect) {
 				for _, tick := range ticks {
 					p.Line(r.X, chart.Y(r, tick.At), r.X+r.W, chart.Y(r, tick.At), 1, t.Border)
 				}
 				p.StrokePath(chart.Line(r, xs, ys, chart.CurveMonotone), 2, firstColor)
 			})
+			chart.Select(c, area, sel, xs, describe)
+			if i := *sel; i >= 0 && i < len(pts) {
+				chart.RuleX(c, xs[i], 1).Background(t.TextMuted)
+				chart.Point(c, xs[i], ys[i], 10, 10).Radius(5).Background(firstColor)
+				align := ui.Center
+				switch {
+				case xs[i] < 0.2:
+					align = ui.Start
+				case xs[i] > 0.8:
+					align = ui.End
+				}
+				chart.Anchor(c, xs[i], 1, align, ui.Start, func() {
+					ui.Text(c, describe(i)).NoWrap().FontSize(12).Padding(4, 8).Radius(6).Background(t.Background).Border(1, t.Border)
+				})
+			}
 		}).Height(170).Gap(6).Margin(8, 0, 0, 0)
 	})
 }
@@ -161,7 +220,7 @@ func (v *view) cardThumb(c *ui.Context, code string, width float32) {
 	cols := colorsOf(v.snap.card(code))
 	ui.Row(c).Size(width, h).Radius(5).Clip().AlignItems(ui.Stretch).Children(func() {
 		for i, col := range cols {
-			ui.Box(c.Key(i)).Grow(1).Background(col.Mid)
+			ui.Box(c.Key(i)).Grow(1).Background(col.Card)
 		}
 	})
 }
@@ -198,10 +257,14 @@ func (v *view) otherLeaders(c *ui.Context, o stats.Overview) {
 	ui.Row(c).Gap(12).Wrap().Children(func() {
 		for i, lr := range o.OtherLeaders {
 			cols := colorsOf(v.snap.card(lr.Leader))
-			ui.Column(c.Key(i)).Width(180).Radius(8).Clip().Background(t.Surface).AlignItems(ui.Stretch).Children(func() {
+			card := ui.Column(c.Key(i)).Width(180).Radius(8).Clip().Background(t.Surface).AlignItems(ui.Stretch).Label("Show " + v.snap.card(lr.Leader).Name)
+			if card.Clicked() {
+				v.openLeader(lr.Leader)
+			}
+			card.Children(func() {
 				ui.Row(c).Height(6).AlignItems(ui.Stretch).Children(func() {
 					for j, col := range cols {
-						ui.Box(c.Key(j)).Grow(1).Background(col.Mid)
+						ui.Box(c.Key(j)).Grow(1).Background(col.Card)
 					}
 				})
 				ui.Column(c).Padding(10, 12).Gap(2).Children(func() {
@@ -211,4 +274,23 @@ func (v *view) otherLeaders(c *ui.Context, o stats.Overview) {
 			})
 		}
 	})
+}
+
+// dateTicks labels about n evenly spread points with their dates.
+func dateTicks(pts []stats.Point, xs []float32, n int) []chart.Tick {
+	if len(pts) < 2 {
+		return nil
+	}
+	var ticks []chart.Tick
+	last := ""
+	for k := range n {
+		i := k * (len(pts) - 1) / (n - 1)
+		label := pts[i].At.Format("Jan 2")
+		if label == last {
+			continue
+		}
+		last = label
+		ticks = append(ticks, chart.Tick{At: xs[i], Label: label})
+	}
+	return ticks
 }

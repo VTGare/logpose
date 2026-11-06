@@ -2,6 +2,7 @@ package cards
 
 import (
 	"encoding/json"
+	"maps"
 	"regexp"
 	"strings"
 )
@@ -48,6 +49,8 @@ func (db *DB) Name(code, name string) {
 }
 
 func (db *DB) Len() int { return len(db.cards) }
+
+func (db *DB) Clone() *DB { return &DB{cards: maps.Clone(db.cards)} }
 
 // packPath is OPBounty's bundled card database, TCGplayer's catalog as tcgcsv.com serves it.
 const packPath = "Resourcers/Cards.json"

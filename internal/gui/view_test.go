@@ -61,6 +61,19 @@ var _ = Describe("view", func() {
 		}
 	})
 
+	It("shows the game under the pointer on the rolling chart", func() {
+		v, tt := tester(testSnapshot(30))
+		Expect(tt.HasText("game 25")).To(BeFalse())
+		v.rollingPoint = 5
+		tt.Frame()
+		Expect(tt.HasText("Nov 6 14:00 · game 25 · 50%, 10 of the last 20 won")).To(BeTrue(), fmt.Sprint(tt.Texts()))
+	})
+
+	It("writes a streak of one in the singular", func() {
+		_, tt := tester(testSnapshot(1))
+		Expect(tt.HasText("1 win in a row")).To(BeTrue())
+	})
+
 	It("says too few for a rate under the minimum games", func() {
 		_, tt := tester(testSnapshot(3))
 		Expect(tt.HasText("too few")).To(BeTrue())
@@ -72,6 +85,53 @@ var _ = Describe("view", func() {
 		Expect(v.page).To(Equal(pageMatches))
 		Expect(tt.HasText("10 games · 5–5")).To(BeTrue())
 		Expect(tt.HasText("Kaido")).To(BeTrue())
+	})
+
+	It("opens a leader's page from the overview", func() {
+		s := testSnapshot(10)
+		s.Matches[3].Me.Leader = "OP17-058"
+		s.Overview = stats.BuildOverview(s.Matches, now)
+		v, tt := tester(s)
+		Expect(tt.HasText("Your other leaders")).To(BeTrue())
+		Expect(tt.Click("Show Kaido")).To(Succeed())
+		Expect(v.page).To(Equal(pageLeaders))
+		Expect(v.leader).To(Equal("OP17-058"))
+		Expect(tt.HasText("Matchups")).To(BeTrue())
+		Expect(tt.HasText("Leader")).To(BeTrue())
+	})
+
+	It("shows the most played leader on the Leaders page by default", func() {
+		_, tt := tester(testSnapshot(10))
+		Expect(tt.Click("Leaders")).To(Succeed())
+		Expect(tt.HasText("Current deck")).To(BeTrue())
+		Expect(tt.HasText("Played")).To(BeTrue())
+		Expect(tt.HasText("Recent games")).To(BeTrue())
+	})
+
+	It("filters the Leaders page by game type", func() {
+		s := testSnapshot(10)
+		for i := range 4 {
+			s.Matches[i].Ranked = false
+		}
+		v, tt := tester(s)
+		Expect(tt.Click("Leaders")).To(Succeed())
+		Expect(tt.HasText("Played")).To(BeTrue())
+		Expect(tt.Click("Casual")).To(Succeed())
+		Expect(v.leaderType).To(Equal(int(stats.CasualGames)))
+		l, _ := v.leaderData()
+		Expect(l.Record.Games()).To(Equal(4))
+	})
+
+	It("puts matchups under the minimum games in their own row, which the switch hides", func() {
+		s := testSnapshot(10)
+		s.Matches[0].Opp.Leader = "OP09-042"
+		v, tt := tester(s)
+		Expect(tt.Click("Leaders")).To(Succeed())
+		Expect(tt.HasText("Also faced, under 5 games")).To(BeTrue())
+		Expect(tt.HasText("OP17 · 4–5")).To(BeTrue())
+		Expect(tt.Click("Hide under 5 games")).To(Succeed())
+		Expect(v.hideFew).To(BeTrue())
+		Expect(tt.HasText("Also faced, under 5 games")).To(BeFalse())
 	})
 
 	It("asks for the sim when it has no games and no sim", func() {

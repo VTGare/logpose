@@ -62,14 +62,20 @@ func dbFlag(fs *flag.FlagSet) *string {
 	return fs.String("db", "", "database file (default: logpose.db in the user config folder)")
 }
 
-func openStore(ctx context.Context, path string) (*store.Store, error) {
-	if path == "" {
-		dir, err := os.UserConfigDir()
-		if err != nil {
-			return nil, err
-		}
-		path = filepath.Join(dir, "logpose", "logpose.db")
+// dbPath is the database file: path, or logpose.db in the user config folder.
+func dbPath(path string) string {
+	if path != "" {
+		return path
 	}
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "logpose.db"
+	}
+	return filepath.Join(dir, "logpose", "logpose.db")
+}
+
+func openStore(ctx context.Context, path string) (*store.Store, error) {
+	path = dbPath(path)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
@@ -81,6 +87,9 @@ func runApp(ctx context.Context, args []string) (err error) {
 	db := dbFlag(fs)
 	simDir := fs.String("sim", "", "OPTCGSim's folder, the one with OPTCGSim.exe (default: found from the running sim)")
 	_ = fs.Parse(args)
+	if !gui.Claim() {
+		return nil
+	}
 
 	st, err := openStore(ctx, *db)
 	if err != nil {
@@ -88,7 +97,7 @@ func runApp(ctx context.Context, args []string) (err error) {
 	}
 	defer func() { err = errors.Join(err, st.Close()) }()
 
-	opts := gui.Options{Store: st, Log: logger()}
+	opts := gui.Options{Store: st, Log: logger(), CatalogPath: filepath.Join(filepath.Dir(dbPath(*db)), "cards.json")}
 	if in, err := locateSim(ctx, st, *simDir); err == nil {
 		opts.Install = &in
 	} else {

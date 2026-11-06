@@ -146,6 +146,9 @@ var _ = Describe("BuildOverview", func() {
 		Expect(o.Rolling).To(HaveLen(6))
 		Expect(o.Rolling[0].Rate).To(BeNumerically("~", 0))
 		Expect(o.Rolling[5].Rate).To(BeNumerically("~", 0.25))
+		Expect(o.Rolling[0].Game).To(Equal(20))
+		Expect(o.Rolling[5].Game).To(Equal(25))
+		Expect(o.Rolling[5].Wins).To(Equal(5))
 	})
 
 	It("lists this week's opposing leaders, most played first", func() {
@@ -162,5 +165,92 @@ var _ = Describe("BuildOverview", func() {
 
 	It("is empty without games", func() {
 		Expect(stats.BuildOverview(nil, now).Deck).To(BeEmpty())
+	})
+})
+
+var _ = Describe("ForLeader", func() {
+	luffy, kid, buggy := "OP13-001", "OP17-058", "OP09-042"
+	ms := stats.Matches(build(
+		game{ago: time.Hour, mine: kid, theirs: buggy, won: true},
+		game{ago: 2 * time.Hour, mine: luffy, theirs: buggy, won: true, first: true},
+		game{ago: 3 * time.Hour, mine: luffy, theirs: kid},
+		game{ago: 4 * time.Hour, mine: luffy, theirs: buggy},
+	), me)
+
+	It("only counts games with that leader", func() {
+		l := stats.ForLeader(ms, luffy)
+		Expect(l.Record).To(Equal(stats.Record{Wins: 1, Losses: 2}))
+		Expect(l.TurnOrder.First).To(Equal(stats.Record{Wins: 1}))
+		Expect(l.Recent).To(HaveLen(3))
+		Expect(l.Last).To(BeTemporally("==", now.Add(-2*time.Hour)))
+		Expect(l.First).To(BeTemporally("==", now.Add(-4*time.Hour)))
+	})
+
+	It("lists the leaders it faced, most played first", func() {
+		l := stats.ForLeader(ms, luffy)
+		Expect(l.Matchups).To(Equal([]stats.LeaderRecord{
+			{Leader: buggy, Record: stats.Record{Wins: 1, Losses: 1}},
+			{Leader: kid, Record: stats.Record{Losses: 1}},
+		}))
+	})
+
+	It("is empty for a leader never played", func() {
+		Expect(stats.ForLeader(ms, "OP13-079").Record.Games()).To(BeZero())
+	})
+})
+
+var _ = Describe("Leaders", func() {
+	It("lists every leader played, most played first", func() {
+		ms := stats.Matches(build(
+			game{mine: "OP17-058", won: true},
+			game{mine: "OP13-001"},
+			game{mine: "OP13-001", won: true},
+		), me)
+		Expect(stats.Leaders(ms)).To(Equal([]stats.LeaderRecord{
+			{Leader: "OP13-001", Record: stats.Record{Wins: 1, Losses: 1}},
+			{Leader: "OP17-058", Record: stats.Record{Wins: 1}},
+		}))
+	})
+})
+
+var _ = Describe("Filter", func() {
+	ms := stats.Matches(build(
+		game{mine: "OP13-001", lobby: "XNJ8M66", won: true},
+		game{mine: "OP13-001", lobby: "7KQ2MP"},
+		game{mine: "OP13-001"},
+	), me)
+
+	It("keeps ranked or casual games", func() {
+		Expect(stats.Filter(ms, stats.AllGames)).To(HaveLen(3))
+		Expect(stats.Filter(ms, stats.RankedGames)).To(HaveLen(1))
+		Expect(stats.Filter(ms, stats.CasualGames)).To(HaveLen(2))
+	})
+})
+
+var _ = Describe("SortMatchups", func() {
+	lrs := []stats.LeaderRecord{
+		{Leader: "a", Record: stats.Record{Wins: 2, Losses: 2}},
+		{Leader: "b", Record: stats.Record{Wins: 6, Losses: 1}},
+		{Leader: "c", Record: stats.Record{Wins: 1, Losses: 9}},
+		{Leader: "d", Record: stats.Record{Wins: 1}},
+	}
+	order := func(out []stats.LeaderRecord) []string {
+		var s []string
+		for _, lr := range out {
+			s = append(s, lr.Leader)
+		}
+		return s
+	}
+
+	It("sorts by games, best or worst rate", func() {
+		Expect(order(stats.SortMatchups(lrs, stats.MostPlayed))).To(Equal([]string{"c", "b", "a", "d"}))
+		Expect(order(stats.SortMatchups(lrs, stats.BestFirst))).To(Equal([]string{"d", "b", "a", "c"}))
+		Expect(order(stats.SortMatchups(lrs, stats.WorstFirst))).To(Equal([]string{"c", "a", "b", "d"}))
+	})
+
+	It("splits off matchups under the minimum games", func() {
+		enough, few := stats.SplitBySample(stats.SortMatchups(lrs, stats.MostPlayed))
+		Expect(order(enough)).To(Equal([]string{"c", "b"}))
+		Expect(order(few)).To(Equal([]string{"a", "d"}))
 	})
 })

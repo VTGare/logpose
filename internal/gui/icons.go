@@ -15,5 +15,6 @@ const svgHead = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fil
 var (
 	iconOverview = mustSVG(svgHead + `<path d="M4 11l8-7 8 7"/><path d="M6 10v10h12V10"/><path d="M10 20v-6h4v6"/></svg>`)
 	iconMatches  = mustSVG(svgHead + `<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>`)
+	iconLeaders  = mustSVG(svgHead + `<path d="M4 8l4 4 4-7 4 7 4-4-2 11H6z"/></svg>`)
 	iconCompass  = mustSVG(svgHead + `<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>`)
 )

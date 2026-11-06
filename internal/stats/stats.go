@@ -105,6 +105,10 @@ type LeaderRecord struct {
 type Point struct {
 	At   time.Time
 	Rate float64
+	// Game is the point's game number with the deck, counting from 1, and Wins the wins among
+	// the RollingWindow games up to it.
+	Game int
+	Wins int
 }
 
 // RollingWindow is how many games the rolling win rate averages.
@@ -129,6 +133,47 @@ type Overview struct {
 	// FacedThisWeek is the opponents' leaders of the last 7 days, most played first.
 	FacedThisWeek []LeaderRecord
 	Recent        []Match
+}
+
+// Leader is everything about one of the local player's leaders.
+type Leader struct {
+	Leader    string
+	Record    Record
+	TurnOrder TurnOrder
+	// Rolling is as in Overview.
+	Rolling []Point
+	// Matchups is the opponents' leaders faced with it, most played first.
+	Matchups []LeaderRecord
+	Recent   []Match
+	// First and Last are when the first and the latest game with it ended.
+	First, Last time.Time
+}
+
+// ForLeader summarizes the matches, given newest first, played with one leader.
+func ForLeader(ms []Match, leader string) Leader {
+	l := Leader{Leader: leader}
+	var games []Match
+	for _, m := range ms {
+		if m.Me.Leader != leader {
+			continue
+		}
+		games = append(games, m)
+		l.Record.Add(m.Result)
+		l.TurnOrder.Add(m)
+	}
+	if len(games) == 0 {
+		return l
+	}
+	l.Rolling = rolling(games)
+	l.Matchups = byLeader(games, func(m Match) (string, bool) { return m.Opp.Leader, true })
+	l.Recent = games[:min(len(games), 10)]
+	l.Last, l.First = games[0].PlayedAt, games[len(games)-1].PlayedAt
+	return l
+}
+
+// Leaders is every leader the local player played, most played first.
+func Leaders(ms []Match) []LeaderRecord {
+	return byLeader(ms, func(m Match) (string, bool) { return m.Me.Leader, true })
 }
 
 // BuildOverview summarizes matches given newest first.
@@ -215,7 +260,7 @@ func rolling(deck []Match) []Point {
 			wins--
 		}
 		if i >= RollingWindow-1 {
-			out = append(out, Point{At: m.PlayedAt, Rate: float64(wins) / RollingWindow})
+			out = append(out, Point{At: m.PlayedAt, Rate: float64(wins) / RollingWindow, Game: i + 1, Wins: wins})
 		}
 	}
 	return out
@@ -239,4 +284,82 @@ func byLeader(ms []Match, pick func(Match) (string, bool)) []LeaderRecord {
 	}
 	slices.SortStableFunc(out, func(a, b LeaderRecord) int { return b.Record.Games() - a.Record.Games() })
 	return out
+}
+
+type GameType int
+
+const (
+	AllGames GameType = iota
+	RankedGames
+	CasualGames
+)
+
+// Filter keeps the matches of one game type, in order.
+func Filter(ms []Match, t GameType) []Match {
+	if t == AllGames {
+		return ms
+	}
+	out := make([]Match, 0, len(ms))
+	for _, m := range ms {
+		if m.Ranked == (t == RankedGames) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+type MatchupOrder int
+
+const (
+	MostPlayed MatchupOrder = iota
+	BestFirst
+	WorstFirst
+)
+
+// SortMatchups orders leader records. Best and worst go by raw win rate, with more games first
+// among equal rates.
+func SortMatchups(lrs []LeaderRecord, by MatchupOrder) []LeaderRecord {
+	out := slices.Clone(lrs)
+	raw := func(r Record) float64 {
+		if r.Games() == 0 {
+			return 0
+		}
+		return float64(r.Wins) / float64(r.Games())
+	}
+	slices.SortStableFunc(out, func(a, b LeaderRecord) int {
+		ra, rb := raw(a.Record), raw(b.Record)
+		switch {
+		case by == BestFirst && ra != rb:
+			return cmpFloat(rb, ra)
+		case by == WorstFirst && ra != rb:
+			return cmpFloat(ra, rb)
+		default:
+			return b.Record.Games() - a.Record.Games()
+		}
+	})
+	return out
+}
+
+func cmpFloat(a, b float64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// SplitBySample splits leader records into those with at least MinGames games and the rest,
+// keeping their order.
+func SplitBySample(lrs []LeaderRecord) (enough, few []LeaderRecord) {
+	for _, lr := range lrs {
+		if lr.Record.Games() >= MinGames {
+			enough = append(enough, lr)
+		} else {
+			few = append(few, lr)
+		}
+	}
+	return enough, few
 }

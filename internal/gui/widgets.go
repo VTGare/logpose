@@ -85,7 +85,7 @@ func (v *view) leaderChip(c *ui.Context, code string, size float32) {
 	cols := colorsOf(v.snap.card(code))
 	ui.Row(c).Size(size, size).Radius(size / 4).Clip().AlignItems(ui.Stretch).Children(func() {
 		for i, col := range cols {
-			ui.Box(c.Key(i)).Grow(1).Background(col.Mid)
+			ui.Box(c.Key(i)).Grow(1).Background(col.Card)
 		}
 	})
 }
@@ -95,6 +95,7 @@ func (v *view) leaderName(c *ui.Context, code string) {
 	ui.Row(c).Gap(6).Children(func() {
 		v.leaderChip(c, code, 12)
 		ui.Text(c, v.snap.card(code).Name).SingleLine()
+		ui.Text(c, setOf(code)).FontSize(11).TextColor(c.Theme().TextMuted)
 	})
 }
 
