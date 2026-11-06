@@ -90,7 +90,14 @@ type Game struct {
 	// Fingerprint identifies the game across files. In a rematch, the sim saves the whole lobby
 	// log after every game, so the same game shows up in several files.
 	Fingerprint string
+	// Text is the game's own part of the log, one line per line ending in "\n". Parsing it again
+	// gives the same game.
+	Text string
 }
+
+// Version is the parser's version. It goes up whenever parsing the same text gives different
+// results, so stored games know to be parsed again.
+const Version = 1
 
 func (g *Game) Player(id string) (Player, bool) {
 	for _, p := range g.Players {
@@ -109,9 +116,12 @@ func Parse(r io.Reader) ([]Game, error) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64*1024), 4*1024*1024)
 	var games []Game
+	var lobby Lobby
 	b := newBuilder()
 	keep := func() {
-		if g := b.finish(); g.Turns > 0 || g.End.Kind != EndUnknown {
+		g := b.finish(lobby)
+		lobby = g.Lobby
+		if g.Turns > 0 || g.End.Kind != EndUnknown {
 			games = append(games, g)
 		}
 	}
@@ -147,6 +157,7 @@ type builder struct {
 	headers int
 	print   []string
 	ends    endTracker
+	text    strings.Builder
 }
 
 func newBuilder() *builder {
@@ -175,6 +186,8 @@ func (b *builder) add(line string) {
 		return
 	}
 	b.started = true
+	b.text.WriteString(line)
+	b.text.WriteByte('\n')
 	if strings.HasPrefix(line, "RZ1|") {
 		b.addRZ(line)
 		return
@@ -182,9 +195,16 @@ func (b *builder) add(line string) {
 	b.addText(line)
 }
 
-func (b *builder) finish() Game {
+// finish completes the game. A rematch's log has no lobby line, so it gets the lobby of the game
+// before it, and its text gets the line too, so parsing the text alone finds it.
+func (b *builder) finish(prev Lobby) Game {
 	b.inferOwners()
 	g := b.game
+	g.Text = b.text.String()
+	if g.Lobby.Code == "" && prev.Code != "" {
+		g.Lobby = prev
+		g.Text = lobbyLine(prev) + "\n" + g.Text
+	}
 	g.Turns = b.turn
 	if g.End.Kind == EndUnknown {
 		g.End = b.ends.lethal(&g)

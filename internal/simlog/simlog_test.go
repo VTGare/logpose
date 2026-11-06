@@ -250,6 +250,24 @@ var _ = Describe("Parse", func() {
 			Expect(later[1].Fingerprint).NotTo(Equal(alone[0].Fingerprint))
 		})
 
+		It("gives a rematch the lobby of the game before it", func() {
+			games := parse(logOf(append(append(first, rematchLine), second...)...))
+			Expect(games[1].Lobby).To(Equal(Lobby{Code: "XNJ8M66", Role: RoleJoin}))
+		})
+
+		It("keeps each game's text, which parses to the same game", func() {
+			games := parse(logOf(append(append(first, rematchLine), second...)...))
+			for _, g := range games {
+				again := parse(g.Text)
+				Expect(again).To(HaveLen(1))
+				Expect(again[0].Fingerprint).To(Equal(g.Fingerprint))
+				Expect(again[0].Lobby).To(Equal(g.Lobby))
+				Expect(again[0].End).To(Equal(g.End))
+				Expect(again[0].Text).To(Equal(g.Text))
+			}
+			Expect(games[1].Text).NotTo(ContainSubstring(rematchLine))
+		})
+
 		It("leaves out a lobby that was opened but never played", func() {
 			games := parse(logOf(append(append(first, rematchLine), lobby("XNJ8M66")[1:]...)...))
 			Expect(games).To(HaveLen(1))

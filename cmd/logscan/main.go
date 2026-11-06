@@ -19,6 +19,8 @@ type stats struct {
 	ends                                              map[simlog.EndKind]int
 	lobbies                                           map[string]int
 	unknown                                           []string
+	reparseFailures                                   []string
+	textBytes                                         int
 }
 
 func main() {
@@ -91,6 +93,11 @@ func parseFile(path string) ([]simlog.Game, error) {
 
 func (s *stats) count(g *simlog.Game, name string) {
 	s.unique++
+	s.textBytes += len(g.Text)
+	if again, err := simlog.Parse(strings.NewReader(g.Text)); err != nil || len(again) != 1 ||
+		again[0].Fingerprint != g.Fingerprint || again[0].End != g.End || again[0].Lobby != g.Lobby {
+		s.reparseFailures = append(s.reparseFailures, name)
+	}
 	if g.HasRZ() {
 		s.rz++
 	}
@@ -127,6 +134,7 @@ func lastLine(g *simlog.Game) string {
 func report(s stats, verbose bool) {
 	fmt.Printf("files %d, games %d, unique games %d (%d repeated across rematch files)\n", s.files, s.games, s.unique, s.games-s.unique)
 	fmt.Printf("with RZ1 stream %d, turn order known %d, both mulligans %d\n", s.rz, s.withFirst, s.mulliganBoth)
+	fmt.Printf("game text %d KB, %d games don't parse the same from their own text %v\n", s.textBytes/1024, len(s.reparseFailures), s.reparseFailures)
 	fmt.Println("ends:")
 	for _, k := range []simlog.EndKind{simlog.EndConcede, simlog.EndDeckOut, simlog.EndLethal, simlog.EndUnknown} {
 		fmt.Printf("  %-8s %d\n", k, s.ends[k])

@@ -85,13 +85,25 @@ func isPregame(text string) bool {
 	return false
 }
 
+const (
+	joinPrefix = "Attempting to connect to "
+	hostPrefix = "Waiting for a Connection with Room ID:"
+)
+
+func lobbyLine(l Lobby) string {
+	if l.Role == RoleHost {
+		return hostPrefix + l.Code
+	}
+	return joinPrefix + l.Code
+}
+
 func (b *builder) headerLine(l Line) bool {
 	t := l.Text
 	switch {
-	case strings.HasPrefix(t, "Attempting to connect to "):
-		b.game.Lobby = Lobby{Code: strings.TrimPrefix(t, "Attempting to connect to "), Role: RoleJoin}
-	case strings.HasPrefix(t, "Waiting for a Connection with Room ID:"):
-		b.game.Lobby = Lobby{Code: strings.TrimPrefix(t, "Waiting for a Connection with Room ID:"), Role: RoleHost}
+	case strings.HasPrefix(t, joinPrefix):
+		b.game.Lobby = Lobby{Code: strings.TrimPrefix(t, joinPrefix), Role: RoleJoin}
+	case strings.HasPrefix(t, hostPrefix):
+		b.game.Lobby = Lobby{Code: strings.TrimPrefix(t, hostPrefix), Role: RoleHost}
 	case strings.HasPrefix(t, "Version is "):
 		if b.game.SimVersion == "" {
 			b.game.SimVersion = strings.TrimPrefix(t, "Version is ")
