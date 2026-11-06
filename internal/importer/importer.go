@@ -17,12 +17,15 @@ type Result struct {
 	Files int
 	Games int
 	New   int
+	// Reparsed counts stored games parsed again because the parser changed.
+	Reparsed int
 }
 
 func (r *Result) add(o Result) {
 	r.Files += o.Files
 	r.Games += o.Games
 	r.New += o.New
+	r.Reparsed += o.Reparsed
 }
 
 // Dir imports every combat log in the sim's AutoSaved folder, oldest first, so each game keeps

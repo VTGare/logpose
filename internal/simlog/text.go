@@ -135,6 +135,10 @@ func (b *builder) playerLine(l Line) bool {
 	case t == "Chose to go Second":
 		b.player(l.Player)
 		b.game.First = b.other(l.Player)
+	case strings.HasPrefix(t, "Drew card from deck: ") && !b.begun:
+		if len(l.Cards) > 0 {
+			b.draws[l.Player] = append(b.draws[l.Player], l.Cards[len(l.Cards)-1])
+		}
 	case strings.HasPrefix(t, "Hand before Mulligan: "):
 		m := b.game.Mulligans[l.Player]
 		m.Before = codes(strings.TrimPrefix(t, "Hand before Mulligan: "))

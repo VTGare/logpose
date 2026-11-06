@@ -22,7 +22,8 @@ func (i Install) streamingAssets() string {
 }
 
 // CardImage returns the path of a card's image. The sim ships a full image and a small one per
-// card, in a folder per set.
+// card, in a folder per set. Small images are JPEGs, and full ones JPEG or, in about half the
+// sets, PNG.
 func (i Install) CardImage(code string, small bool) string {
 	set := code
 	for j := range code {
@@ -31,11 +32,15 @@ func (i Install) CardImage(code string, small bool) string {
 			break
 		}
 	}
-	name := code + ".jpg"
+	dir := filepath.Join(i.streamingAssets(), "Cards", set)
 	if small {
-		name = code + "_small.jpg"
+		return filepath.Join(dir, code+"_small.jpg")
 	}
-	return filepath.Join(i.streamingAssets(), "Cards", set, name)
+	jpg := filepath.Join(dir, code+".jpg")
+	if _, err := os.Stat(jpg); err == nil {
+		return jpg
+	}
+	return filepath.Join(dir, code+".png")
 }
 
 // OPBountyPack is the OPBounty client the sim ships, whose pack holds a card database.

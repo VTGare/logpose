@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -13,6 +14,14 @@ import (
 type fakeActions struct {
 	added     []store.Format
 	dismissed []string
+	loaded    []string
+	types     []string
+	notes     []string
+	bookmarks []string
+}
+
+func (f *fakeActions) SetBookmark(fingerprint string, on bool) {
+	f.bookmarks = append(f.bookmarks, fmt.Sprintf("%s=%t", fingerprint, on))
 }
 
 func (f *fakeActions) AddFormat(name string, start time.Time) {
@@ -21,6 +30,18 @@ func (f *fakeActions) AddFormat(name string, start time.Time) {
 func (*fakeActions) UpdateFormat(store.Format) {}
 func (*fakeActions) DeleteFormat(int64)        {}
 func (f *fakeActions) DismissSet(set string)   { f.dismissed = append(f.dismissed, set) }
+
+func (f *fakeActions) LoadTimeline(fingerprint, _, _ string) {
+	f.loaded = append(f.loaded, fingerprint)
+}
+
+func (f *fakeActions) SetGameNote(fingerprint, note string) {
+	f.notes = append(f.notes, fingerprint+"="+note)
+}
+
+func (f *fakeActions) SetGameType(fingerprint string, t store.GameType) {
+	f.types = append(f.types, fingerprint+"="+fmt.Sprint(t))
+}
 
 var _ = Describe("formats", func() {
 	// withFormats splits the 10 test games, an hour apart, at 4 hours ago.

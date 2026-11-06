@@ -55,6 +55,8 @@ type Check struct {
 	Stage       int
 	Leader      int
 	DonAttached int
+	// Line places the check in the timeline, as Move.Line does.
+	Line int
 }
 
 func (b *builder) addRZ(line string) {
@@ -130,6 +132,7 @@ func (b *builder) addCheck(parts []string) {
 	c := Check{
 		Seq: n[0], Owner: n[1], Deck: n[2], Hand: n[3], Character: n[4], Life: n[5],
 		DonDeck: n[6], DonField: n[7], Trash: n[8], Stage: n[9], Leader: n[10], DonAttached: n[11],
+		Line: len(b.game.Lines),
 	}
 	b.ends.lifeByOwner[c.Owner] = c.Life
 	b.game.Checks = append(b.game.Checks, c)

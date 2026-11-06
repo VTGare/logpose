@@ -35,11 +35,12 @@ var (
 	bannerText      = ui.Hex("#FCEBEB")
 	bannerTextMuted = ui.RGBA(252, 235, 235, 0.72)
 
-	winColor     = ui.Hex("#3B9B45")
-	lossColor    = ui.Hex("#E24B4A")
-	unknownColor = ui.Hex("#888780")
-	firstColor   = ui.Hex("#378ADD")
-	secondColor  = ui.Hex("#BA7517")
+	winColor      = ui.Hex("#3B9B45")
+	lossColor     = ui.Hex("#E24B4A")
+	unknownColor  = ui.Hex("#888780")
+	firstColor    = ui.Hex("#378ADD")
+	secondColor   = ui.Hex("#BA7517")
+	bookmarkColor = ui.Hex("#E8B83A")
 )
 
 // colorsOf is a card's colors in the game's order. The catalog lists them alphabetically.

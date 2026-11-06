@@ -7,6 +7,7 @@ import (
 
 	// Registers the JPEG decoder for the sim's card images.
 	_ "image/jpeg"
+	_ "image/png"
 	"os"
 	"sync"
 
@@ -28,6 +29,8 @@ const (
 	artBackdrop
 	// artCrop is the top of the art of the full-size card, for deck thumbnails.
 	artCrop
+	// artLarge is the whole full-size card, for the preview of a small one.
+	artLarge
 )
 
 type artKey struct {

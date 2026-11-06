@@ -29,10 +29,13 @@ type Watcher struct {
 	OnError func(error)
 
 	seen map[string]fileState
+	// checked is set once a pass has parsed again what an older parser stored.
+	checked bool
 }
 
 func (w *Watcher) Run(ctx context.Context) error {
 	w.seen = make(map[string]fileState)
+	w.checked = false
 	interval := w.Interval
 	if interval == 0 {
 		interval = 3 * time.Second
@@ -84,10 +87,15 @@ func (w *Watcher) pass(ctx context.Context) (Result, error) {
 		w.seen[path] = state
 		total.add(r)
 	}
-	if total.New > 0 {
-		if _, err := w.Store.Reparse(ctx); err != nil && w.OnError != nil {
+	// The first pass catches games an older parser stored, which a new version of logpose
+	// reads differently. Later passes only need it when a game was added.
+	if total.New > 0 || !w.checked {
+		n, err := w.Store.Reparse(ctx)
+		if err != nil && w.OnError != nil {
 			w.OnError(err)
 		}
+		total.Reparsed += n
+		w.checked = err == nil
 	}
 	return total, nil
 }

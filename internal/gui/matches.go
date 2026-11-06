@@ -10,6 +10,7 @@ import (
 
 	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
+	"github.com/VTGare/logpose/internal/store"
 )
 
 type matchesState struct {
@@ -19,6 +20,8 @@ type matchesState struct {
 	sortKey ui.SortOrder
 	from    []stats.Match
 	row     int
+	// bookmarked is 1 while the list shows only bookmarked matches.
+	bookmarked int
 }
 
 var matchColumns = []ui.TableColumn{
@@ -46,19 +49,84 @@ func (v *view) matchesPage(c *ui.Context) {
 		s.sortKey, s.from = s.sort, ms
 	}
 	rows := s.sorted
+	marked := 0
+	for _, m := range rows {
+		if m.Bookmarked {
+			marked++
+		}
+	}
+	if s.bookmarked == 1 {
+		rows = slices.DeleteFunc(slices.Clone(rows), func(m stats.Match) bool { return !m.Bookmarked })
+	}
 	s.list.Sort = &s.sort
 	s.list.Selected = &s.row
 	s.list.Key = func(i int) any { return rows[i].Fingerprint }
+	s.list.CellMenu = func(m *ui.Menu, row, _ int) {
+		if row >= 0 && row < len(rows) {
+			v.matchMenu(m, rows[row])
+		}
+	}
 
 	ui.Column(c).Fill().Padding(20).Gap(12).Children(func() {
-		ui.Row(c).Children(func() {
-			ui.Text(c, "Matches").FontSize(20).Bold().Grow(1)
+		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, "Matches").FontSize(20).Bold()
+			if marked > 0 || s.bookmarked == 1 {
+				ui.Segmented(c, &s.bookmarked, "All", fmt.Sprintf("Bookmarked · %d", marked))
+			}
+			ui.Spacer(c)
 			ui.Text(c, summary(rows)).TextColor(t.TextMuted)
 		})
-		ui.Table(c, &s.list, matchColumns, len(rows), func(row, col int) {
+		table := ui.Table(c, &s.list, matchColumns, len(rows), func(row, col int) {
 			v.matchCell(c, rows[row], col)
 		}).Grow(1)
+		if table.Changed() && s.row >= 0 && s.row < len(rows) {
+			m := rows[s.row]
+			// The list keeps no choice, so choosing the same row again opens it again.
+			s.row = -1
+			v.openMatch(m)
+		}
 	})
+}
+
+// matchMenu is a match row's right-click menu.
+func (v *view) matchMenu(menu *ui.Menu, m stats.Match) {
+	if m.Lobby.InRoom() {
+		menu.Submenu("Game type", func(sub *ui.Menu) {
+			for i, label := range v.typeOptions(m) {
+				if sub.Item(label).Radio(int(m.Type) == i).Chosen() {
+					v.act.SetGameType(m.Fingerprint, store.GameType(i))
+				}
+			}
+		})
+	} else {
+		menu.Item("Game type: private lobby").Disabled(true)
+	}
+	noteLabel := "Add note…"
+	if m.Note != "" {
+		noteLabel = "Edit note…"
+	}
+	if menu.Item(noteLabel).Chosen() {
+		v.openMatch(m)
+		v.detail.focusNote = true
+	}
+	bookmark := "Bookmark"
+	if m.Bookmarked {
+		bookmark = "Remove bookmark"
+	}
+	if menu.Item(bookmark).Chosen() {
+		v.act.SetBookmark(m.Fingerprint, !m.Bookmarked)
+	}
+	menu.Item("Watch replay").Disabled(true)
+	menu.Separator()
+	if menu.Item("Filter to games vs " + m.Opp.Name).Chosen() {
+		v.filter.opp = m.Opp.ID
+		v.resetPoints()
+	}
+	matchup := v.snap.card(m.Me.Leader).Name + " vs " + v.snap.card(m.Opp.Leader).Name
+	if menu.Item("Filter to " + matchup).Chosen() {
+		v.filter.deck, v.filter.oppLeader = m.Me.Leader, m.Opp.Leader
+		v.resetPoints()
+	}
 }
 
 func summary(ms []stats.Match) string {
@@ -73,7 +141,12 @@ func (v *view) matchCell(c *ui.Context, m stats.Match, col int) {
 	t := c.Theme()
 	switch col {
 	case 0:
-		ui.Text(c, m.PlayedAt.Format("Jan 2 15:04")).SingleLine()
+		ui.Row(c).Gap(6).Children(func() {
+			ui.Text(c, m.PlayedAt.Format("Jan 2 15:04")).SingleLine()
+			if m.Bookmarked {
+				ui.Text(c, "★").TextColor(bookmarkColor)
+			}
+		})
 	case 1:
 		ui.Text(c, resultWord(m.Result)).Bold().TextColor(resultColor(m.Result))
 	case 2:

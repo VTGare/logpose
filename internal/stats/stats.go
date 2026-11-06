@@ -59,6 +59,10 @@ func Matches(games []store.Game, me string) []Match {
 			continue
 		}
 		m := Match{Game: g, Me: mine, Ranked: IsRanked(g, sizes)}
+		// Only room lobbies can be ranked, whatever the user set.
+		if g.Lobby.InRoom() && g.Type != store.TypeGuessed {
+			m.Ranked = g.Type == store.TypeRanked
+		}
 		for _, p := range g.Players {
 			if p.ID != me {
 				m.Opp = p
@@ -134,8 +138,8 @@ type Point struct {
 // RollingWindow is how many games the rolling win rate averages.
 const RollingWindow = 20
 
-// Overview is the local player's play across every leader: the session, the week and their
-// decks.
+// Overview is the local player's play across every leader: today, the week, each day played and
+// their decks.
 type Overview struct {
 	// Deck is the leader of the local player's latest game.
 	Deck  string
@@ -144,20 +148,27 @@ type Overview struct {
 	Today       []Result
 	TodayRecord Record
 	TodayTime   time.Duration
-	// Last is the results of the latest games, at most LastGames, oldest first.
-	Last []Result
 	// Streak is the length of the latest run of wins or losses, and StreakResult which.
 	Streak       int
 	StreakResult Result
-	// Week is the last 7 days and PrevWeek the 7 before them.
+	// Week is the calendar week so far, from Monday, and PrevWeek the whole week before it.
 	Week, PrevWeek Record
-	// Rolling is the win rate over the last RollingWindow games with any leader, oldest first.
-	Rolling []Point
+	// Days is every day played, latest first.
+	Days []Day
 	// Decks is every leader the local player played, latest first.
 	Decks []Deck
-	// FacedThisWeek is the opponents' leaders of the last 7 days, most played first.
+	// FacedThisWeek is the opponents' leaders of the calendar week, most played first.
 	FacedThisWeek []LeaderRecord
-	Recent        []Match
+}
+
+// Day is the games of one day, oldest first.
+type Day struct {
+	// Date is the day's midnight.
+	Date    time.Time
+	Matches []Match
+	Record  Record
+	// Played estimates the time spent playing.
+	Played time.Duration
 }
 
 // Deck is one of the local player's leaders, in short.
@@ -167,9 +178,6 @@ type Deck struct {
 	// Last is when the latest game with it ended.
 	Last time.Time
 }
-
-// LastGames is how many results Overview.Last holds.
-const LastGames = 10
 
 // Leader is everything about one of the local player's leaders.
 type Leader struct {
@@ -220,15 +228,15 @@ func BuildOverview(ms []Match, now time.Time) Overview {
 		return o
 	}
 	o.Deck = ms[0].Me.Leader
-	weekAgo := now.AddDate(0, 0, -7)
-	twoWeeksAgo := now.AddDate(0, 0, -14)
+	week := WeekStart(now)
+	prevWeek := week.AddDate(0, 0, -7)
 	decks := make(map[string]int)
 	for _, m := range ms {
 		o.Total.Add(m.Result)
 		switch {
-		case m.PlayedAt.After(weekAgo):
+		case !m.PlayedAt.Before(week):
 			o.Week.Add(m.Result)
-		case m.PlayedAt.After(twoWeeksAgo):
+		case !m.PlayedAt.Before(prevWeek):
 			o.PrevWeek.Add(m.Result)
 		}
 		i, seen := decks[m.Me.Leader]
@@ -239,40 +247,69 @@ func BuildOverview(ms []Match, now time.Time) Overview {
 		}
 		o.Decks[i].Record.Add(m.Result)
 	}
-	for i := min(len(ms), LastGames) - 1; i >= 0; i-- {
-		o.Last = append(o.Last, ms[i].Result)
+	o.Days = days(ms)
+	if d := o.Days[0]; d.Date.Equal(dayStart(now)) {
+		for _, m := range d.Matches {
+			o.Today = append(o.Today, m.Result)
+		}
+		o.TodayRecord, o.TodayTime = d.Record, d.Played
 	}
-	o.Rolling = rolling(ms)
-	o.today(ms, now)
 	o.Streak, o.StreakResult = streak(ms)
-	o.FacedThisWeek = byLeader(ms, func(m Match) (string, bool) { return m.Opp.Leader, m.PlayedAt.After(weekAgo) })
-	o.Recent = ms[:min(len(ms), 8)]
+	o.FacedThisWeek = byLeader(ms, func(m Match) (string, bool) { return m.Opp.Leader, !m.PlayedAt.Before(week) })
 	return o
 }
 
-func (o *Overview) today(ms []Match, now time.Time) {
-	y, mo, d := now.Date()
-	start := time.Date(y, mo, d, 0, 0, 0, 0, now.Location())
-	var first, last time.Time
-	for i := len(ms) - 1; i >= 0; i-- {
-		m := ms[i]
-		if m.PlayedAt.Before(start) {
-			continue
-		}
-		o.Today = append(o.Today, m.Result)
-		o.TodayRecord.Add(m.Result)
-		if first.IsZero() {
-			first = m.PlayedAt.Add(-time.Duration(m.Turns) * approxTurn)
-		}
-		last = m.PlayedAt
-	}
-	if !first.IsZero() {
-		o.TodayTime = last.Sub(first)
-	}
+func dayStart(t time.Time) time.Time {
+	y, mo, d := t.Date()
+	return time.Date(y, mo, d, 0, 0, 0, 0, t.Location())
 }
 
-// approxTurn estimates how long a turn takes, to start the day's play time before the first
-// game ended. A log only has the time the game ended.
+// WeekStart is the Monday midnight that starts t's week.
+func WeekStart(t time.Time) time.Time {
+	day := dayStart(t)
+	return day.AddDate(0, 0, -((int(day.Weekday()) + 6) % 7))
+}
+
+// days groups matches given newest first by the day they ended on.
+func days(ms []Match) []Day {
+	var out []Day
+	for i := len(ms) - 1; i >= 0; i-- {
+		m := ms[i]
+		date := dayStart(m.PlayedAt)
+		if len(out) == 0 || !out[len(out)-1].Date.Equal(date) {
+			out = append(out, Day{Date: date})
+		}
+		d := &out[len(out)-1]
+		d.Matches = append(d.Matches, m)
+		d.Record.Add(m.Result)
+	}
+	for i := range out {
+		out[i].Played = played(out[i].Matches)
+	}
+	slices.Reverse(out)
+	return out
+}
+
+// played adds up the time between games ended less than breakGap apart, and estimates the
+// length of the first game after each break from its turns.
+func played(ms []Match) time.Duration {
+	length := func(m Match) time.Duration { return time.Duration(m.Turns) * approxTurn }
+	total := length(ms[0])
+	for i := 1; i < len(ms); i++ {
+		if gap := ms[i].PlayedAt.Sub(ms[i-1].PlayedAt); gap < breakGap {
+			total += gap
+		} else {
+			total += length(ms[i])
+		}
+	}
+	return total
+}
+
+// breakGap is the longest time between two games' ends that still counts as playing.
+const breakGap = 45 * time.Minute
+
+// approxTurn estimates how long a turn takes, for the length of a game after a break. A log only
+// has the time the game ended.
 const approxTurn = 70 * time.Second
 
 func streak(ms []Match) (int, Result) {
@@ -362,6 +399,8 @@ type Scope struct {
 	Type GameType
 	// Deck is the local player's leader, or "" for every deck.
 	Deck string
+	// Opp is the opponent's player ID and OppLeader their leader, or "" for any.
+	Opp, OppLeader string
 	// Since is the earliest time a match can end, or zero for all time.
 	Since time.Time
 	// Until is when matches stop counting, or zero for no end.
@@ -375,8 +414,9 @@ func (s Scope) Apply(ms []Match) []Match {
 	}
 	out := make([]Match, 0, len(ms))
 	for _, m := range Filter(ms, s.Type) {
-		if s.Deck != "" && m.Me.Leader != s.Deck || !s.Since.IsZero() && m.PlayedAt.Before(s.Since) ||
-			!s.Until.IsZero() && !m.PlayedAt.Before(s.Until) {
+		if s.Deck != "" && m.Me.Leader != s.Deck || s.Opp != "" && m.Opp.ID != s.Opp ||
+			s.OppLeader != "" && m.Opp.Leader != s.OppLeader ||
+			!s.Since.IsZero() && m.PlayedAt.Before(s.Since) || !s.Until.IsZero() && !m.PlayedAt.Before(s.Until) {
 			continue
 		}
 		out = append(out, m)

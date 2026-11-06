@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"maps"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -23,6 +24,8 @@ type Card struct {
 	Name   string
 	Type   string
 	Colors []Color
+	// Power is the printed power, or 0 for cards without one or not in the data.
+	Power int
 }
 
 // DB looks cards up by code. A card it doesn't know has only the name the logs gave it, or its
@@ -71,6 +74,7 @@ type catalog struct {
 			Name     string `json:"Name"`
 			CardType string `json:"CardType"`
 			Color    string `json:"Color"`
+			Power    string `json:"Power"`
 		} `json:"cards"`
 	} `json:"groups"`
 }
@@ -96,7 +100,9 @@ func parseCatalog(data []byte) (*DB, error) {
 			if _, seen := db.cards[c.Number]; seen {
 				continue
 			}
-			db.cards[c.Number] = Card{Code: c.Number, Name: cleanName(c.Name), Type: c.CardType, Colors: colors(c.Color)}
+			db.cards[c.Number] = Card{
+				Code: c.Number, Name: cleanName(c.Name), Type: c.CardType, Colors: colors(c.Color), Power: power(c.Power),
+			}
 		}
 	}
 	return db, nil
@@ -106,6 +112,16 @@ func cleanName(n string) string {
 	n = nameSuffix.ReplaceAllString(n, "")
 	n = strings.ReplaceAll(n, ".D.", " D. ")
 	return dottedName.ReplaceAllString(n, "$1. $2")
+}
+
+// power reads a printed power, which the data writes as text and leaves empty or "-" on cards
+// without one.
+func power(s string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 func colors(s string) []Color {

@@ -49,6 +49,10 @@ type Game struct {
 	Sets []string
 	// SimFormat is the sim's name for the game's format, or "" when logpose didn't see it.
 	SimFormat string
+	Type      GameType
+	// Note is what the user wrote about the game, or "".
+	Note       string
+	Bookmarked bool
 }
 
 func (g Game) Player(id string) (GamePlayer, bool) {
@@ -199,8 +203,12 @@ func (s *Store) GameLog(ctx context.Context, fingerprint string) (string, error)
 func (s *Store) Games(ctx context.Context) ([]Game, error) {
 	rows, err := s.read.QueryContext(ctx, `
 		SELECT g.fingerprint, g.played_at, g.lobby_code, g.lobby_role, g.sim_version, g.first_player,
-			g.turns, g.end_kind, g.loser, g.source_file, g.source_index, g.sets, coalesce(f.sim_format, '')
+			g.turns, g.end_kind, g.loser, g.source_file, g.source_index, g.sets, coalesce(f.sim_format, ''), t.ranked,
+			coalesce(n.note, ''), b.fingerprint IS NOT NULL
 		FROM games g LEFT JOIN log_formats f ON f.source_file = g.source_file
+		LEFT JOIN game_types t ON t.fingerprint = g.fingerprint
+		LEFT JOIN game_notes n ON n.fingerprint = g.fingerprint
+		LEFT JOIN game_bookmarks b ON b.fingerprint = g.fingerprint
 		ORDER BY g.played_at DESC, g.source_index DESC`)
 	if err != nil {
 		return nil, err
@@ -225,8 +233,10 @@ func scanGame(rows *sql.Rows) (Game, error) {
 	var g Game
 	var played int64
 	var role, end, sets string
+	var ranked sql.NullBool
 	err := rows.Scan(&g.Fingerprint, &played, &g.Lobby.Code, &role, &g.SimVersion, &g.First, &g.Turns,
-		&end, &g.End.Loser, &g.Source.File, &g.Source.Index, &sets, &g.SimFormat)
+		&end, &g.End.Loser, &g.Source.File, &g.Source.Index, &sets, &g.SimFormat, &ranked, &g.Note, &g.Bookmarked)
+	g.Type = gameType(ranked)
 	g.Sets = splitCodes(sets)
 	g.PlayedAt = time.UnixMilli(played)
 	g.Source.PlayedAt = g.PlayedAt

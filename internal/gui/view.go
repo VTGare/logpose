@@ -48,6 +48,12 @@ type actions interface {
 	UpdateFormat(f store.Format)
 	DeleteFormat(id int64)
 	DismissSet(set string)
+	// LoadTimeline reads a match's life by turn and key moments from its log and shows them with
+	// view.setTimeline.
+	LoadTimeline(fingerprint, me, opp string)
+	SetGameType(fingerprint string, t store.GameType)
+	SetGameNote(fingerprint, note string)
+	SetBookmark(fingerprint string, on bool)
 }
 
 type view struct {
@@ -61,8 +67,8 @@ type view struct {
 	page string
 
 	matches matchesState
-	// rollingPoint is the rolling chart's point under the pointer, or -1.
-	rollingPoint int
+	// detail is the open match. Its fingerprint is empty on the match list.
+	detail detailState
 
 	filter filters
 	scope  scoped
@@ -80,14 +86,18 @@ func (v *view) openLeader(code string) {
 }
 
 func newView(art *artCache) *view {
-	return &view{snap: &snapshot{}, art: art, page: pageOverview, rollingPoint: -1, leaderPoint: -1}
+	return &view{snap: &snapshot{}, art: art, page: pageOverview, leaderPoint: -1}
 }
 
 func (v *view) build(c *ui.Context) {
+	if v.page != pageMatches {
+		v.closeMatch()
+	}
+	open := v.detail.fingerprint != ""
 	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		v.sidebar(c)
 		ui.Column(c).Grow(1).Fill().Children(func() {
-			if v.snap.Loaded && len(v.snap.Matches) > 0 && v.page != pageFormats {
+			if v.snap.Loaded && len(v.snap.Matches) > 0 && v.page != pageFormats && !open {
 				v.filterBar(c)
 			}
 			if v.snap.Loaded && v.live.Phase != live.Idle {
@@ -106,6 +116,8 @@ func (v *view) build(c *ui.Context) {
 					"Start the sim and logpose finds it and imports your games. If it's installed somewhere unusual, start logpose with -sim and the sim's folder.")
 			case len(v.snap.Matches) == 0:
 				v.message(c, "Play a game in the sim", "Every game you finish shows up here on its own.")
+			case open:
+				v.matchPage(c)
 			case len(v.scoped().matches) == 0:
 				v.message(c, "No games match these filters", "Change or clear the filters above.")
 			case v.page == pageMatches:

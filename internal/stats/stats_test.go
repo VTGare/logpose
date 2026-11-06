@@ -83,6 +83,23 @@ var _ = Describe("Matches", func() {
 		Expect(ms[2].TurnOrderKnown).To(BeFalse())
 	})
 
+	It("takes the game type the user set over the guess, in room lobbies only", func() {
+		games := build(
+			game{mine: "OP13-001", theirs: "OP17-058", lobby: "XNJ8M66"},
+			game{mine: "OP13-001", theirs: "OP17-058", lobby: "XAAAA11"},
+			game{mine: "OP13-001", theirs: "OP17-058", lobby: "XAAAA11"},
+			game{mine: "OP13-001", theirs: "OP17-058", lobby: "7KQ2MP"},
+		)
+		games[0].Type = store.TypeFriendly
+		games[1].Type = store.TypeRanked
+		games[3].Type = store.TypeRanked
+		ms := stats.Matches(games, me)
+		Expect(ms[0].Ranked).To(BeFalse())
+		Expect(ms[1].Ranked).To(BeTrue())
+		Expect(ms[2].Ranked).To(BeFalse())
+		Expect(ms[3].Ranked).To(BeFalse())
+	})
+
 	It("leaves out games without the local player", func() {
 		games := build(game{mine: "OP13-001", theirs: "OP17-058"})
 		Expect(stats.Matches(games, "Someone#9")).To(BeEmpty())
@@ -118,26 +135,40 @@ var _ = Describe("BuildOverview", func() {
 		}))
 	})
 
-	It("splits this week from the week before", func() {
+	It("splits the calendar week from Monday from the week before", func() {
 		o := stats.BuildOverview(stats.Matches(build(
 			game{ago: time.Hour, mine: luffy, won: true},
-			game{ago: 6 * 24 * time.Hour, mine: luffy, won: false},
-			game{ago: 8 * 24 * time.Hour, mine: luffy, won: true},
+			game{ago: 4 * 24 * time.Hour, mine: luffy, won: false},
+			game{ago: 6 * 24 * time.Hour, mine: luffy, won: true},
+			game{ago: 11 * 24 * time.Hour, mine: luffy, won: false},
 			game{ago: 20 * 24 * time.Hour, mine: luffy, won: true},
 		), me), now)
+		Expect(now.Weekday()).To(Equal(time.Friday))
 		Expect(o.Week).To(Equal(stats.Record{Wins: 1, Losses: 1}))
-		Expect(o.PrevWeek).To(Equal(stats.Record{Wins: 1}))
+		Expect(o.PrevWeek).To(Equal(stats.Record{Wins: 1, Losses: 1}))
 	})
 
-	It("keeps the last 10 results, oldest first", func() {
-		var gs []game
-		for i := range 12 {
-			gs = append(gs, game{ago: time.Duration(i+1) * time.Hour, mine: luffy, won: i == 0})
-		}
-		o := stats.BuildOverview(stats.Matches(build(gs...), me), now)
-		Expect(o.Last).To(HaveLen(stats.LastGames))
-		Expect(o.Last[9]).To(Equal(stats.Win))
-		Expect(o.Last[0]).To(Equal(stats.Loss))
+	It("starts the week on Monday", func() {
+		Expect(stats.WeekStart(now)).To(Equal(time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)))
+		sunday := time.Date(2026, 11, 8, 23, 0, 0, 0, time.UTC)
+		Expect(stats.WeekStart(sunday)).To(Equal(time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)))
+	})
+
+	It("groups games by day, latest day first and each day's games oldest first", func() {
+		o := stats.BuildOverview(stats.Matches(build(
+			game{ago: time.Hour, mine: luffy, won: true},
+			game{ago: 90 * time.Minute, mine: luffy, won: false},
+			game{ago: 4 * time.Hour, mine: luffy, won: true},
+			game{ago: 30 * time.Hour, mine: luffy, won: true},
+		), me), now)
+		Expect(o.Days).To(HaveLen(2))
+		today := o.Days[0]
+		Expect(today.Date).To(Equal(time.Date(2026, 11, 6, 0, 0, 0, 0, time.UTC)))
+		Expect(today.Record).To(Equal(stats.Record{Wins: 2, Losses: 1}))
+		Expect(today.Matches[0].PlayedAt).To(Equal(now.Add(-4 * time.Hour)))
+		// The break after the first game counts as the length of the next one, 10 turns.
+		Expect(today.Played).To(Equal(2*10*70*time.Second + 30*time.Minute))
+		Expect(o.Days[1].Record).To(Equal(stats.Record{Wins: 1}))
 	})
 
 	It("counts today's games oldest first", func() {
@@ -148,7 +179,7 @@ var _ = Describe("BuildOverview", func() {
 		), me), now)
 		Expect(o.Today).To(Equal([]stats.Result{stats.Loss, stats.Win}))
 		Expect(o.TodayRecord).To(Equal(stats.Record{Wins: 1, Losses: 1}))
-		Expect(o.TodayTime).To(BeNumerically(">", time.Hour))
+		Expect(o.TodayTime).To(Equal(2 * 10 * 70 * time.Second))
 	})
 
 	It("finds the latest streak", func() {
@@ -160,24 +191,6 @@ var _ = Describe("BuildOverview", func() {
 		), me), now)
 		Expect(o.Streak).To(Equal(2))
 		Expect(o.StreakResult).To(Equal(stats.Win))
-	})
-
-	It("rolls the win rate over the last 20 games with any leader once there are 20", func() {
-		var gs []game
-		for i := range 25 {
-			mine := luffy
-			if i%2 == 0 {
-				mine = kid
-			}
-			gs = append(gs, game{ago: time.Duration(i+1) * time.Hour, mine: mine, won: i < 5})
-		}
-		o := stats.BuildOverview(stats.Matches(build(gs...), me), now)
-		Expect(o.Rolling).To(HaveLen(6))
-		Expect(o.Rolling[0].Rate).To(BeNumerically("~", 0))
-		Expect(o.Rolling[5].Rate).To(BeNumerically("~", 0.25))
-		Expect(o.Rolling[0].Game).To(Equal(20))
-		Expect(o.Rolling[5].Game).To(Equal(25))
-		Expect(o.Rolling[5].Wins).To(Equal(5))
 	})
 
 	It("lists this week's opposing leaders, most played first", func() {
@@ -324,6 +337,8 @@ var _ = Describe("Scope", func() {
 	It("combines game type, deck and start", func() {
 		Expect(stats.Scope{Type: stats.RankedGames}.Apply(ms)).To(HaveLen(2))
 		Expect(stats.Scope{Deck: luffy}.Apply(ms)).To(HaveLen(2))
+		Expect(stats.Scope{Opp: ms[0].Opp.ID}.Apply(ms)).To(ContainElement(ms[0]))
+		Expect(stats.Scope{OppLeader: "OP01-001"}.Apply(ms)).To(BeEmpty())
 		got := stats.Scope{Type: stats.RankedGames, Deck: luffy, Since: now.AddDate(0, 0, -7)}.Apply(ms)
 		Expect(got).To(HaveLen(1))
 		Expect(got[0].Result).To(Equal(stats.Win))

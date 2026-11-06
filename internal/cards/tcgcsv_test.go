@@ -34,7 +34,7 @@ func (f *fakeTCGCSV) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			{"name":"Booster Box","extendedData":[]}]}`)
 	case "/2/products":
 		f.fetches[2]++
-		_, _ = fmt.Fprint(w, `{"results":[{"name":"Spandam (002)","extendedData":[{"name":"Number","value":"OP18-002"},{"name":"CardType","value":"Leader"},{"name":"Color","value":"Black"}]}]}`)
+		_, _ = fmt.Fprint(w, `{"results":[{"name":"Spandam (002)","extendedData":[{"name":"Number","value":"OP18-002"},{"name":"CardType","value":"Leader"},{"name":"Color","value":"Black"},{"name":"Power","value":"5000"}]}]}`)
 	default:
 		http.NotFound(w, r)
 	}
@@ -65,6 +65,8 @@ var _ = Describe("Catalog", func() {
 		c.Apply(db)
 		Expect(db.Card("EB05-010")).To(Equal(Card{Code: "EB05-010", Name: "Nico Robin", Type: "Leader", Colors: []Color{Green, Yellow}}))
 		Expect(db.Card("OP18-002").Colors).To(Equal([]Color{Black}))
+		Expect(db.Card("OP18-002").Power).To(Equal(5000))
+		Expect(db.Card("EB05-010").Power).To(BeZero())
 	})
 
 	It("only fetches sets that changed since the cached copy", func() {
@@ -89,6 +91,25 @@ var _ = Describe("Catalog", func() {
 		Expect(c.Stale(time.Now(), 24*time.Hour)).To(BeTrue())
 		c.Fetched = time.Now()
 		Expect(c.Stale(time.Now(), 24*time.Hour)).To(BeFalse())
+	})
+
+	It("fetches every set again when the catalog was saved by an older version, and fills in power", func() {
+		old := &Catalog{Fetched: time.Now(), Groups: map[string]string{"1": "x"}, Cards: map[string]catalogCard{"OP18-002": {Name: "Spandam"}}}
+		Expect(old.Save(path)).To(Succeed())
+		c, err := LoadCatalog(path)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(c.Stale(time.Now(), 24*time.Hour)).To(BeTrue())
+		Expect(c.Groups).To(BeEmpty())
+		Expect(c.Refresh(ctx, srv.Client(), srv.URL)).To(Equal(2))
+		Expect(c.Cards["OP18-002"].Power).To(Equal(5000))
+	})
+
+	It("keeps the power a card has when the catalog has none", func() {
+		c := &Catalog{Cards: map[string]catalogCard{"OP17-028": {Name: "Bonk Punch & Monster", Type: "Character"}}}
+		db := NewDB()
+		db.cards["OP17-028"] = Card{Code: "OP17-028", Name: "Bonk Punch & Monster", Power: 3000}
+		c.Apply(db)
+		Expect(db.Card("OP17-028").Power).To(Equal(3000))
 	})
 
 	It("keeps names from the logs over the catalog's", func() {

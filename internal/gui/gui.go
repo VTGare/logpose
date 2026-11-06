@@ -17,6 +17,7 @@ import (
 	"github.com/VTGare/logpose/internal/importer"
 	"github.com/VTGare/logpose/internal/live"
 	"github.com/VTGare/logpose/internal/sim"
+	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
 )
@@ -181,7 +182,7 @@ func (a *app) start(ctx context.Context) {
 		Dir:   a.opts.Install.Logs(),
 		Store: a.opts.Store,
 		OnImport: func(r importer.Result) {
-			a.opts.Log.Info("imported logs", "files", r.Files, "games", r.Games, "new", r.New)
+			a.opts.Log.Info("imported logs", "files", r.Files, "games", r.Games, "new", r.New, "reparsed", r.Reparsed)
 			a.refresh(ctx)
 		},
 		OnError: func(err error) { a.opts.Log.Warn("import", "err", err) },
@@ -370,4 +371,48 @@ func (x *appActions) DismissSet(set string) {
 		}
 		return st.SetSetting(ctx, store.SettingDismissedSets, strings.Join(append(splitList(cur), set), ","))
 	})
+}
+
+func (x *appActions) SetGameType(fingerprint string, t store.GameType) {
+	x.run("set game type", func(ctx context.Context, st *store.Store) error { return st.SetGameType(ctx, fingerprint, t) })
+}
+
+func (x *appActions) SetGameNote(fingerprint, note string) {
+	x.run("set game note", func(ctx context.Context, st *store.Store) error { return st.SetGameNote(ctx, fingerprint, note) })
+}
+
+func (x *appActions) SetBookmark(fingerprint string, on bool) {
+	x.run("set bookmark", func(ctx context.Context, st *store.Store) error { return st.SetBookmark(ctx, fingerprint, on) })
+}
+
+func (x *appActions) LoadTimeline(fingerprint, me, opp string) {
+	go func() {
+		l := matchTimeline{Fingerprint: fingerprint}
+		if g, err := x.parseGame(fingerprint); err != nil {
+			x.a.opts.Log.Warn("read match log", "err", err)
+		} else {
+			l.Me, l.Opp = g.LifeByTurn(me), g.LifeByTurn(opp)
+			l.MeHand, l.OppHand = g.HandByTurn(me), g.HandByTurn(opp)
+			l.MeBoard, l.OppBoard = g.CharactersByTurn(me), g.CharactersByTurn(opp)
+			db := x.a.cardDB()
+			l.Moments = g.Moments(func(code string) int { return db.Card(code).Power })
+			l.Marks = g.Marks()
+		}
+		x.a.win.Update(func() { x.a.view.setTimeline(l) })
+	}()
+}
+
+func (x *appActions) parseGame(fingerprint string) (*simlog.Game, error) {
+	text, err := x.a.opts.Store.GameLog(x.ctx, fingerprint)
+	if err != nil {
+		return nil, err
+	}
+	games, err := simlog.Parse(strings.NewReader(text))
+	if err != nil {
+		return nil, err
+	}
+	if len(games) != 1 {
+		return nil, fmt.Errorf("log parses to %d games", len(games))
+	}
+	return &games[0], nil
 }

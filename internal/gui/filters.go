@@ -18,6 +18,9 @@ type filters struct {
 	deck string
 	// gameType is a stats.GameType, an int for ui.Segmented.
 	gameType int
+	// opp is an opponent's player ID and oppLeader their leader, or "" for any. The Matches
+	// page's row menu sets them.
+	opp, oppLeader string
 }
 
 var periods = []struct {
@@ -62,7 +65,7 @@ func (v *view) formatRange() (stats.FormatRange, bool) {
 // lobbies can be any format. A period inside a format starts at the later of the two.
 func (v *view) currentScope() stats.Scope {
 	f := v.filter
-	s := stats.Scope{Type: stats.GameType(f.gameType), Deck: f.deck}
+	s := stats.Scope{Type: stats.GameType(f.gameType), Deck: f.deck, Opp: f.opp, OppLeader: f.oppLeader}
 	if d := periods[f.period].days; d > 0 {
 		s.Since = v.snap.Now.AddDate(0, 0, -d)
 	}
@@ -170,12 +173,33 @@ func (v *view) setDeck(code string) {
 }
 
 func (v *view) resetPoints() {
-	v.rollingPoint, v.leaderPoint = -1, -1
+	v.leaderPoint = -1
 }
 
 func (v *view) clearFilters() {
 	v.filter = filters{}
 	v.resetPoints()
+}
+
+// removablePill is a set filter shown as a tinted pill that clears it when clicked.
+func (v *view) removablePill(c *ui.Context, key, label string, clear func()) {
+	t := c.Theme()
+	el := ui.ButtonBase(c.Key(key)).Label("Remove the filter "+label).Padding(6, 12).Radius(16).
+		Background(t.Accent.Alpha(0.18)).Border(1, t.Accent)
+	el.Children(func() { ui.Text(c, label+"  ✕").FontSize(13) })
+	if el.Clicked() {
+		clear()
+		v.resetPoints()
+	}
+}
+
+func (v *view) oppName(id string) string {
+	for _, m := range v.snap.Matches {
+		if m.Opp.ID == id {
+			return m.Opp.Name
+		}
+	}
+	return id
 }
 
 // filterBar is the filters over every page, as pills that each open a menu. Pills that narrow
@@ -208,6 +232,13 @@ func (v *view) filterBar(c *ui.Context) {
 					}
 				}
 			})
+		}
+		// The opponent filters have no menu of their own, so they show only while set.
+		if v.filter.opp != "" {
+			v.removablePill(c, "opp", "vs "+v.oppName(v.filter.opp), func() { v.filter.opp = "" })
+		}
+		if v.filter.oppLeader != "" {
+			v.removablePill(c, "oppLeader", "vs "+v.snap.card(v.filter.oppLeader).Name, func() { v.filter.oppLeader = "" })
 		}
 		if v.filter.active() && ui.Text(c, "Clear").FontSize(13).TextColor(t.Accent).Padding(6, 4).Clicked() {
 			v.clearFilters()

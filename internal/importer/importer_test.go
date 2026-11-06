@@ -2,6 +2,7 @@ package importer_test
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,5 +135,33 @@ var _ = Describe("Watcher", func() {
 
 		cancel()
 		Eventually(done).Should(Receive(BeNil()))
+	})
+
+	It("parses stored games again on its first pass when the parser changed", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		DeferCleanup(cancel)
+		path := filepath.Join(GinkgoT().TempDir(), "logpose.db")
+		st, err := store.Open(ctx, path)
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() { Expect(st.Close()).To(Succeed()) })
+		dir := GinkgoT().TempDir()
+		data, err := os.ReadFile(filepath.Join("testdata", "2026-11-05T15.37.33.log"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(os.WriteFile(filepath.Join(dir, "2026-11-05T15.37.33.log"), data, 0o600)).To(Succeed())
+		_, err = importer.Dir(ctx, st, dir)
+		Expect(err).NotTo(HaveOccurred())
+
+		// An older logpose stored this game.
+		db, err := sql.Open("sqlite", path)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = db.ExecContext(ctx, `UPDATE games SET parser_version = 0`)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(db.Close()).To(Succeed())
+
+		results := make(chan importer.Result, 4)
+		w := &importer.Watcher{Dir: dir, Store: st, Interval: 20 * time.Millisecond, OnImport: func(r importer.Result) { results <- r }}
+		go func() { _ = w.Run(ctx) }()
+		Eventually(results).Should(Receive(And(HaveField("New", 0), HaveField("Reparsed", 1))))
+		Consistently(results, 100*time.Millisecond).ShouldNot(Receive())
 	})
 })

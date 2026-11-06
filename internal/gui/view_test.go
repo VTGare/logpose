@@ -55,12 +55,34 @@ func tester(s *snapshot) (*view, *ui.Tester) {
 }
 
 var _ = Describe("view", func() {
-	It("shows the session, the week and every deck played on the overview", func() {
+	It("shows today, the week, each day played and every deck on the overview", func() {
 		_, tt := tester(testSnapshot(10))
-		for _, text := range []string{"Today", "Streak", "Last 7 days", "All time", "Your decks", "Monkey D. Luffy", "10 games · 1 h ago", "Recent matches"} {
+		for _, text := range []string{
+			"Today", "Streak", "This week", "All time", "By day", "Your decks", "Monkey D. Luffy", "10 games · 1 h ago",
+			"Facing most this week", "Kaido",
+		} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
 		Expect(tt.HasText("Turn order")).To(BeFalse())
+	})
+
+	It("narrows to games against a leader faced this week", func() {
+		v, tt := tester(testSnapshot(10))
+		Expect(tt.Click("Show games vs Kaido")).To(Succeed())
+		Expect(v.filter.oppLeader).To(Equal("OP17-058"))
+		tt.Frame()
+		Expect(tt.HasText("vs Kaido  ✕")).To(BeTrue())
+	})
+
+	It("lists the days played under their week", func() {
+		s := testSnapshot(3)
+		s.Matches[2].PlayedAt = now.AddDate(0, 0, -5)
+		s.Matches[2].Result = stats.Win
+		s.Overview = stats.BuildOverview(s.Matches, now)
+		_, tt := tester(s)
+		for _, text := range []string{"This week", "Today", "1–1", "Last week", "Sun Nov 1", "1–0"} {
+			Expect(tt.HasText(text)).To(BeTrue(), text)
+		}
 	})
 
 	It("shows the current deck and its turn order split on the Leaders page", func() {
@@ -71,10 +93,11 @@ var _ = Describe("view", func() {
 		}
 	})
 
-	It("shows the game under the pointer on the rolling chart", func() {
+	It("shows the game under the pointer on the Leaders page's rolling chart", func() {
 		v, tt := tester(testSnapshot(30))
+		Expect(tt.Click("Leaders")).To(Succeed())
 		Expect(tt.HasText("game 25")).To(BeFalse())
-		v.rollingPoint = 5
+		v.leaderPoint = 5
 		tt.Frame()
 		Expect(tt.HasText("Nov 6 14:00 · game 25 · 50%, 10 of the last 20 won")).To(BeTrue(), fmt.Sprint(tt.Texts()))
 	})

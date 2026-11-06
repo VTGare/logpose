@@ -144,6 +144,86 @@ var _ = Describe("Store", func() {
 		Expect(n).To(BeZero())
 	})
 
+	It("keeps the game type the user set through a reparse, and takes it away", func() {
+		g := fixture()[0]
+		_, err := st.SaveGame(ctx, &g, src)
+		Expect(err).NotTo(HaveOccurred())
+		typeOf := func() GameType {
+			list, err := st.Games(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			return list[0].Type
+		}
+		Expect(typeOf()).To(Equal(TypeGuessed))
+
+		Expect(st.SetGameType(ctx, g.Fingerprint, TypeFriendly)).To(Succeed())
+		Expect(typeOf()).To(Equal(TypeFriendly))
+		Expect(st.SetGameType(ctx, g.Fingerprint, TypeRanked)).To(Succeed())
+		_, err = st.write.ExecContext(ctx, `UPDATE games SET parser_version = 0`)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Reparse(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(typeOf()).To(Equal(TypeRanked))
+
+		Expect(st.SetGameType(ctx, g.Fingerprint, TypeGuessed)).To(Succeed())
+		Expect(typeOf()).To(Equal(TypeGuessed))
+	})
+
+	It("says when the game to set a type for isn't stored", func() {
+		Expect(st.SetGameType(ctx, "missing", TypeRanked)).To(MatchError(ErrNotFound))
+	})
+
+	It("keeps a game's note through a reparse, trimmed, and deletes an empty one", func() {
+		g := fixture()[0]
+		_, err := st.SaveGame(ctx, &g, src)
+		Expect(err).NotTo(HaveOccurred())
+		noteOf := func() string {
+			list, err := st.Games(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			return list[0].Note
+		}
+		Expect(noteOf()).To(BeEmpty())
+
+		Expect(st.SetGameNote(ctx, g.Fingerprint, "  kept 2 counters\n")).To(Succeed())
+		Expect(noteOf()).To(Equal("kept 2 counters"))
+		_, err = st.write.ExecContext(ctx, `UPDATE games SET parser_version = 0`)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Reparse(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(noteOf()).To(Equal("kept 2 counters"))
+
+		Expect(st.SetGameNote(ctx, g.Fingerprint, " \n")).To(Succeed())
+		Expect(noteOf()).To(BeEmpty())
+	})
+
+	It("bookmarks a game and keeps it through a reparse", func() {
+		g := fixture()[0]
+		_, err := st.SaveGame(ctx, &g, src)
+		Expect(err).NotTo(HaveOccurred())
+		bookmarked := func() bool {
+			list, err := st.Games(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			return list[0].Bookmarked
+		}
+		Expect(bookmarked()).To(BeFalse())
+		Expect(st.SetBookmark(ctx, g.Fingerprint, true)).To(Succeed())
+		Expect(st.SetBookmark(ctx, g.Fingerprint, true)).To(Succeed())
+		_, err = st.write.ExecContext(ctx, `UPDATE games SET parser_version = 0`)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.Reparse(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(bookmarked()).To(BeTrue())
+		Expect(st.SetBookmark(ctx, g.Fingerprint, false)).To(Succeed())
+		Expect(bookmarked()).To(BeFalse())
+	})
+
+	It("says when the game to bookmark isn't stored", func() {
+		Expect(st.SetBookmark(ctx, "missing", true)).To(MatchError(ErrNotFound))
+	})
+
+	It("says when the game to note isn't stored", func() {
+		Expect(st.SetGameNote(ctx, "missing", "note")).To(MatchError(ErrNotFound))
+	})
+
 	It("keeps settings", func() {
 		Expect(st.Setting(ctx, SettingSimDir)).To(BeEmpty())
 		Expect(st.SetSetting(ctx, SettingSimDir, `E:\Games\OPTCG`)).To(Succeed())

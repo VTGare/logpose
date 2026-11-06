@@ -176,7 +176,11 @@ func (v *view) leaderRecent(c *ui.Context, l stats.Leader) {
 	t := c.Theme()
 	tile(c, "Recent games", func() {
 		for i, m := range l.Recent {
-			ui.Row(c.Key(i)).Gap(8).Children(func() {
+			row := ui.Row(c.Key(i)).Gap(8).Label("Open the match against " + m.Opp.Name)
+			if row.Clicked() {
+				v.openMatch(m)
+			}
+			row.Children(func() {
 				ui.Text(c, resultLetter(m.Result)).Bold().TextColor(resultColor(m.Result)).Width(14)
 				v.leaderChip(c, m.Opp.Leader, 12)
 				ui.Text(c, v.snap.card(m.Opp.Leader).Name).SingleLine().Width(180)

@@ -21,6 +21,7 @@ const userAgent = "logpose (+https://github.com/VTGare/logpose)"
 // Catalog is the cached copy of tcgcsv's cards. Groups holds each set's modifiedOn, so a
 // refresh only fetches sets that changed.
 type Catalog struct {
+	Version int                    `json:"version,omitempty"`
 	Fetched time.Time              `json:"fetched"`
 	Groups  map[string]string      `json:"groups"`
 	Cards   map[string]catalogCard `json:"cards"`
@@ -30,12 +31,17 @@ type catalogCard struct {
 	Name   string  `json:"name"`
 	Type   string  `json:"type"`
 	Colors []Color `json:"colors"`
+	Power  int     `json:"power,omitempty"`
 }
+
+// catalogVersion goes up when the catalog keeps more of each card. A catalog saved by an
+// older version fetches every set again, and keeps its cards until then.
+const catalogVersion = 2
 
 func LoadCatalog(path string) (*Catalog, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return &Catalog{Groups: make(map[string]string), Cards: make(map[string]catalogCard)}, nil
+		return &Catalog{Version: catalogVersion, Groups: make(map[string]string), Cards: make(map[string]catalogCard)}, nil
 	}
 	if err != nil {
 		return nil, err
@@ -44,8 +50,10 @@ func LoadCatalog(path string) (*Catalog, error) {
 	if err := json.Unmarshal(data, &c); err != nil {
 		return nil, err
 	}
-	if c.Groups == nil {
+	if c.Groups == nil || c.Version < catalogVersion {
 		c.Groups = make(map[string]string)
+		c.Fetched = time.Time{}
+		c.Version = catalogVersion
 	}
 	if c.Cards == nil {
 		c.Cards = make(map[string]catalogCard)
@@ -73,10 +81,15 @@ func (c *Catalog) Stale(now time.Time, maxAge time.Duration) bool {
 	return now.Sub(c.Fetched) > maxAge
 }
 
-// Apply adds the catalog's cards to db, over the ones db has.
+// Apply adds the catalog's cards to db, over the ones db has. A catalog saved before it kept
+// power has none, so a card keeps the power db has.
 func (c *Catalog) Apply(db *DB) {
 	for code, cc := range c.Cards {
-		db.cards[code] = Card{Code: code, Name: cc.Name, Type: cc.Type, Colors: cc.Colors}
+		p := cc.Power
+		if p == 0 {
+			p = db.cards[code].Power
+		}
+		db.cards[code] = Card{Code: code, Name: cc.Name, Type: cc.Type, Colors: cc.Colors, Power: p}
 	}
 }
 
@@ -134,9 +147,15 @@ func (c *Catalog) addProducts(p tcgProducts) {
 		}
 		// Alternate arts share a number. The first printing's name has the fewest extras.
 		if old, ok := c.Cards[code]; ok && len(old.Name) <= len(cleanName(r.Name)) {
+			if old.Power == 0 {
+				old.Power = power(fields["Power"])
+				c.Cards[code] = old
+			}
 			continue
 		}
-		c.Cards[code] = catalogCard{Name: cleanName(r.Name), Type: fields["CardType"], Colors: colors(fields["Color"])}
+		c.Cards[code] = catalogCard{
+			Name: cleanName(r.Name), Type: fields["CardType"], Colors: colors(fields["Color"]), Power: power(fields["Power"]),
+		}
 	}
 }
 

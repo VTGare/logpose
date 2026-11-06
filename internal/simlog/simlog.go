@@ -102,7 +102,7 @@ type Game struct {
 
 // Version is the parser's version. It goes up whenever parsing the same text gives different
 // results, so stored games know to be parsed again.
-const Version = 3
+const Version = 4
 
 func (g *Game) Player(id string) (Player, bool) {
 	for _, p := range g.Players {
@@ -160,15 +160,18 @@ type builder struct {
 	// begun is set at the first line past the lobby and mulligans.
 	begun   bool
 	headers int
-	print   []string
-	ends    endTracker
-	text    strings.Builder
+	// draws is each player's cards drawn before the first turn, in order.
+	draws map[string][]string
+	print []string
+	ends  endTracker
+	text  strings.Builder
 }
 
 func newBuilder() *builder {
 	return &builder{
-		game: Game{Mulligans: make(map[string]Mulligan), CardNames: make(map[string]string)},
-		ends: newEndTracker(),
+		game:  Game{Mulligans: make(map[string]Mulligan), CardNames: make(map[string]string)},
+		draws: make(map[string][]string),
+		ends:  newEndTracker(),
 	}
 }
 
@@ -204,6 +207,7 @@ func (b *builder) add(line string) {
 // before it, and its text gets the line too, so parsing the text alone finds it.
 func (b *builder) finish(prev Lobby) Game {
 	b.inferOwners()
+	b.handsFromDraws()
 	g := b.game
 	g.Text = b.text.String()
 	if g.Lobby.Code == "" && prev.Code != "" {
@@ -218,6 +222,25 @@ func (b *builder) finish(prev Lobby) Game {
 	g.Sets = setsOf(&g)
 	return g
 }
+
+// handsFromDraws fills the opening hand of a player the log gives no "Hand before Mulligan"
+// for, usually the opponent. The sim logs their 5 opening draws, and after a mulligan 5 more
+// draws and then "Mulligan".
+func (b *builder) handsFromDraws() {
+	for id, drawn := range b.draws {
+		m := b.game.Mulligans[id]
+		if len(m.Before) > 0 || len(drawn) < handSize {
+			continue
+		}
+		m.Before = drawn[:handSize]
+		if m.Mulliganed && len(drawn) >= 2*handSize {
+			m.After = drawn[handSize : 2*handSize]
+		}
+		b.game.Mulligans[id] = m
+	}
+}
+
+const handSize = 5
 
 // setsOf collects the sets of the leaders and of every card that moved. DON moves have no code.
 func setsOf(g *Game) []string {
