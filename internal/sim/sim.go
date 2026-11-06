@@ -1,9 +1,11 @@
 package sim
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 var ErrNotFound = errors.New("sim: OPTCGSim not found")
@@ -77,4 +79,33 @@ func PlayerLog() (string, error) {
 func Running() bool {
 	_, err := runningExe()
 	return err == nil
+}
+
+// FormatName is the name the sim shows for one of its format slots, such as "Spoiler" for the
+// slot "Nationals". The sim keeps each version's formats next to Player.log. Without the file
+// it's the slot's own name.
+func FormatName(simVersion, slot string) string {
+	log, err := PlayerLog()
+	// Both names come from Player.log, so they can't reach outside the formats folder.
+	if err != nil || simVersion == "" || slot == "" || strings.ContainsAny(slot+simVersion, `/\`) {
+		return slot
+	}
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(log), simVersion, "Formats", slot+".json"))
+	if err != nil {
+		return slot
+	}
+	var f struct {
+		Name     string `json:"formatName"`
+		Override string `json:"sNameOverride"`
+	}
+	if json.Unmarshal(data, &f) != nil {
+		return slot
+	}
+	if f.Override != "" {
+		return f.Override
+	}
+	if f.Name != "" {
+		return f.Name
+	}
+	return slot
 }

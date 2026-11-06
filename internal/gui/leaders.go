@@ -2,7 +2,6 @@ package gui
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -10,37 +9,30 @@ import (
 	"github.com/VTGare/logpose/internal/stats"
 )
 
-// leaderCache keeps the Leaders page's stats until the snapshot, the game type or the leader
-// changes.
+// leaderCache keeps the Leaders page's stats until the scope or the leader changes.
 type leaderCache struct {
-	snap     *snapshot
-	gameType stats.GameType
-	leader   string
-	stats    stats.Leader
-	all      []stats.LeaderRecord
-	matches  []stats.Match
+	snap    *snapshot
+	filters filters
+	leader  string
+	stats   stats.Leader
 }
 
+// leaderData is the leader the deck filter names, or the most played one in scope, and every
+// leader in scope to choose from.
 func (v *view) leaderData() (stats.Leader, []stats.LeaderRecord) {
+	sc := v.scoped()
+	all := sc.decks
+	leader := v.filter.deck
+	if leader == "" && len(all) > 0 {
+		leader = all[0].Leader
+	}
 	lc := &v.leaderStats
-	gt := stats.GameType(v.leaderType)
-	if lc.snap != v.snap || lc.gameType != gt {
-		lc.snap, lc.gameType, lc.leader = v.snap, gt, ""
-		lc.matches = stats.Filter(v.snap.Matches, gt)
-		lc.all = stats.Leaders(lc.matches)
+	if lc.snap != v.snap || lc.filters != v.filter || lc.leader != leader || lc.stats.Leader == "" {
+		lc.snap, lc.filters, lc.leader = v.snap, v.filter, leader
+		lc.stats = stats.ForLeader(sc.anyDeck, leader)
 	}
-	leader := v.leader
-	if !slices.ContainsFunc(lc.all, func(lr stats.LeaderRecord) bool { return lr.Leader == leader }) && len(lc.all) > 0 {
-		leader = lc.all[0].Leader
-	}
-	if lc.leader != leader {
-		lc.leader = leader
-		lc.stats = stats.ForLeader(lc.matches, leader)
-	}
-	return lc.stats, lc.all
+	return lc.stats, all
 }
-
-var gameTypeLabels = []string{"All games", "Ranked", "Casual"}
 
 func (v *view) leadersPage(c *ui.Context) {
 	l, all := v.leaderData()
@@ -50,16 +42,7 @@ func (v *view) leadersPage(c *ui.Context) {
 	}
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
-			ui.Row(c).Gap(12).Children(func() {
-				ui.Text(c, "Leaders").FontSize(20).Bold().Grow(1)
-				if ui.Segmented(c, &v.leaderType, gameTypeLabels...).Label("Game type").Changed() {
-					v.leaderPoint = -1
-				}
-			})
-			if len(all) == 0 {
-				ui.Text(c, "No "+strings.ToLower(gameTypeLabels[v.leaderType])+" games yet.").TextColor(c.Theme().TextMuted)
-				return
-			}
+			ui.Text(c, "Leaders").FontSize(20).Bold()
 			v.leaderPicker(c, all, l.Leader)
 			v.leaderBanner(c, l.Leader, label, l.Record)
 			ui.Row(c).Gap(12).AlignItems(ui.Stretch).Children(func() {

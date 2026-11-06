@@ -337,6 +337,33 @@ func Filter(ms []Match, t GameType) []Match {
 	return out
 }
 
+// Scope is which matches the pages show: a game type, one deck or all of them, and a start.
+type Scope struct {
+	Type GameType
+	// Deck is the local player's leader, or "" for every deck.
+	Deck string
+	// Since is the earliest time a match can end, or zero for all time.
+	Since time.Time
+	// Until is when matches stop counting, or zero for no end.
+	Until time.Time
+}
+
+// Apply keeps the matches in the scope, in order.
+func (s Scope) Apply(ms []Match) []Match {
+	if s == (Scope{}) {
+		return ms
+	}
+	out := make([]Match, 0, len(ms))
+	for _, m := range Filter(ms, s.Type) {
+		if s.Deck != "" && m.Me.Leader != s.Deck || !s.Since.IsZero() && m.PlayedAt.Before(s.Since) ||
+			!s.Until.IsZero() && !m.PlayedAt.Before(s.Until) {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
 type MatchupOrder int
 
 const (

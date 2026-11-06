@@ -90,6 +90,8 @@ type Game struct {
 	// Fingerprint identifies the game across files. In a rematch, the sim saves the whole lobby
 	// log after every game, so the same game shows up in several files.
 	Fingerprint string
+	// Sets is every card set the game's cards come from, such as "OP13", sorted.
+	Sets []string
 	// CardNames maps the codes of the cards the log mentions to the names it gives them.
 	CardNames map[string]string
 	// Text is the game's own part of the log, one line per line ending in "\n". Parsing it again
@@ -99,7 +101,7 @@ type Game struct {
 
 // Version is the parser's version. It goes up whenever parsing the same text gives different
 // results, so stored games know to be parsed again.
-const Version = 2
+const Version = 3
 
 func (g *Game) Player(id string) (Player, bool) {
 	for _, p := range g.Players {
@@ -212,7 +214,30 @@ func (b *builder) finish(prev Lobby) Game {
 		g.End = b.ends.lethal(&g)
 	}
 	g.Fingerprint = b.fingerprint()
+	g.Sets = setsOf(&g)
 	return g
+}
+
+// setsOf collects the sets of the leaders and of every card that moved. DON moves have no code.
+func setsOf(g *Game) []string {
+	seen := make(map[string]bool)
+	add := func(code string) {
+		if set, _, ok := strings.Cut(code, "-"); ok && set != "" {
+			seen[set] = true
+		}
+	}
+	for _, p := range g.Players {
+		add(p.Leader)
+	}
+	for _, m := range g.Moves {
+		add(m.Card)
+	}
+	sets := make([]string, 0, len(seen))
+	for s := range seen {
+		sets = append(sets, s)
+	}
+	slices.Sort(sets)
+	return sets
 }
 
 func (b *builder) fingerprint() string {

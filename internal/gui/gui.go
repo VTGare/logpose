@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,7 +46,8 @@ type app struct {
 	tray *mygo.Tray
 	view *view
 
-	quitting bool
+	quitting  bool
+	refreshMu sync.Mutex
 
 	cardsMu sync.Mutex
 	pack    *cards.DB
@@ -76,6 +78,7 @@ func Run(ctx context.Context, opts Options) error {
 
 func (a *app) ready(ctx context.Context) {
 	a.view = newView(nil)
+	a.view.act = &appActions{a: a, ctx: ctx}
 	title := "logpose"
 	if a.opts.Dev {
 		title = "logpose (dev)"
@@ -122,6 +125,16 @@ func (a *app) follow(ctx context.Context) {
 		Running: sim.Running,
 		OnChange: func(s live.State) {
 			a.win.Update(func() { a.view.live = s })
+		},
+		OnSaved: func(sv live.Saved) {
+			if sv.Format == "" {
+				return
+			}
+			if err := a.opts.Store.SetLogFormat(ctx, sv.File, sim.FormatName(sv.SimVersion, sv.Format)); err != nil {
+				a.opts.Log.Warn("log format", "err", err)
+				return
+			}
+			a.refresh(ctx)
 		},
 	}
 	_ = f.Run(ctx)
@@ -178,7 +191,11 @@ func (a *app) start(ctx context.Context) {
 	}
 }
 
+// refresh builds a new snapshot and shows it. The watcher, the log follower, the catalog refresh
+// and the view's actions all call it, so builds run one at a time and the newest one shows last.
 func (a *app) refresh(ctx context.Context) {
+	a.refreshMu.Lock()
+	defer a.refreshMu.Unlock()
 	snap, err := a.load(ctx)
 	if err != nil {
 		a.opts.Log.Error("load games", "err", err)
@@ -204,9 +221,18 @@ func (a *app) load(ctx context.Context) (*snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	db := a.cardDB()
+	// Each snapshot gets its own copy, since the window reads the last one while this one fills.
+	db := a.cardDB().Clone()
 	for code, name := range names {
 		db.Name(code, name)
+	}
+	formats, err := st.Formats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	dismissed, err := st.Setting(ctx, store.SettingDismissedSets)
+	if err != nil {
+		return nil, err
 	}
 	now := time.Now()
 	ms := stats.Matches(games, me)
@@ -218,6 +244,8 @@ func (a *app) load(ctx context.Context) (*snapshot, error) {
 		Overview: stats.BuildOverview(ms, now),
 		Cards:    db,
 		Now:      now,
+		Formats:  stats.Ranges(formats),
+		Debuts:   stats.Debuts(ms, formats, splitList(dismissed)),
 	}, nil
 }
 
@@ -295,4 +323,51 @@ func (a *app) show() {
 func (a *app) quit() {
 	a.quitting = true
 	mygo.App.Quit()
+}
+
+func splitList(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, ",")
+}
+
+// appActions makes the view's changes on a goroutine, then shows the result.
+type appActions struct {
+	a   *app
+	ctx context.Context
+}
+
+func (x *appActions) run(what string, fn func(ctx context.Context, st *store.Store) error) {
+	go func() {
+		if err := fn(x.ctx, x.a.opts.Store); err != nil {
+			x.a.opts.Log.Error(what, "err", err)
+		}
+		x.a.refresh(x.ctx)
+	}()
+}
+
+func (x *appActions) AddFormat(name string, start time.Time) {
+	x.run("add format", func(ctx context.Context, st *store.Store) error {
+		_, err := st.AddFormat(ctx, name, start)
+		return err
+	})
+}
+
+func (x *appActions) UpdateFormat(f store.Format) {
+	x.run("update format", func(ctx context.Context, st *store.Store) error { return st.UpdateFormat(ctx, f) })
+}
+
+func (x *appActions) DeleteFormat(id int64) {
+	x.run("delete format", func(ctx context.Context, st *store.Store) error { return st.DeleteFormat(ctx, id) })
+}
+
+func (x *appActions) DismissSet(set string) {
+	x.run("dismiss set", func(ctx context.Context, st *store.Store) error {
+		cur, err := st.Setting(ctx, store.SettingDismissedSets)
+		if err != nil {
+			return err
+		}
+		return st.SetSetting(ctx, store.SettingDismissedSets, strings.Join(append(splitList(cur), set), ","))
+	})
 }

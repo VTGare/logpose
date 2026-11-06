@@ -30,7 +30,7 @@ var matchColumns = []ui.TableColumn{
 	{Title: "Turn order", Width: 90, Sortable: true},
 	{Title: "Turns", Width: 60, Align: ui.End, Sortable: true},
 	{Title: "Ended by", Width: 90},
-	{Title: "Type", Width: 70, Sortable: true},
+	{Title: "Type", Width: 150, Sortable: true},
 }
 
 func (v *view) matchesPage(c *ui.Context) {
@@ -40,9 +40,10 @@ func (v *view) matchesPage(c *ui.Context) {
 		s.sort = ui.SortOrder{Column: "Played", Descending: true}
 		s.row = -1
 	}
-	if s.sorted == nil || s.sort != s.sortKey || !sameSlice(s.from, v.snap.Matches) {
-		s.sorted = sortMatches(v.snap, v.snap.Matches, s.sort)
-		s.sortKey, s.from = s.sort, v.snap.Matches
+	ms := v.scoped().matches
+	if s.sorted == nil || s.sort != s.sortKey || !sameSlice(s.from, ms) {
+		s.sorted = sortMatches(v.snap, ms, s.sort)
+		s.sortKey, s.from = s.sort, ms
 	}
 	rows := s.sorted
 	s.list.Sort = &s.sort
@@ -127,9 +128,17 @@ func endWord(k simlog.EndKind) string {
 	}
 }
 
+// gameType is ranked with the sim room its lobby was in, or casual with the sim's format when
+// logpose saw which it was.
 func gameType(m stats.Match) string {
 	if m.Ranked {
+		if q, ok := stats.Rooms[m.Lobby.Code[0]]; ok {
+			return "Ranked · " + q
+		}
 		return "Ranked"
+	}
+	if m.SimFormat != "" {
+		return "Casual · " + m.SimFormat
 	}
 	return "Casual"
 }

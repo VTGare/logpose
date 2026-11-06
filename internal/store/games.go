@@ -45,6 +45,10 @@ type Game struct {
 	Turns       int
 	End         simlog.End
 	Source      Source
+	// Sets is the card sets of the game's cards, sorted.
+	Sets []string
+	// SimFormat is the sim's name for the game's format, or "" when logpose didn't see it.
+	SimFormat string
 }
 
 func (g Game) Player(id string) (GamePlayer, bool) {
@@ -95,10 +99,10 @@ func (s *Store) SaveGame(ctx context.Context, g *simlog.Game, src Source) (bool,
 func writeParsed(ctx context.Context, tx *sql.Tx, g *simlog.Game) error {
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE games SET parser_version = ?, lobby_code = ?, lobby_role = ?, sim_version = ?,
-			first_player = ?, turns = ?, end_kind = ?, loser = ?
+			first_player = ?, turns = ?, end_kind = ?, loser = ?, sets = ?
 		WHERE fingerprint = ?`,
 		simlog.Version, g.Lobby.Code, roleName(g.Lobby.Role), g.SimVersion, g.First, g.Turns,
-		endName(g.End.Kind), g.End.Loser, g.Fingerprint,
+		endName(g.End.Kind), g.End.Loser, strings.Join(g.Sets, ","), g.Fingerprint,
 	); err != nil {
 		return err
 	}
@@ -194,9 +198,10 @@ func (s *Store) GameLog(ctx context.Context, fingerprint string) (string, error)
 // Games returns every stored game, newest first.
 func (s *Store) Games(ctx context.Context) ([]Game, error) {
 	rows, err := s.read.QueryContext(ctx, `
-		SELECT fingerprint, played_at, lobby_code, lobby_role, sim_version, first_player, turns,
-			end_kind, loser, source_file, source_index
-		FROM games ORDER BY played_at DESC, source_index DESC`)
+		SELECT g.fingerprint, g.played_at, g.lobby_code, g.lobby_role, g.sim_version, g.first_player,
+			g.turns, g.end_kind, g.loser, g.source_file, g.source_index, g.sets, coalesce(f.sim_format, '')
+		FROM games g LEFT JOIN log_formats f ON f.source_file = g.source_file
+		ORDER BY g.played_at DESC, g.source_index DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -219,9 +224,10 @@ func (s *Store) Games(ctx context.Context) ([]Game, error) {
 func scanGame(rows *sql.Rows) (Game, error) {
 	var g Game
 	var played int64
-	var role, end string
+	var role, end, sets string
 	err := rows.Scan(&g.Fingerprint, &played, &g.Lobby.Code, &role, &g.SimVersion, &g.First, &g.Turns,
-		&end, &g.End.Loser, &g.Source.File, &g.Source.Index)
+		&end, &g.End.Loser, &g.Source.File, &g.Source.Index, &sets, &g.SimFormat)
+	g.Sets = splitCodes(sets)
 	g.PlayedAt = time.UnixMilli(played)
 	g.Source.PlayedAt = g.PlayedAt
 	g.Lobby.Role = roleFromName(role)

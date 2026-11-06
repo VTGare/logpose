@@ -26,6 +26,7 @@ type game struct {
 	lobby    string
 	noFirst  bool
 	opponent string
+	sets     []string
 }
 
 func build(gs ...game) []store.Game {
@@ -40,6 +41,7 @@ func build(gs ...game) []store.Game {
 			PlayedAt:    now.Add(-g.ago),
 			Turns:       10,
 			Lobby:       simlog.Lobby{Code: g.lobby},
+			Sets:        g.sets,
 			Players: []store.GamePlayer{
 				{ID: me, Leader: g.mine},
 				{ID: opp, Leader: g.theirs},
@@ -304,5 +306,26 @@ var _ = Describe("VersusFor", func() {
 		v := stats.VersusFor(ms, luffy, "", "Bob#2")
 		Expect(v.Matchup.Games()).To(BeZero())
 		Expect(v.Player.Games()).To(Equal(2))
+	})
+})
+
+var _ = Describe("Scope", func() {
+	luffy, kid := "OP13-001", "OP17-058"
+	ms := stats.Matches(build(
+		game{ago: time.Hour, mine: luffy, lobby: "XABCDEF", won: true},
+		game{ago: 2 * time.Hour, mine: kid, lobby: "QWERTY"},
+		game{ago: 10 * 24 * time.Hour, mine: luffy, lobby: "XABCDEG"},
+	), me)
+
+	It("keeps everything when empty", func() {
+		Expect(stats.Scope{}.Apply(ms)).To(HaveLen(3))
+	})
+
+	It("combines game type, deck and start", func() {
+		Expect(stats.Scope{Type: stats.RankedGames}.Apply(ms)).To(HaveLen(2))
+		Expect(stats.Scope{Deck: luffy}.Apply(ms)).To(HaveLen(2))
+		got := stats.Scope{Type: stats.RankedGames, Deck: luffy, Since: now.AddDate(0, 0, -7)}.Apply(ms)
+		Expect(got).To(HaveLen(1))
+		Expect(got[0].Result).To(Equal(stats.Win))
 	})
 })

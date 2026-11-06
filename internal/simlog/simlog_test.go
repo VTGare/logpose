@@ -83,6 +83,13 @@ var _ = Describe("Parse", func() {
 		Expect(m.After).To(ContainElement("OP14-031"))
 	})
 
+	It("lists the sets of the leaders and the cards that moved, without DON", func() {
+		lines := append(lobby("XNJ8M66"), opening()...)
+		lines = append(lines, "RZ1|2|1|Don|4|0|5|0|1|1|0|0|0", "RZ1|3|2|EB05-037|0|8|1|2|0|0|0|0|0")
+		g := parse(logOf(lines...))[0]
+		Expect(g.Sets).To(Equal([]string{"EB05", "OP12", "OP13", "OP17"}))
+	})
+
 	It("tells OPBounty lobbies from the sim's own", func() {
 		Expect(Lobby{Code: "XNJ8M66"}.OPBounty()).To(BeTrue())
 		Expect(Lobby{Code: "7KQ2MP"}.OPBounty()).To(BeFalse())

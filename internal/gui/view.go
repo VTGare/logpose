@@ -8,6 +8,7 @@ import (
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/live"
 	"github.com/VTGare/logpose/internal/stats"
+	"github.com/VTGare/logpose/internal/store"
 )
 
 // snapshot is what the window shows. The engine builds a new one off the main thread, and the
@@ -20,6 +21,10 @@ type snapshot struct {
 	Overview stats.Overview
 	Cards    *cards.DB
 	Now      time.Time
+	// Formats are the user's formats, oldest first, and Debuts the sets that look like they
+	// started one.
+	Formats []stats.FormatRange
+	Debuts  []stats.SetDebut
 }
 
 func (s *snapshot) card(code string) cards.Card {
@@ -33,10 +38,23 @@ const (
 	pageOverview = "overview"
 	pageMatches  = "matches"
 	pageLeaders  = "leaders"
+	pageFormats  = "formats"
 )
+
+// actions are the changes the view asks the app for. The app makes them off the main thread
+// and sends a new snapshot.
+type actions interface {
+	AddFormat(name string, start time.Time)
+	UpdateFormat(f store.Format)
+	DeleteFormat(id int64)
+	DismissSet(set string)
+}
 
 type view struct {
 	snap *snapshot
+	act  actions
+	// formats is the Formats page's state.
+	formats formatsState
 	// live is the game in the sim right now, which the log follower updates on its own.
 	live live.State
 	art  *artCache
@@ -46,12 +64,11 @@ type view struct {
 	// rollingPoint is the rolling chart's point under the pointer, or -1.
 	rollingPoint int
 
-	// leader is the leader the Leaders page shows, or "" for the most played one.
-	leader      string
-	leaderPoint int
-	leaderStats leaderCache
-	// leaderType is the Leaders page's game type, a stats.GameType.
-	leaderType   int
+	filter filters
+	scope  scoped
+
+	leaderPoint  int
+	leaderStats  leaderCache
 	matchupOrder int
 	hideFew      bool
 }
@@ -59,8 +76,7 @@ type view struct {
 // openLeader shows a leader on the Leaders page.
 func (v *view) openLeader(code string) {
 	v.page = pageLeaders
-	v.leader = code
-	v.leaderPoint = -1
+	v.setDeck(code)
 }
 
 func newView(art *artCache) *view {
@@ -71,17 +87,27 @@ func (v *view) build(c *ui.Context) {
 	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		v.sidebar(c)
 		ui.Column(c).Grow(1).Fill().Children(func() {
+			if v.snap.Loaded && len(v.snap.Matches) > 0 && v.page != pageFormats {
+				v.filterBar(c)
+			}
 			if v.snap.Loaded && v.live.Phase != live.Idle {
 				v.liveStrip(c)
+			}
+			if v.page == pageOverview && len(v.snap.Debuts) > 0 {
+				v.debutBanner(c)
 			}
 			switch {
 			case !v.snap.Loaded:
 				v.message(c, "Loading your games", "")
+			case v.page == pageFormats:
+				v.formatsPage(c)
 			case len(v.snap.Matches) == 0 && !v.snap.SimFound:
 				v.message(c, "OPTCGSim isn't running",
 					"Start the sim and logpose finds it and imports your games. If it's installed somewhere unusual, start logpose with -sim and the sim's folder.")
 			case len(v.snap.Matches) == 0:
 				v.message(c, "Play a game in the sim", "Every game you finish shows up here on its own.")
+			case len(v.scoped().matches) == 0:
+				v.message(c, "No games match these filters", "Change or clear the filters above.")
 			case v.page == pageMatches:
 				v.matchesPage(c)
 			case v.page == pageLeaders:
@@ -104,7 +130,9 @@ func (v *view) sidebar(c *ui.Context) {
 			ui.SidebarItem(c, pageOverview, iconOverview, "Overview")
 			ui.SidebarItem(c, pageLeaders, iconLeaders, "Leaders")
 			ui.SidebarItem(c, pageMatches, iconMatches, "Matches")
-		}).Grow(1)
+			ui.SidebarItem(c, pageFormats, iconFormats, "Formats")
+		})
+		ui.Spacer(c)
 	})
 }
 

@@ -13,7 +13,7 @@ import (
 // overviewPage is the session and the week on the left, and the decks played and the latest
 // games on the right.
 func (v *view) overviewPage(c *ui.Context) {
-	o := v.snap.Overview
+	o := v.scoped().overview
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Row(c).Padding(20).Gap(16).AlignItems(ui.Start).Children(func() {
 			ui.Column(c).Grow(1).Basis(0).Gap(16).Children(func() {
@@ -23,9 +23,9 @@ func (v *view) overviewPage(c *ui.Context) {
 				})
 				ui.Row(c).Gap(12).AlignItems(ui.Stretch).Children(func() {
 					periodTile(c, "Last 7 days", o.Week, weekChange(o)).Grow(1).Basis(0)
-					periodTile(c, "All time", o.Total, games(o.Total.Games())).Grow(1).Basis(0)
+					periodTile(c, v.periodTitle(), o.Total, games(o.Total.Games())).Grow(1).Basis(0)
 				})
-				v.rollingChart(c, "Win rate, all leaders", o.Rolling, &v.rollingPoint)
+				v.rollingChart(c, v.chartTitle(), o.Rolling, &v.rollingPoint)
 				v.facedTile(c, o)
 			})
 			ui.Column(c).Width(340).Gap(16).Children(func() {
@@ -38,6 +38,22 @@ func (v *view) overviewPage(c *ui.Context) {
 			})
 		})
 	})
+}
+
+// periodTitle names the whole of the filtered games: the period, or the format when the
+// period is all time.
+func (v *view) periodTitle() string {
+	if fr, ok := v.formatRange(); ok && v.filter.period == 0 {
+		return "All of " + fr.Name
+	}
+	return periods[v.filter.period].label
+}
+
+func (v *view) chartTitle() string {
+	if v.filter.deck != "" {
+		return "Win rate with " + v.snap.card(v.filter.deck).Name
+	}
+	return "Win rate, all leaders"
 }
 
 func periodTile(c *ui.Context, label string, r stats.Record, note string) ui.Element {

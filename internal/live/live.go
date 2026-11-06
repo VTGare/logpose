@@ -56,6 +56,15 @@ func (s State) Opponent() (Player, bool) {
 
 func (s State) Ranked() bool { return len(s.Lobby) == 7 }
 
+// Saved is a combat log the sim wrote, with the format its lobby validated decks against.
+type Saved struct {
+	// File is the log's name in the sim's AutoSaved folder.
+	File string
+	// Format is the sim's name for the format's slot, such as "Nationals", or "" when the log
+	// didn't say. SimVersion is the sim's version, such as "1.44a".
+	Format, SimVersion string
+}
+
 // Tracker follows the sim's Player.log line by line.
 //
 // The sim logs a deck shuffle for each player when a game starts and after each mulligan. The
@@ -68,6 +77,17 @@ type Tracker struct {
 	// pending is the player whose owner number the next move gives.
 	pending string
 	lastSeq int
+
+	// format and simVersion outlive games, since the sim logs them before it opens a lobby.
+	format, simVersion string
+	saved              []Saved
+}
+
+// TakeSaved returns the logs saved since the last call.
+func (t *Tracker) TakeSaved() []Saved {
+	s := t.saved
+	t.saved = nil
+	return s
 }
 
 func (t *Tracker) State() State {
@@ -87,10 +107,15 @@ func (t *Tracker) Line(line string) bool {
 		if t.state.Phase == Playing {
 			t.rz(strings.Split(line[len(rzPrefix):], "|"))
 		}
-	case line == "Return to Main",
-		strings.HasPrefix(line, "OPB_RESULT|"),
-		strings.HasPrefix(line, "[CombatLog SaveMyLogLines] wrote OK"):
+	case strings.HasPrefix(line, "[CombatLog SaveMyLogLines] wrote OK"):
+		t.wrote(line)
 		t.reset()
+	case line == "Return to Main", strings.HasPrefix(line, "OPB_RESULT|"):
+		t.reset()
+	case strings.HasPrefix(line, "Validate Decks "):
+		t.format = strings.TrimSpace(strings.TrimPrefix(line, "Validate Decks "))
+	case strings.HasPrefix(line, "sim version: "):
+		t.simVersion = strings.TrimSpace(strings.TrimPrefix(line, "sim version: "))
 	case strings.HasPrefix(line, "Host with "):
 		t.reset()
 		t.state.Phase, t.state.Hosting = Lobby, true
@@ -111,7 +136,21 @@ func (t *Tracker) Line(line string) bool {
 }
 
 func (t *Tracker) reset() {
-	*t = Tracker{}
+	*t = Tracker{format: t.format, simVersion: t.simVersion, saved: t.saved}
+}
+
+// wrote records the log a "wrote OK" line names in its "file=" part, a path under the sim.
+func (t *Tracker) wrote(line string) {
+	for part := range strings.SplitSeq(line, "|") {
+		file, ok := strings.CutPrefix(strings.TrimSpace(part), "file=")
+		if !ok {
+			continue
+		}
+		if i := strings.LastIndexAny(file, `\/`); i >= 0 {
+			file = file[i+1:]
+		}
+		t.saved = append(t.saved, Saved{File: file, Format: t.format, SimVersion: t.simVersion})
+	}
 }
 
 func (t *Tracker) lobby(code string) {

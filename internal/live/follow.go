@@ -18,6 +18,9 @@ type Follower struct {
 	Running func() bool
 	// OnChange gets each new state. It runs on the follower's goroutine.
 	OnChange func(State)
+	// OnSaved gets each combat log the sim saved, including those already in the log when the
+	// follower starts. It runs on the follower's goroutine.
+	OnSaved func(Saved)
 
 	tracker Tracker
 	offset  int64
@@ -44,6 +47,11 @@ func (f *Follower) Run(ctx context.Context) error {
 
 func (f *Follower) poll() {
 	f.read()
+	for _, sv := range f.tracker.TakeSaved() {
+		if f.OnSaved != nil {
+			f.OnSaved(sv)
+		}
+	}
 	s := f.tracker.State()
 	if f.Running != nil && !f.Running() {
 		s = State{}

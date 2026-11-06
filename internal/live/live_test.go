@@ -107,6 +107,22 @@ var _ = Describe("Tracker", func() {
 		})
 	})
 
+	It("names each saved log with the format its lobby validated decks against", func() {
+		var t live.Tracker
+		for _, l := range []string{
+			"sim version: 1.44a",
+			"Load eMultiStyle Nationals",
+			"Validate Decks Nationals",
+			"Host with 1.44a",
+			"Return to Main",
+			`[CombatLog SaveMyLogLines] wrote OK | lines=10 | file=CombatLogs\AutoSaved\2026-11-05T14.37.06.log | exists=True | length=1`,
+		} {
+			t.Line(l)
+		}
+		Expect(t.TakeSaved()).To(Equal([]live.Saved{{File: "2026-11-05T14.37.06.log", Format: "Nationals", SimVersion: "1.44a"}}))
+		Expect(t.TakeSaved()).To(BeEmpty())
+	})
+
 	It("starts over when the move numbers do", func() {
 		var t live.Tracker
 		for _, l := range []string{

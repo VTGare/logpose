@@ -41,6 +41,18 @@ var _ = Describe("Store", func() {
 		src = Source{File: "2026-11-05T15.52.10.log", PlayedAt: time.Date(2026, 11, 5, 15, 52, 10, 0, time.Local)}
 	})
 
+	It("keeps the game's sets and the sim format seen for its log", func() {
+		g := fixture()[0]
+		_, err := st.SaveGame(ctx, &g, src)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.SetLogFormat(ctx, src.File, "Spoiler")).To(Succeed())
+		list, err := st.Games(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(list[0].SimFormat).To(Equal("Spoiler"))
+		Expect(list[0].Sets).To(Equal(g.Sets))
+		Expect(list[0].Sets).NotTo(BeEmpty())
+	})
+
 	It("saves a game once", func() {
 		g := fixture()[0]
 		created, err := st.SaveGame(ctx, &g, src)
