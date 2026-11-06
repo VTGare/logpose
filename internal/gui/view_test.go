@@ -33,7 +33,7 @@ func testSnapshot(n int) *snapshot {
 			PlayedAt:    now.Add(-time.Duration(i+1) * time.Hour),
 			Turns:       12,
 			First:       me,
-			Lobby:       simlog.Lobby{Code: "XNJ8M66"},
+			Lobby:       simlog.Lobby{Code: fmt.Sprintf("XNJ8M%02d", i)},
 			End:         simlog.End{Kind: simlog.EndConcede, Loser: loser},
 			Players: []store.GamePlayer{
 				{ID: me, Name: "Me", Leader: "OP13-001"},

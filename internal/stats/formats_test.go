@@ -1,6 +1,7 @@
 package stats_test
 
 import (
+	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -15,7 +16,7 @@ var _ = Describe("Debuts", func() {
 	history := func(n int, sets ...string) []game {
 		var gs []game
 		for i := range n {
-			gs = append(gs, game{ago: time.Duration(100+i) * time.Hour, mine: "OP13-001", lobby: "XABCDEF", sets: sets})
+			gs = append(gs, game{ago: time.Duration(100+i) * time.Hour, mine: "OP13-001", lobby: fmt.Sprintf("XABCD%02d", i), sets: sets})
 		}
 		return gs
 	}

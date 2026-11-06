@@ -22,9 +22,10 @@ type Lobby struct {
 	Role LobbyRole
 }
 
-// OPBounty reports whether OPBounty made the lobby. Its codes are 7 characters, starting with
-// the queue's prefix letter, and the sim's own codes are 6.
-func (l Lobby) OPBounty() bool { return len(l.Code) == 7 }
+// InRoom reports whether the lobby was made in one of the sim's rooms, such as Spoiler or
+// Standard. Their codes are 7 characters, starting with the room's letter, and the sim's open
+// lobbies have 6. OPBounty's ranked lobbies are in rooms, and so are friendlies hosted there.
+func (l Lobby) InRoom() bool { return len(l.Code) == 7 }
 
 type Player struct {
 	Name string

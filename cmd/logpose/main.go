@@ -15,6 +15,7 @@ import (
 	"github.com/VTGare/logpose/internal/gui"
 	"github.com/VTGare/logpose/internal/importer"
 	"github.com/VTGare/logpose/internal/sim"
+	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
 )
 
@@ -185,6 +186,7 @@ func runGames(ctx context.Context, args []string) (err error) {
 		return err
 	}
 	wins := 0
+	sizes := stats.LobbySizes(games)
 	for _, g := range games {
 		mine, _ := g.Player(me)
 		var theirs store.GamePlayer
@@ -204,7 +206,7 @@ func runGames(ctx context.Context, args []string) (err error) {
 			order = "1st"
 		}
 		kind := "casual"
-		if g.Lobby.OPBounty() {
+		if stats.IsRanked(g, sizes) {
 			kind = "ranked"
 		}
 		fmt.Printf("%s  %s  %-8s vs %-8s %-22s %s  T%-2d %-8s %s\n", g.PlayedAt.Format("2006-01-02 15:04"), result,

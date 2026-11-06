@@ -90,10 +90,10 @@ var _ = Describe("Parse", func() {
 		Expect(g.Sets).To(Equal([]string{"EB05", "OP12", "OP13", "OP17"}))
 	})
 
-	It("tells OPBounty lobbies from the sim's own", func() {
-		Expect(Lobby{Code: "XNJ8M66"}.OPBounty()).To(BeTrue())
-		Expect(Lobby{Code: "7KQ2MP"}.OPBounty()).To(BeFalse())
-		Expect(Lobby{}.OPBounty()).To(BeFalse())
+	It("tells lobbies in a room from the sim's open ones", func() {
+		Expect(Lobby{Code: "XNJ8M66"}.InRoom()).To(BeTrue())
+		Expect(Lobby{Code: "7KQ2MP"}.InRoom()).To(BeFalse())
+		Expect(Lobby{}.InRoom()).To(BeFalse())
 	})
 
 	It("reads the host's room code", func() {

@@ -29,16 +29,36 @@ type Match struct {
 	Ranked         bool
 }
 
+// LobbySizes counts the games played in each lobby.
+func LobbySizes(games []store.Game) map[string]int {
+	sizes := make(map[string]int)
+	for _, g := range games {
+		if g.Lobby.Code != "" {
+			sizes[g.Lobby.Code]++
+		}
+	}
+	return sizes
+}
+
+// IsRanked guesses whether a game was ranked, from the games in each lobby. The sim logs
+// nothing that tells a ranked game from a friendly in the same room. A ranked match is one game
+// in its own lobby, while friendlies usually play several, so a lobby with more than one game
+// counts as friendly.
+func IsRanked(g store.Game, lobbySizes map[string]int) bool {
+	return g.Lobby.InRoom() && lobbySizes[g.Lobby.Code] == 1
+}
+
 // Matches turns stored games into matches for the local player, keeping the store's order.
 // Games the local player isn't in are left out.
 func Matches(games []store.Game, me string) []Match {
 	out := make([]Match, 0, len(games))
+	sizes := LobbySizes(games)
 	for _, g := range games {
 		mine, ok := g.Player(me)
 		if !ok {
 			continue
 		}
-		m := Match{Game: g, Me: mine, Ranked: g.Lobby.OPBounty()}
+		m := Match{Game: g, Me: mine, Ranked: IsRanked(g, sizes)}
 		for _, p := range g.Players {
 			if p.ID != me {
 				m.Opp = p

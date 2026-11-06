@@ -329,3 +329,15 @@ var _ = Describe("Scope", func() {
 		Expect(got[0].Result).To(Equal(stats.Win))
 	})
 })
+
+var _ = Describe("ranked", func() {
+	It("counts a game alone in its room lobby as ranked, and rematches in one as friendlies", func() {
+		ms := stats.Matches(build(
+			game{ago: time.Hour, mine: "A", lobby: "XAAAAAA"},
+			game{ago: 2 * time.Hour, mine: "A", lobby: "XBBBBBB"},
+			game{ago: 3 * time.Hour, mine: "A", lobby: "XBBBBBB"},
+			game{ago: 4 * time.Hour, mine: "A", lobby: "QWERTY"},
+		), me)
+		Expect([]bool{ms[0].Ranked, ms[1].Ranked, ms[2].Ranked, ms[3].Ranked}).To(Equal([]bool{true, false, false, false}))
+	})
+})
