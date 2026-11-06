@@ -29,6 +29,10 @@ var (
 	codeList     = regexp.MustCompile(`^\[([^\]]*)\]$`)
 	hitLine      = regexp.MustCompile(`^.* \[([A-Z0-9-]+)\] hit for \d+ damage$`)
 	cardCode     = regexp.MustCompile(`\[([A-Z]{1,3}\d{0,2}-\d{3}[A-Z]?)\]`)
+	// namedCard is a card link with the text before it, back to the line's start, a "] " or a
+	// ": ". That text can start with a verb, as in "Discard Otama", so a card's name is the
+	// shortest text seen before its links.
+	namedCard = regexp.MustCompile(`(?:^|\] |: )([^\[\]:]+?) \[<mark><link="([^"]+)">`)
 )
 
 func parseLine(raw string) Line {
@@ -51,6 +55,7 @@ func parseLine(raw string) Line {
 }
 
 func (b *builder) addText(raw string) {
+	b.learnNames(raw)
 	l := parseLine(raw)
 	header := b.headerLine(l)
 	if !header && !b.playerLine(l) {
@@ -185,4 +190,20 @@ func codes(list string) []string {
 		return nil
 	}
 	return strings.Split(m[1], ",")
+}
+
+// actionPrefix is the start of the sim's action text before a card's name, as the line survey
+// of real logs found it.
+var actionPrefix = regexp.MustCompile(`^(?:(?:Leader is|Deploy|Trash|Discard|Rest|Destroy|Buff|Grant|Return|Send|Set|Reveal and Draw|attacking|Play|Add|Attach \d+(?: Rested)? Don to) )+`)
+
+func (b *builder) learnNames(raw string) {
+	for _, m := range namedCard.FindAllStringSubmatch(richTag.ReplaceAllString(raw, ""), -1) {
+		name, code := actionPrefix.ReplaceAllString(strings.TrimSpace(m[1]), ""), m[2]
+		if name == "" {
+			continue
+		}
+		if old, ok := b.game.CardNames[code]; !ok || len(name) < len(old) {
+			b.game.CardNames[code] = name
+		}
+	}
 }

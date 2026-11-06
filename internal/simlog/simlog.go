@@ -90,6 +90,8 @@ type Game struct {
 	// Fingerprint identifies the game across files. In a rematch, the sim saves the whole lobby
 	// log after every game, so the same game shows up in several files.
 	Fingerprint string
+	// CardNames maps the codes of the cards the log mentions to the names it gives them.
+	CardNames map[string]string
 	// Text is the game's own part of the log, one line per line ending in "\n". Parsing it again
 	// gives the same game.
 	Text string
@@ -97,7 +99,7 @@ type Game struct {
 
 // Version is the parser's version. It goes up whenever parsing the same text gives different
 // results, so stored games know to be parsed again.
-const Version = 1
+const Version = 2
 
 func (g *Game) Player(id string) (Player, bool) {
 	for _, p := range g.Players {
@@ -162,7 +164,7 @@ type builder struct {
 
 func newBuilder() *builder {
 	return &builder{
-		game: Game{Mulligans: make(map[string]Mulligan)},
+		game: Game{Mulligans: make(map[string]Mulligan), CardNames: make(map[string]string)},
 		ends: newEndTracker(),
 	}
 }

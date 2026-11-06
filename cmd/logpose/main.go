@@ -5,18 +5,23 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/VTGare/logpose/internal/gui"
 	"github.com/VTGare/logpose/internal/importer"
+	"github.com/VTGare/logpose/internal/sim"
 	"github.com/VTGare/logpose/internal/store"
 )
 
 var version = "dev"
 
-const usage = `usage: logpose <command> [flags]
+const usage = `usage: logpose [-db <file>] [-sim <folder>]   open the app
+       logpose <command> [flags]
 
 commands:
   import -dir <CombatLogs/AutoSaved>   copy the sim's combat logs into logpose
@@ -24,14 +29,18 @@ commands:
   version                              print the version`
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, usage)
-		os.Exit(2)
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
 	var err error
+	if len(os.Args) < 2 || strings.HasPrefix(os.Args[1], "-") {
+		err = runApp(ctx, os.Args[1:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "logpose:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	switch os.Args[1] {
 	case "import":
 		err = runImport(ctx, os.Args[2:])
@@ -65,6 +74,58 @@ func openStore(ctx context.Context, path string) (*store.Store, error) {
 		return nil, err
 	}
 	return store.Open(ctx, path)
+}
+
+func runApp(ctx context.Context, args []string) (err error) {
+	fs := flag.NewFlagSet("logpose", flag.ExitOnError)
+	db := dbFlag(fs)
+	simDir := fs.String("sim", "", "OPTCGSim's folder, the one with OPTCGSim.exe (default: found from the running sim)")
+	_ = fs.Parse(args)
+
+	st, err := openStore(ctx, *db)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, st.Close()) }()
+
+	opts := gui.Options{Store: st, Log: logger()}
+	if in, err := locateSim(ctx, st, *simDir); err == nil {
+		opts.Install = &in
+	} else {
+		opts.Log.Warn("sim not found", "err", err)
+	}
+	return gui.Run(ctx, opts)
+}
+
+// locateSim finds the sim from -sim, the running process, the usual folders, then the folder it
+// was last found in, and remembers where it found it.
+func locateSim(ctx context.Context, st *store.Store, dir string) (sim.Install, error) {
+	in, err := sim.Open(dir)
+	if dir == "" {
+		in, err = sim.Locate()
+	}
+	if err != nil && dir == "" {
+		if saved, serr := st.Setting(ctx, store.SettingSimDir); serr == nil && saved != "" {
+			in, err = sim.Open(saved)
+		}
+	}
+	if err != nil {
+		return sim.Install{}, err
+	}
+	return in, st.SetSetting(ctx, store.SettingSimDir, in.Root)
+}
+
+// logger writes to logpose.log next to the database, since the Windows build has no console.
+func logger() *slog.Logger {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return slog.Default()
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "logpose", "logpose.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return slog.Default()
+	}
+	return slog.New(slog.NewTextHandler(f, nil))
 }
 
 func runImport(ctx context.Context, args []string) (err error) {

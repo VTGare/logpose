@@ -109,6 +109,20 @@ var _ = Describe("Parse", func() {
 		Expect(lines[len(lines)-1].Text).To(Equal("gg"))
 	})
 
+	It("learns card names without the verbs before them", func() {
+		games := parse(logOf(append(lobby("XNJ8M66"), append(opening(),
+			by(alice, card("Jewelry Bonney", "EB05-001")+": Deploy "+card("Nami", "OP14-031")),
+			by(bob, "Discard "+card("Nami", "OP14-031")+" for Counter 1000"),
+			by(alice, card("Kawamatsu", "OP12-023")+": <b>Reveal and Draw "+card("Otama", "OP07-022")+"</b>"),
+		)...)...))
+		names := games[0].CardNames
+		Expect(names).To(HaveKeyWithValue("OP13-001", "Monkey D. Luffy"))
+		Expect(names).To(HaveKeyWithValue("EB05-001", "Jewelry Bonney"))
+		Expect(names).To(HaveKeyWithValue("OP14-031", "Nami"))
+		Expect(names).To(HaveKeyWithValue("OP07-022", "Otama"))
+		Expect(names).To(HaveKeyWithValue("OP17-058", "Eustass\"Captain\"Kid"))
+	})
+
 	It("puts the lobby and mulligan in turn 0", func() {
 		games := parse(logOf(append(lobby("XNJ8M66"), opening()...)...))
 		for _, l := range games[0].Lines {

@@ -105,3 +105,34 @@ var _ = Describe("Dir", func() {
 		Expect(st.LocalPlayer(ctx)).To(Equal("Alice#1111"))
 	})
 })
+
+var _ = Describe("Watcher", func() {
+	It("imports logs already there, then new ones as they're saved", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		DeferCleanup(cancel)
+		st, err := store.Open(ctx, filepath.Join(GinkgoT().TempDir(), "logpose.db"))
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() { Expect(st.Close()).To(Succeed()) })
+
+		dir := GinkgoT().TempDir()
+		copyLog := func(name string) {
+			data, err := os.ReadFile(filepath.Join("testdata", name))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(os.WriteFile(filepath.Join(dir, name), data, 0o600)).To(Succeed())
+		}
+		copyLog("2026-11-05T15.37.33.log")
+
+		results := make(chan importer.Result, 4)
+		w := &importer.Watcher{Dir: dir, Store: st, Interval: 20 * time.Millisecond, OnImport: func(r importer.Result) { results <- r }}
+		done := make(chan error, 1)
+		go func() { done <- w.Run(ctx) }()
+
+		Eventually(results).Should(Receive(HaveField("New", 1)))
+		copyLog("2026-11-05T15.52.10.log")
+		Eventually(results).Should(Receive(HaveField("New", 1)))
+		Consistently(results, 100*time.Millisecond).ShouldNot(Receive())
+
+		cancel()
+		Eventually(done).Should(Receive(BeNil()))
+	})
+})

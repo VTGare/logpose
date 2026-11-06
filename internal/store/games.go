@@ -105,6 +105,15 @@ func writeParsed(ctx context.Context, tx *sql.Tx, g *simlog.Game) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM game_players WHERE fingerprint = ?`, g.Fingerprint); err != nil {
 		return err
 	}
+	for code, name := range g.CardNames {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO card_names (code, name) VALUES (?, ?)
+			ON CONFLICT (code) DO UPDATE SET name = excluded.name WHERE length(excluded.name) < length(name)`,
+			code, name,
+		); err != nil {
+			return err
+		}
+	}
 	for _, p := range g.Players {
 		m := g.Mulligans[p.ID()]
 		if _, err := tx.ExecContext(ctx, `
@@ -239,6 +248,23 @@ func (s *Store) addPlayers(ctx context.Context, games []Game, byFP map[string]in
 		}
 	}
 	return errors.Join(rows.Err(), rows.Close())
+}
+
+// CardNames returns every card name the logs gave, by code.
+func (s *Store) CardNames(ctx context.Context) (map[string]string, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT code, name FROM card_names`)
+	if err != nil {
+		return nil, err
+	}
+	names := make(map[string]string)
+	for rows.Next() {
+		var code, name string
+		if err := rows.Scan(&code, &name); err != nil {
+			return nil, errors.Join(err, rows.Close())
+		}
+		names[code] = name
+	}
+	return names, errors.Join(rows.Err(), rows.Close())
 }
 
 // LocalPlayer returns the player in the most games, who is the one whose sim saved the logs.

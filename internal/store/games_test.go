@@ -68,6 +68,16 @@ var _ = Describe("Store", func() {
 		Expect(size).To(BeNumerically("<", len(g.Text)/5))
 	})
 
+	It("keeps the card names the logs give", func() {
+		games := fixture()
+		_, err := st.SaveGame(ctx, &games[1], src)
+		Expect(err).NotTo(HaveOccurred())
+		names, err := st.CardNames(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(names).To(HaveKeyWithValue("OP13-001", "Monkey D. Luffy"))
+		Expect(names).To(HaveKeyWithValue("OP17-022", "Shanks"))
+	})
+
 	It("says when a log isn't stored", func() {
 		_, err := st.GameLog(ctx, "nope")
 		Expect(err).To(MatchError(ErrNotFound))
@@ -120,6 +130,13 @@ var _ = Describe("Store", func() {
 		n, err = st.Reparse(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(n).To(BeZero())
+	})
+
+	It("keeps settings", func() {
+		Expect(st.Setting(ctx, SettingSimDir)).To(BeEmpty())
+		Expect(st.SetSetting(ctx, SettingSimDir, `E:\Games\OPTCG`)).To(Succeed())
+		Expect(st.SetSetting(ctx, SettingSimDir, `D:\OPTCGSim`)).To(Succeed())
+		Expect(st.Setting(ctx, SettingSimDir)).To(Equal(`D:\OPTCGSim`))
 	})
 
 	It("reopens an existing database without applying migrations again", func() {
