@@ -205,6 +205,27 @@ var _ = Describe("replay", func() {
 		Expect(tt.HasText("Selected card")).To(BeTrue())
 	})
 
+	It("shows a deck in order and a trash by card when the pile is clicked on the mat", func() {
+		rs := watch()
+		rs.jump(len(rs.r.Steps) - 1)
+		tt.Frame()
+		Expect(tt.Click("Your deck")).To(Succeed())
+		Expect(tt.HasText("Top first. 1 is the next draw.")).To(BeTrue())
+		Expect(rs.pile).To(Equal(pileRef{kind: pileDeck, mine: true}))
+
+		board := rs.cur().Board
+		trash := len(board.Side(1).Trash)
+		Expect(trash).To(BeNumerically(">", 0))
+		Expect(tt.Click(fmt.Sprintf("Trash %d", trash))).To(Succeed())
+		Expect(rs.pile).To(Equal(pileRef{kind: pileTrash, mine: true}))
+		tt.Frame()
+		Expect(tt.HasText("Last trashed")).To(BeTrue())
+
+		Expect(tt.Click("Show this step")).To(Succeed())
+		tt.Frame()
+		Expect(tt.HasText("This step")).To(BeTrue())
+	})
+
 	It("glides cards on a single step only, and not at the fastest speed", func() {
 		rs := watch()
 		rs.jump(1)

@@ -11,10 +11,14 @@ import (
 // inspector shows the card clicked on the mat in full, with what is on it. With none clicked,
 // it shows the step's own cards: the attacker and the card it attacks with their powers, or what
 // the step played.
-func (v *view) inspector(c *ui.Context, sv *stepView) {
+func (v *view) inspector(c *ui.Context, sv *stepView, width float32) {
 	t := c.Theme()
 	rs := v.detail.replay
 	if rs == nil {
+		return
+	}
+	if rs.pile.kind != pileNone {
+		v.pileView(c, sv, rs, width)
 		return
 	}
 	if card, mine, ok := findCard(sv, rs.selected); ok {
@@ -56,7 +60,7 @@ func (v *view) inspector(c *ui.Context, sv *stepView) {
 			}
 		})
 	}
-	ui.Text(c, "Click a card on the mat to see it here.").FontSize(12).TextColor(faintColor(t)).Margin(10, 0, 0, 0).Wrap()
+	ui.Text(c, "Click a card, deck or trash on the mat to see it here.").FontSize(12).TextColor(faintColor(t)).Margin(10, 0, 0, 0).Wrap()
 }
 
 // inspectCard is a card large, whose it is and where, and each status with its source and end.

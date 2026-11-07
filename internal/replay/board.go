@@ -47,6 +47,9 @@ type Side struct {
 
 func (s *Side) DeckCount() int { return len(s.deck) }
 
+// Deck is the deck with its top card last. A card the log hasn't named has no code.
+func (s *Side) Deck() []Card { return s.deck }
+
 func (s *Side) DonActive() int {
 	n := 0
 	for _, rested := range s.Don {

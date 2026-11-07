@@ -113,7 +113,7 @@ func (v *view) replayLeft(c *ui.Context, sv *stepView, side float32, _ bool) {
 		})
 		v.replaySideName(c, sv, sv.them)
 		v.fan(c, sv, sv.them.Hand, side, fw, true)
-		panel(c).Grow(1).Basis(0).Padding(12).Clip().Children(func() { v.inspector(c, sv) })
+		panel(c).Grow(1).Basis(0).Padding(12).Clip().Children(func() { v.inspector(c, sv, side-24) })
 		v.fan(c, sv, sv.me.Hand, side, fw, false)
 		v.replaySideName(c, sv, sv.me)
 	})

@@ -37,7 +37,23 @@ type replayState struct {
 	// own cards. tab is 0 for the action list and 1 for the game log.
 	selected int
 	tab      int
+	// pile is the deck or trash clicked on the mat, which the inspector shows in place of a card.
+	pile pileRef
 }
+
+// pileRef names a player's deck or trash.
+type pileRef struct {
+	kind pileKind
+	mine bool
+}
+
+type pileKind int
+
+const (
+	pileNone pileKind = iota
+	pileDeck
+	pileTrash
+)
 
 // loadedReplay is a game's replay as the app builds it off the main thread.
 type loadedReplay struct {

@@ -193,6 +193,7 @@ func (v *view) playmat(c *ui.Context, m mat, sv *stepView) ui.Element {
 				id := pl.card.ID
 				box.Cursor(ui.CursorPointer)
 				if box.Clicked() {
+					rs.pile = pileRef{}
 					if rs.selected == id {
 						rs.selected = 0
 					} else {
@@ -251,7 +252,7 @@ func (v *view) piles(c *ui.Context, k func() *ui.Context, m mat, sv *stepView) {
 		v.trash(c, m, sv, s, tr.X, tr.Y)
 		lifeStack(c, k, m, sv, s, mine)
 		d := m.deckSlot(mine)
-		deckPile(k, m, s, d.X, d.Y)
+		v.deckPile(c, k, m, sv, s, d.X, d.Y)
 		dd := m.donDeckSlot(mine)
 		v.donDeck(c, k, m, s, dd.X, dd.Y)
 		cz := m.costZone(mine)
@@ -270,6 +271,7 @@ func (v *view) trash(c *ui.Context, m mat, sv *stepView, s *replay.Side, x, y fl
 	}
 	top := s.Trash[len(s.Trash)-1]
 	box := ui.Box(c.Key(cardMatch(top.ID))).Absolute().Left(x).Top(y).Size(m.w, m.h)
+	v.pileButton(c, box, sv, pileRef{kind: pileTrash, mine: s == sv.me})
 	sv.glide(box, top.ID).Children(func() {
 		v.cardArt(c, top.Code, m.w, m.h)
 		pill(c, fmt.Sprintf("Trash %d", len(s.Trash)), 10).Absolute().Bottom(4).Left(4)
@@ -308,9 +310,34 @@ func lifeStack(c *ui.Context, k func() *ui.Context, m mat, sv *stepView, s *repl
 		Absolute().Left(z.X).Top(labelY).Width(z.W).TextAlign(ui.Center)
 }
 
-func deckPile(k func() *ui.Context, m mat, s *replay.Side, x, y float32) {
-	cardBack(k(), m.w, m.h).Absolute().Left(x).Top(y)
-	pill(k(), fmt.Sprint(s.DeckCount()), 10).Absolute().Left(x + 4).Top(y + m.h - 20)
+func (v *view) deckPile(c *ui.Context, k func() *ui.Context, m mat, sv *stepView, s *replay.Side, x, y float32) {
+	box := ui.Box(k()).Absolute().Left(x).Top(y).Size(m.w, m.h)
+	v.pileButton(c, box, sv, pileRef{kind: pileDeck, mine: s == sv.me})
+	box.Children(func() {
+		cardBack(c, m.w, m.h)
+		pill(c, fmt.Sprint(s.DeckCount()), 10).Absolute().Left(4).Bottom(4)
+	})
+}
+
+// pileButton lets a deck or trash on the mat be clicked to show its cards in the inspector,
+// and rings the one shown.
+func (v *view) pileButton(c *ui.Context, box ui.Element, sv *stepView, p pileRef) {
+	rs := v.detail.replay
+	if rs == nil {
+		return
+	}
+	box.Cursor(ui.CursorPointer).Label(sv.pileName(p))
+	if box.Clicked() {
+		rs.selected = 0
+		if rs.pile == p {
+			rs.pile = pileRef{}
+		} else {
+			rs.pile = p
+		}
+	}
+	if rs.pile == p {
+		box.Radius(6).Border(2, c.Theme().Text).Shadow(0, 0, 0, 4, youColor.Alpha(0.35))
+	}
 }
 
 // donRow is the cost area as DON!! cards: active ones upright, rested ones turned sideways
