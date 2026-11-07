@@ -100,6 +100,7 @@ type view struct {
 	matchups matchupsState
 	settings settingsState
 	prefs    prefs
+	periodUI periodState
 }
 
 // openLeader shows a leader on the Leaders page.

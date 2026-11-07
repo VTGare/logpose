@@ -42,6 +42,7 @@ var (
 	iconUnblockable = mustSVG(svgBold + `<path d="M19.7 14a7 7 0 0 0 .3-2V5l-8-3-3.2 1.2"/><path d="M4.7 4.7 4 5v7c0 6 8 10 8 10a20 20 0 0 0 5.6-4.3"/><path d="m2 2 20 20"/></svg>`)
 	iconImmune      = mustSVG(svgBold + `<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 7.5l1 2.5 2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1z"/></svg>`)
 	iconClose       = mustSVG(svgHead + `<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>`)
+	iconCheck       = mustSVG(svgHead + `<path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`)
 	iconChevron     = mustSVG(svgHead + `<path d="M6 9l6 6 6-6"/></svg>`)
 	iconTrendUp     = mustSVG(svgHead + `<path d="M12 19V5M6 11l6-6 6 6"/></svg>`)
 	iconTrendDown   = mustSVG(svgHead + `<path d="M12 5v14M6 13l6 6 6-6"/></svg>`)

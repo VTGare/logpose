@@ -142,3 +142,6 @@ func resultLetter(r stats.Result) string {
 		return "?"
 	}
 }
+
+// onAccent is text on a fill of the accent color.
+var onAccent = ui.RGB(8, 17, 28)

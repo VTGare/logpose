@@ -187,9 +187,29 @@ func (v *view) weekHeader(c *ui.Context, start time.Time, days []stats.Day) {
 		name = "Last week"
 	}
 	ui.Row(c).Gap(8).Padding(8, 0, 2, 0).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, name).FontSize(12).Bold()
+		v.periodLink(c, name, "Show only this week", 12, 700, func() { v.setRange(start, start.AddDate(0, 0, 6)) })
 		ui.Text(c, fmt.Sprintf("%s · %s", record(r), pct(winShare(r)))).FontSize(12).TextColor(t.TextMuted)
 		ui.Box(c).Grow(1).Height(1).Background(t.Border)
+	})
+}
+
+// periodLink is a day's or a week's name in By day, which sets the period to it. A size of
+// zero keeps the theme's.
+func (*view) periodLink(c *ui.Context, name, tip string, size float32, weight int, set func()) {
+	t := c.Theme()
+	el := ui.Row(c).Label(tip + ", " + name).Cursor(ui.CursorPointer).Tooltip(tip)
+	if el.Clicked() {
+		set()
+	}
+	hover := el.Hovered()
+	el.Children(func() {
+		txt := ui.Text(c, name).SingleLine().FontWeight(weight)
+		if size > 0 {
+			txt.FontSize(size)
+		}
+		if hover {
+			txt.TextColor(t.Accent).Underline()
+		}
 	})
 }
 
@@ -209,7 +229,7 @@ func (v *view) dayRow(c *ui.Context, d stats.Day) {
 	}
 	row.Children(func() {
 		ui.Column(c).Width(170).Gap(3).Children(func() {
-			ui.Text(c, v.dayName(d.Date)).SingleLine().FontWeight(500)
+			v.periodLink(c, v.dayName(d.Date), "Show only this day", 0, 500, func() { v.setRange(d.Date, d.Date) })
 			ui.Row(c).Gap(6).AlignItems(ui.End).Children(func() {
 				ui.Text(c, record(d.Record)).FontSize(18).Bold()
 				ui.Text(c, fmt.Sprintf("%s · %s", pct(winShare(d.Record)), duration(d.Played))).FontSize(12).TextColor(faintColor(t)).Margin(0, 0, 2, 0)
@@ -379,7 +399,7 @@ func (v *view) periodTitle() string {
 	if fr, ok := v.formatRange(); ok && v.filter.period == 0 {
 		return "All of " + fr.Name
 	}
-	return periods[v.filter.period].label
+	return v.periodLabel()
 }
 
 // bannerArtW is the width of the art on the left of a leader banner.

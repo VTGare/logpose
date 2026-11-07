@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -12,8 +13,12 @@ import (
 type filters struct {
 	// format is formatCurrent, formatAll or a format's ID.
 	format int64
-	// period indexes periods.
+	// period indexes periods, or is periodCustom for the days from and to.
 	period int
+	// from and to are the first and last day of a custom period, at local midnight. An ongoing
+	// period ends today, whatever to says.
+	from, to time.Time
+	ongoing  bool
 	// deck is the local player's leader, or "" for every deck.
 	deck string
 	// gameType is a stats.GameType, an int for ui.Segmented.
@@ -66,18 +71,25 @@ func (v *view) formatRange() (stats.FormatRange, bool) {
 }
 
 // currentScope is the filters as a stats.Scope. A format holds ranked games only, since casual
-// lobbies can be any format. A period inside a format starts at the later of the two.
+// lobbies can be any format. A period and a format overlap to the days in both.
 func (v *view) currentScope() stats.Scope {
+	s := v.scopeAnyPeriod()
+	since, until := v.periodBounds()
+	if since.After(s.Since) {
+		s.Since = since
+	}
+	if !until.IsZero() && (s.Until.IsZero() || until.Before(s.Until)) {
+		s.Until = until
+	}
+	return s
+}
+
+// scopeAnyPeriod is the filters as a stats.Scope, without the period.
+func (v *view) scopeAnyPeriod() stats.Scope {
 	f := v.filter
 	s := stats.Scope{Type: stats.GameType(f.gameType), Turn: f.turn, Deck: f.deck, Opp: f.opp, OppLeader: f.oppLeader}
-	if d := periods[f.period].days; d > 0 {
-		s.Since = v.snap.Now.AddDate(0, 0, -d)
-	}
 	if fr, ok := v.formatRange(); ok {
-		if fr.Start.After(s.Since) {
-			s.Since = fr.Start
-		}
-		s.Until = fr.End
+		s.Since, s.Until = fr.Start, fr.End
 		s.Type = stats.RankedGames
 	}
 	return s
@@ -165,15 +177,6 @@ func (v *view) deckMenu(m *ui.Menu) {
 	}
 }
 
-func (v *view) periodMenu(m *ui.Menu) {
-	for i, p := range periods {
-		if m.Item(p.label).Radio(v.filter.period == i).Chosen() {
-			v.filter.period = i
-			v.resetPoints()
-		}
-	}
-}
-
 func (v *view) setDeck(code string) {
 	v.filter.deck = code
 	v.resetPoints()
@@ -231,29 +234,34 @@ func (v *view) oppName(id string) string {
 	return id
 }
 
+// filterPill is a filter's button. A pill that narrows what the pages show is tinted.
+func filterPill(c *ui.Context, label string, on bool) ui.Element {
+	t := c.Theme()
+	el := ui.ButtonBase(c).Label(label).Padding(5, 12).Radius(16).Border(1, t.Border).Background(ui.Transparent)
+	if on {
+		el = el.Background(t.Accent.Alpha(0.18)).Border(1, t.Accent)
+	}
+	return el.Gap(6).AlignItems(ui.Center).Children(func() {
+		col := t.TextMuted
+		if on {
+			col = t.Text
+		}
+		ui.Text(c, label).FontSize(13).FontWeight(500).TextColor(col)
+		ui.Icon(c, iconChevron).FontSize(12).TextColor(col)
+	})
+}
+
 // filterBar is the filters over every page, as pills that each open a menu. Pills that narrow
 // what the pages show are tinted.
 func (v *view) filterBar(c *ui.Context) {
 	t := c.Theme()
 	pill := func(key, label string, on bool, build func(m *ui.Menu)) {
-		el := ui.ButtonBase(c.Key(key)).Label(label).Padding(5, 12).Radius(16).Border(1, t.Border).Background(ui.Transparent)
-		if on {
-			el = el.Background(t.Accent.Alpha(0.18)).Border(1, t.Accent)
-		}
-		el.Gap(6).AlignItems(ui.Center).Children(func() {
-			col := t.TextMuted
-			if on {
-				col = t.Text
-			}
-			ui.Text(c, label).FontSize(13).FontWeight(500).TextColor(col)
-			ui.Icon(c, iconChevron).FontSize(12).TextColor(col)
-		})
-		el.PopoverMenuButton(build)
+		filterPill(c.Key(key), label, on).PopoverMenuButton(build)
 	}
 	ui.Row(c).Padding(14, 20, 0, 20).Gap(8).Children(func() {
 		_, inFormat := v.formatRange()
 		pill("format", v.formatLabel(), inFormat, v.formatMenu)
-		pill("period", periods[v.filter.period].label, v.filter.period != 0, v.periodMenu)
+		v.periodPill(c)
 		pill("deck", v.deckLabel(), v.filter.deck != "", v.deckMenu)
 		if inFormat {
 			ui.Text(c, "Ranked").FontSize(13).TextColor(t.TextMuted).Padding(6, 12).Radius(16).Border(1, t.Border)
