@@ -99,7 +99,12 @@ func runApp(ctx context.Context, args []string) (err error) {
 	}
 	defer func() { err = errors.Join(err, st.Close()) }()
 
-	opts := gui.Options{Store: st, Log: logger(), Dev: *dev, CatalogPath: filepath.Join(filepath.Dir(dbPath(*db)), "cards.json")}
+	opts := gui.Options{
+		Store: st, Log: logger(), Dev: *dev,
+		DBPath:      dbPath(*db),
+		CatalogPath: filepath.Join(filepath.Dir(dbPath(*db)), "cards.json"),
+		SimFlag:     *simDir != "",
+	}
 	if in, err := locateSim(ctx, st, *simDir); err == nil {
 		opts.Install = &in
 	} else {
@@ -108,14 +113,19 @@ func runApp(ctx context.Context, args []string) (err error) {
 	return gui.Run(ctx, opts)
 }
 
-// locateSim finds the sim from -sim, the running process, the usual folders, then the folder it
-// was last found in, and remembers where it found it.
+// locateSim finds the sim from -sim, the folder the user chose, the running process, the usual
+// folders, then the folder it was last found in, and remembers where it found it.
 func locateSim(ctx context.Context, st *store.Store, dir string) (sim.Install, error) {
-	in, err := sim.Open(dir)
-	if dir == "" {
-		in, err = sim.Locate()
+	if dir != "" {
+		return sim.Open(dir)
 	}
-	if err != nil && dir == "" {
+	if chosen, err := st.Setting(ctx, store.SettingSimDirChosen); err == nil && chosen != "" {
+		if in, err := sim.Open(chosen); err == nil {
+			return in, nil
+		}
+	}
+	in, err := sim.Locate()
+	if err != nil {
 		if saved, serr := st.Setting(ctx, store.SettingSimDir); serr == nil && saved != "" {
 			in, err = sim.Open(saved)
 		}
@@ -177,7 +187,7 @@ func runGames(ctx context.Context, args []string) (err error) {
 	}
 	defer func() { err = errors.Join(err, st.Close()) }()
 
-	me, err := st.LocalPlayer(ctx)
+	me, err := st.LocalPlayers(ctx)
 	if err != nil {
 		return err
 	}
@@ -186,34 +196,27 @@ func runGames(ctx context.Context, args []string) (err error) {
 		return err
 	}
 	wins := 0
-	sizes := stats.LobbySizes(games)
-	for _, g := range games {
-		mine, _ := g.Player(me)
-		var theirs store.GamePlayer
-		for _, p := range g.Players {
-			if p.ID != me {
-				theirs = p
-			}
-		}
+	ms := stats.Matches(games, me...)
+	for _, m := range ms {
 		result := "W"
-		if g.End.Loser == me {
+		if m.Result == stats.Loss {
 			result = "L"
 		} else {
 			wins++
 		}
 		order := "2nd"
-		if g.First == me {
+		if m.WentFirst {
 			order = "1st"
 		}
 		kind := "casual"
-		if stats.IsRanked(g, sizes) {
+		if m.Ranked {
 			kind = "ranked"
 		}
-		fmt.Printf("%s  %s  %-8s vs %-8s %-22s %s  T%-2d %-8s %s\n", g.PlayedAt.Format("2006-01-02 15:04"), result,
-			mine.Leader, theirs.Leader, theirs.ID, order, g.Turns, g.End.Kind, kind)
+		fmt.Printf("%s  %s  %-8s vs %-8s %-22s %s  T%-2d %-8s %s\n", m.PlayedAt.Format("2006-01-02 15:04"), result,
+			m.Me.Leader, m.Opp.Leader, m.Opp.ID, order, m.Turns, m.End.Kind, kind)
 	}
-	if len(games) > 0 {
-		fmt.Printf("%d games as %s, %d–%d\n", len(games), me, wins, len(games)-wins)
+	if len(ms) > 0 {
+		fmt.Printf("%d games as %s, %d–%d\n", len(ms), strings.Join(me, ", "), wins, len(ms)-wins)
 	}
 	return nil
 }

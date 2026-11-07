@@ -100,6 +100,18 @@ var _ = Describe("Matches", func() {
 		Expect(ms[3].Ranked).To(BeFalse())
 	})
 
+	It("takes games from any of the user's names, each from that name's side", func() {
+		games := build(game{mine: "OP13-001", theirs: "OP17-058", won: true}, game{mine: "OP13-001", theirs: "OP17-058"})
+		alt := store.GamePlayer{ID: "Alt#7", Leader: "OP05-060"}
+		games[1].Players[0] = alt
+		games[1].End.Loser = alt.ID
+		ms := stats.Matches(games, me, alt.ID)
+		Expect(ms).To(HaveLen(2))
+		Expect(ms[1].Me).To(Equal(alt))
+		Expect(ms[1].Opp.ID).To(Equal("Opp#1"))
+		Expect(ms[1].Result).To(Equal(stats.Loss))
+	})
+
 	It("leaves out games without the local player", func() {
 		games := build(game{mine: "OP13-001", theirs: "OP17-058"})
 		Expect(stats.Matches(games, "Someone#9")).To(BeEmpty())

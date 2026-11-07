@@ -50,12 +50,19 @@ func IsRanked(g store.Game, lobbySizes map[string]int) bool {
 }
 
 // Matches turns stored games into matches for the local player, keeping the store's order.
-// Games the local player isn't in are left out.
-func Matches(games []store.Game, me string) []Match {
+// me is the user's names. A game with more than one of them is from the first one's side.
+// Games none of them are in are left out.
+func Matches(games []store.Game, me ...string) []Match {
 	out := make([]Match, 0, len(games))
 	sizes := LobbySizes(games)
 	for _, g := range games {
-		mine, ok := g.Player(me)
+		var mine store.GamePlayer
+		ok := false
+		for _, id := range me {
+			if mine, ok = g.Player(id); ok {
+				break
+			}
+		}
 		if !ok {
 			continue
 		}
@@ -65,20 +72,20 @@ func Matches(games []store.Game, me string) []Match {
 			m.Ranked = g.Type == store.TypeRanked
 		}
 		for _, p := range g.Players {
-			if p.ID != me {
+			if p.ID != mine.ID {
 				m.Opp = p
 			}
 		}
 		switch g.End.Loser {
 		case "":
 			m.Result = Unknown
-		case me:
+		case mine.ID:
 			m.Result = Loss
 		default:
 			m.Result = Win
 		}
 		m.TurnOrderKnown = g.First != ""
-		m.WentFirst = g.First == me
+		m.WentFirst = g.First == mine.ID
 		out = append(out, m)
 	}
 	return out

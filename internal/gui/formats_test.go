@@ -20,6 +20,7 @@ type fakeActions struct {
 	bookmarks []string
 	replays   []string
 	timers    []func()
+	calls     []string
 }
 
 func (f *fakeActions) SetBookmark(fingerprint string, on bool) {

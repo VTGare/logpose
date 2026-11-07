@@ -16,15 +16,15 @@ import (
 type snapshot struct {
 	Loaded   bool
 	SimFound bool
-	Me       string
 	Matches  []stats.Match
 	Overview stats.Overview
 	Cards    *cards.DB
 	Now      time.Time
 	// Formats are the user's formats, oldest first, and Debuts the sets that look like they
 	// started one.
-	Formats []stats.FormatRange
-	Debuts  []stats.SetDebut
+	Formats  []stats.FormatRange
+	Debuts   []stats.SetDebut
+	Settings settingsInfo
 }
 
 func (s *snapshot) card(code string) cards.Card {
@@ -40,6 +40,7 @@ const (
 	pageLeaders  = "leaders"
 	pageMatchups = "matchups"
 	pageFormats  = "formats"
+	pageSettings = "settings"
 )
 
 // actions are the changes the view asks the app for. The app makes them off the main thread
@@ -59,6 +60,19 @@ type actions interface {
 	OpenReplay(fingerprint string)
 	// After runs fn on the main thread once d has passed.
 	After(d time.Duration, fn func())
+
+	SetSetting(key, value string)
+	SetOpenAtLogin(on bool)
+	// ChooseSimFolder asks for the sim's folder and switches to it.
+	ChooseSimFolder()
+	// FindSim forgets the chosen folder and finds the sim on its own.
+	FindSim()
+	OpenPath(path string)
+	ShowFile(path string)
+	// ImportAgain reads every log in the sim's folder and adds what's missing.
+	ImportAgain()
+	RefreshCards()
+	Backup()
 }
 
 type view struct {
@@ -84,6 +98,8 @@ type view struct {
 	shownPage string
 
 	matchups matchupsState
+	settings settingsState
+	prefs    prefs
 }
 
 // openLeader shows a leader on the Leaders page.
@@ -107,16 +123,30 @@ func newView(art *artCache) *view {
 	return &view{snap: &snapshot{}, art: art, page: pageOverview, leaderPoint: -1, formats: formatsState{day: -1}}
 }
 
+// applyLook sets the theme the user picked, or the one following Windows, and the result
+// colors.
+func (v *view) applyLook(c *ui.Context) {
+	dark := c.Theme().Dark
+	switch v.prefs.theme {
+	case "dark":
+		dark = true
+	case "light":
+		dark = false
+	}
+	if dark {
+		c.SetTheme(darkTheme)
+	} else {
+		c.SetTheme(lightTheme)
+	}
+	winColor, lossColor = resultColors(v.prefs.colorblind)
+}
+
 func (v *view) build(c *ui.Context) {
 	if v.page != pageMatches {
 		v.closeMatch()
 	}
 	v.replayKeys(c)
-	if c.Theme().Dark {
-		c.SetTheme(darkTheme)
-	} else {
-		c.SetTheme(lightTheme)
-	}
+	v.applyLook(c)
 	open := v.detail.fingerprint != ""
 	shown := v.page
 	if open {
@@ -127,7 +157,7 @@ func (v *view) build(c *ui.Context) {
 	ui.Row(c).Fill().AlignItems(ui.Stretch).FontFeatures("tnum").Children(func() {
 		v.sidebar(c)
 		ui.Column(c).Grow(1).Fill().Children(func() {
-			if v.snap.Loaded && len(v.snap.Matches) > 0 && v.page != pageFormats && !open {
+			if v.snap.Loaded && len(v.snap.Matches) > 0 && v.page != pageFormats && v.page != pageSettings && !open {
 				v.filterBar(c)
 			}
 			if v.snap.Loaded && v.live.Phase != live.Idle {
@@ -136,25 +166,31 @@ func (v *view) build(c *ui.Context) {
 			if v.page == pageOverview && len(v.snap.Debuts) > 0 {
 				v.debutBanner(c)
 			}
-			switch {
-			case !v.snap.Loaded:
-				v.message(c, "Loading your games", "")
-			case v.page == pageFormats:
-				v.formatsPage(c)
-			case len(v.snap.Matches) == 0 && !v.snap.SimFound:
-				v.message(c, "OPTCGSim isn't running",
-					"Start the sim and logpose finds it and imports your games. If it's installed somewhere unusual, start logpose with -sim and the sim's folder.")
-			case len(v.snap.Matches) == 0:
-				v.message(c, "Play a game in the sim", "Every game you finish shows up here on its own.")
-			case open:
-				ui.Column(c.Key(shown)).Grow(1).Basis(0).MinHeight(0).Transition(pageEnter).Children(func() { v.matchPage(c) })
-			case len(v.scoped().matches) == 0:
-				v.message(c, "No games match these filters", "Change or clear the filters above.")
-			default:
-				ui.Column(c.Key(shown)).Grow(1).Basis(0).MinHeight(0).Transition(pageEnter).Children(func() { v.statsPage(c) })
-			}
+			v.pageBody(c, open, shown)
 		})
 	})
+}
+
+// pageBody is the page, or a message when there's nothing to show on it.
+func (v *view) pageBody(c *ui.Context, open bool, shown string) {
+	switch {
+	case !v.snap.Loaded:
+		v.message(c, "Loading your games", "")
+	case v.page == pageFormats:
+		v.formatsPage(c)
+	case v.page == pageSettings:
+		v.settingsPage(c)
+	case len(v.snap.Matches) == 0 && !v.snap.SimFound:
+		v.setupPage(c)
+	case len(v.snap.Matches) == 0:
+		v.message(c, "Play a game in the sim", "Every game you finish shows up here on its own.")
+	case open:
+		ui.Column(c.Key(shown)).Grow(1).Basis(0).MinHeight(0).Transition(pageEnter).Children(func() { v.matchPage(c) })
+	case len(v.scoped().matches) == 0:
+		v.message(c, "No games match these filters", "Change or clear the filters above.")
+	default:
+		ui.Column(c.Key(shown)).Grow(1).Basis(0).MinHeight(0).Transition(pageEnter).Children(func() { v.statsPage(c) })
+	}
 }
 
 // statsPage is the page chosen in the sidebar, for games in the filters' scope.
@@ -193,6 +229,11 @@ func (v *view) sidebar(c *ui.Context) {
 			}).Background(ui.Transparent).Padding(0)
 		})
 		ui.Spacer(c)
+		ui.Themed(c, sidebarTheme(t)).Background(ui.Transparent).Children(func() {
+			ui.Sidebar(c, &v.page, func() {
+				ui.SidebarItem(c, pageSettings, iconSettings, "Settings")
+			}).Background(ui.Transparent).Padding(0)
+		})
 	})
 }
 

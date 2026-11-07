@@ -45,7 +45,7 @@ func testSnapshot(n int) *snapshot {
 	db.Name("OP13-001", "Monkey D. Luffy")
 	db.Name("OP17-058", "Kaido")
 	ms := stats.Matches(games, me)
-	return &snapshot{Loaded: true, SimFound: true, Me: me, Matches: ms, Overview: stats.BuildOverview(ms, now), Cards: db, Now: now}
+	return &snapshot{Loaded: true, SimFound: true, Matches: ms, Overview: stats.BuildOverview(ms, now), Cards: db, Now: now}
 }
 
 func tester(s *snapshot) (*view, *ui.Tester) {
@@ -187,11 +187,6 @@ var _ = Describe("view", func() {
 		Expect(tt.HasText("Best matchups")).To(BeFalse())
 		Expect(tt.Click("Show every matchup")).To(Succeed())
 		Expect(v.page).To(Equal(pageMatchups))
-	})
-
-	It("asks for the sim when it has no games and no sim", func() {
-		_, tt := tester(&snapshot{Loaded: true})
-		Expect(tt.HasText("OPTCGSim isn't running")).To(BeTrue())
 	})
 
 	It("invites a first game when the sim is there but nothing is stored", func() {

@@ -33,11 +33,20 @@ var (
 
 	winColor      = ui.Hex("#4CB66A")
 	lossColor     = ui.Hex("#E5584F")
+	warnColor     = ui.Hex("#E3A048")
 	unknownColor  = ui.Hex("#888780")
 	youColor      = ui.Hex("#5AA9F0")
 	oppColor      = ui.Hex("#E3A048")
 	bookmarkColor = ui.Hex("#E8B83A")
 )
+
+// resultColors are the win and loss colors, blue and orange for the colorblind setting.
+func resultColors(colorblind bool) (win, loss ui.Color) {
+	if colorblind {
+		return ui.Hex("#3D9BE9"), ui.Hex("#F08A24")
+	}
+	return ui.Hex("#4CB66A"), ui.Hex("#E5584F")
+}
 
 // graphite is the dark theme: a near-black page, panels a step lighter and controls a step
 // above them.

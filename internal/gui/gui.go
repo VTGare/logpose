@@ -3,11 +3,13 @@ package gui
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -31,7 +33,11 @@ type Options struct {
 	// CatalogPath caches the card catalog from tcgcsv.com. Empty means no refresh, and only
 	// the catalog the sim's OPBounty pack carries.
 	CatalogPath string
-	Log         *slog.Logger
+	// DBPath is the database file, which Settings shows.
+	DBPath string
+	// SimFlag is true when -sim named the sim's folder.
+	SimFlag bool
+	Log     *slog.Logger
 	// Dev marks a test copy in the window title.
 	Dev bool
 }
@@ -48,12 +54,19 @@ type app struct {
 	tray *mygo.Tray
 	view *view
 
-	quitting  bool
-	refreshMu sync.Mutex
+	quitting   bool
+	closeQuits atomic.Bool
+	refreshMu  sync.Mutex
+
+	simMu     sync.Mutex
+	inst      *sim.Install
+	stopWatch context.CancelFunc
 
 	cardsMu sync.Mutex
 	pack    *cards.DB
 	cards   *cards.DB
+	// fetched is when the cached tcgcsv catalog was fetched, zero without one.
+	fetched time.Time
 }
 
 // Claim makes this the only running logpose. It returns false when another one is running,
@@ -73,7 +86,7 @@ func Run(ctx context.Context, opts Options) error {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
-	a := &app{opts: opts}
+	a := &app{opts: opts, inst: opts.Install}
 	if err := registerFonts(); err != nil {
 		opts.Log.Warn("fonts", "err", err)
 	}
@@ -84,6 +97,14 @@ func Run(ctx context.Context, opts Options) error {
 func (a *app) ready(ctx context.Context) {
 	a.view = newView(nil)
 	a.view.act = &appActions{a: a, ctx: ctx}
+	// The window's look and close behavior are needed before it shows, so they're read here.
+	set, err := a.opts.Store.Settings(ctx)
+	if err != nil {
+		a.opts.Log.Warn("settings", "err", err)
+	}
+	a.view.prefs = prefsFrom(set)
+	a.view.prefs.openAtLogin = mygo.App.OpenAtLogin()
+	a.closeQuits.Store(a.view.prefs.closeQuits)
 	title := "logpose"
 	if a.opts.Dev {
 		title = "logpose (dev)"
@@ -94,14 +115,21 @@ func (a *app) ready(ctx context.Context) {
 		Height:    780,
 		MinWidth:  900,
 		MinHeight: 600,
+		Hidden:    a.view.prefs.startHidden && mygo.App.WasOpenedAtLogin(),
 		Content:   ui.View(a.view.build),
 	})
-	a.view.art = newArtCache(a.opts.Install, a.win.Update)
+	a.view.art = newArtCache(a.install(), a.win.Update)
 	a.win.OnClose(func(e *mygo.CloseEvent) {
-		if !a.quitting {
-			e.PreventDefault()
-			a.win.Hide()
+		if a.quitting {
+			return
 		}
+		if a.closeQuits.Load() {
+			a.quitting = true
+			mygo.App.Quit()
+			return
+		}
+		e.PreventDefault()
+		a.win.Hide()
 	})
 	a.setUpTray()
 	mygo.App.OnSecondInstance(func([]string, string) { a.show() })
@@ -114,8 +142,61 @@ func (a *app) ready(ctx context.Context) {
 		}
 	})
 	go a.start(ctx)
-	go a.refreshCatalog(ctx)
+	go func() { _ = a.refreshCatalog(ctx, false) }()
 	go a.follow(ctx)
+	go a.seek(ctx)
+}
+
+func (a *app) install() *sim.Install {
+	a.simMu.Lock()
+	defer a.simMu.Unlock()
+	return a.inst
+}
+
+// setInstall switches to the sim in another folder: its card art, its card data and its logs.
+// chosen is true when the user picked the folder.
+func (a *app) setInstall(ctx context.Context, in sim.Install, chosen bool) error {
+	st := a.opts.Store
+	if err := st.SetSetting(ctx, store.SettingSimDir, in.Root); err != nil {
+		return err
+	}
+	if chosen {
+		if err := st.SetSetting(ctx, store.SettingSimDirChosen, in.Root); err != nil {
+			return err
+		}
+	}
+	a.simMu.Lock()
+	a.inst = &in
+	a.simMu.Unlock()
+	a.cardsMu.Lock()
+	a.pack, a.cards = nil, nil
+	a.cardsMu.Unlock()
+	a.win.Update(func() { a.view.art = newArtCache(&in, a.win.Update) })
+	a.watch(ctx)
+	a.refresh(ctx)
+	return nil
+}
+
+// seek looks for a running sim every few seconds while logpose has none.
+func (a *app) seek(ctx context.Context) {
+	tick := time.NewTicker(3 * time.Second)
+	defer tick.Stop()
+	for {
+		if a.install() != nil {
+			return
+		}
+		if in, err := sim.Locate(); err == nil {
+			if err := a.setInstall(ctx, in, false); err != nil {
+				a.opts.Log.Warn("found sim", "err", err)
+			}
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
 }
 
 // follow shows the game running in the sim, from its Player.log.
@@ -147,43 +228,59 @@ func (a *app) follow(ctx context.Context) {
 
 // refreshCatalog fetches card data for sets newer than the cached catalog, then shows it.
 // Without a network logpose keeps the cards it has.
-func (a *app) refreshCatalog(ctx context.Context) {
+// refreshCatalog fetches card data for sets newer than the cached catalog, then shows it. It
+// does nothing while the catalog is fresh, unless forced. Without a network logpose keeps the
+// cards it has.
+func (a *app) refreshCatalog(ctx context.Context, force bool) error {
 	if a.opts.CatalogPath == "" {
-		return
+		return errors.New("no card catalog file")
 	}
 	cat, err := cards.LoadCatalog(a.opts.CatalogPath)
 	if err != nil {
 		a.opts.Log.Warn("card catalog", "err", err)
-		return
+		return err
 	}
-	if !cat.Stale(time.Now(), catalogMaxAge) {
-		return
+	if !force && !cat.Stale(time.Now(), catalogMaxAge) {
+		return nil
 	}
 	client := &http.Client{Timeout: 30 * time.Second}
 	n, err := cat.Refresh(ctx, client, cards.TCGCSVBase)
 	if err != nil {
 		a.opts.Log.Warn("refresh card catalog", "err", err, "sets", n)
-		return
+		return err
 	}
 	if err := cat.Save(a.opts.CatalogPath); err != nil {
 		a.opts.Log.Warn("save card catalog", "err", err)
-		return
+		return err
 	}
 	a.opts.Log.Info("card catalog refreshed", "sets", n, "cards", len(cat.Cards))
 	a.cardsMu.Lock()
 	a.cards = nil
 	a.cardsMu.Unlock()
 	a.refresh(ctx)
+	return nil
 }
 
 // start shows what's stored, then imports and watches the sim's logs.
 func (a *app) start(ctx context.Context) {
 	a.refresh(ctx)
-	if a.opts.Install == nil {
+	a.watch(ctx)
+}
+
+// watch imports and watches the current sim's logs, stopping the watcher of the sim before.
+func (a *app) watch(ctx context.Context) {
+	a.simMu.Lock()
+	if a.stopWatch != nil {
+		a.stopWatch()
+	}
+	in := a.inst
+	ctx, a.stopWatch = context.WithCancel(ctx)
+	a.simMu.Unlock()
+	if in == nil {
 		return
 	}
 	w := &importer.Watcher{
-		Dir:   a.opts.Install.Logs(),
+		Dir:   in.Logs(),
 		Store: a.opts.Store,
 		OnImport: func(r importer.Result) {
 			a.opts.Log.Info("imported logs", "files", r.Files, "games", r.Games, "new", r.New, "reparsed", r.Reparsed)
@@ -191,9 +288,11 @@ func (a *app) start(ctx context.Context) {
 		},
 		OnError: func(err error) { a.opts.Log.Warn("import", "err", err) },
 	}
-	if err := w.Run(ctx); err != nil {
-		a.opts.Log.Error("watcher stopped", "err", err)
-	}
+	go func() {
+		if err := w.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			a.opts.Log.Error("watcher stopped", "err", err)
+		}
+	}()
 }
 
 // refresh builds a new snapshot and shows it. The watcher, the log follower, the catalog refresh
@@ -214,7 +313,7 @@ func (a *app) refresh(ctx context.Context) {
 
 func (a *app) load(ctx context.Context) (*snapshot, error) {
 	st := a.opts.Store
-	me, err := st.LocalPlayer(ctx)
+	me, err := st.LocalPlayers(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -235,22 +334,26 @@ func (a *app) load(ctx context.Context) (*snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	dismissed, err := st.Setting(ctx, store.SettingDismissedSets)
+	set, err := st.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	info, err := a.settingsInfo(ctx, set, len(games), db.Len())
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now()
-	ms := stats.Matches(games, me)
+	ms := stats.Matches(games, me...)
 	return &snapshot{
 		Loaded:   true,
-		SimFound: a.opts.Install != nil,
-		Me:       me,
+		SimFound: a.install() != nil,
 		Matches:  ms,
 		Overview: stats.BuildOverview(ms, now),
 		Cards:    db,
 		Now:      now,
 		Formats:  stats.Ranges(formats),
-		Debuts:   stats.Debuts(ms, formats, splitList(dismissed)),
+		Debuts:   stats.Debuts(ms, formats, splitList(set[store.SettingDismissedSets])),
+		Settings: info,
 	}, nil
 }
 
@@ -265,8 +368,8 @@ func (a *app) cardDB() *cards.DB {
 	}
 	if a.pack == nil {
 		a.pack = cards.NewDB()
-		if a.opts.Install != nil {
-			if db, err := cards.LoadPack(a.opts.Install.OPBountyPack()); err == nil {
+		if in := a.install(); in != nil {
+			if db, err := cards.LoadPack(in.OPBountyPack()); err == nil {
 				a.pack = db
 			} else {
 				a.opts.Log.Warn("card database", "err", err)
@@ -277,6 +380,7 @@ func (a *app) cardDB() *cards.DB {
 	if a.opts.CatalogPath != "" {
 		if cat, err := cards.LoadCatalog(a.opts.CatalogPath); err == nil {
 			cat.Apply(db)
+			a.fetched = cat.Fetched
 		}
 	}
 	a.cards = db

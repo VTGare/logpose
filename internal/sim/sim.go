@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 var ErrNotFound = errors.New("sim: OPTCGSim not found")
@@ -16,6 +17,15 @@ type Install struct {
 }
 
 func (i Install) Logs() string { return filepath.Join(i.Root, "CombatLogs", "AutoSaved") }
+
+// LogCount is the number of combat logs in the AutoSaved folder.
+func (i Install) LogCount() int {
+	paths, _ := filepath.Glob(filepath.Join(i.Logs(), "*.log"))
+	return len(paths)
+}
+
+// HasExe reports whether the folder holds OPTCGSim.exe. Open only checks for the data folder.
+func (i Install) HasExe() bool { return fileExists(filepath.Join(i.Root, "OPTCGSim.exe")) }
 
 func (i Install) streamingAssets() string {
 	return filepath.Join(i.Root, "OPTCGSim_Data", "StreamingAssets")
@@ -99,6 +109,35 @@ func PlayerLog() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, "AppData", "LocalLow", "Batsu", "OPTCGSim", "Player.log"), nil
+}
+
+// Version is the sim version that ran last, such as "1.44a". The sim keeps a folder per version
+// next to Player.log, and the one changed last belongs to the version that ran last. It's ""
+// when there's none.
+func Version() string {
+	log, err := PlayerLog()
+	if err != nil {
+		return ""
+	}
+	entries, err := os.ReadDir(filepath.Dir(log))
+	if err != nil {
+		return ""
+	}
+	var newest string
+	var at time.Time
+	for _, e := range entries {
+		if !e.IsDir() || e.Name() == "" || e.Name()[0] < '0' || e.Name()[0] > '9' {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(at) {
+			newest, at = e.Name(), info.ModTime()
+		}
+	}
+	return newest
 }
 
 func Running() bool {

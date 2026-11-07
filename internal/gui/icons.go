@@ -21,6 +21,8 @@ var (
 	iconLeaders  = mustSVG(svgHead + `<path d="M4 8l4 4 4-7 4 7 4-4-2 11H6z"/></svg>`)
 	iconMatchups = mustSVG(svgHead + `<rect x="3" y="4" width="7" height="10" rx="1.5"/><rect x="14" y="10" width="7" height="10" rx="1.5"/><path d="M12 7h4M8 17h4"/></svg>`)
 	iconFormats  = mustSVG(svgHead + `<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>`)
+	iconSettings = mustSVG(svgHead + `<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>`)
+	iconInfo     = mustSVG(svgHead + `<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>`)
 	iconCompass  = mustSVG(svgHead + `<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>`)
 
 	iconPrevTurn    = mustSVG(svgHead + `<path d="M6 5v14"/><path d="M18 6l-8 6 8 6z"/></svg>`)
