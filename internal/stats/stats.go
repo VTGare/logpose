@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"math"
 	"slices"
 	"time"
 
@@ -104,6 +105,25 @@ func (r Record) Rate() (rate float64, ok bool) {
 		return 0, false
 	}
 	return float64(r.Wins) / float64(r.Games()), true
+}
+
+// likelyZ is the normal quantile for an 80% two-sided range.
+const likelyZ = 1.2816
+
+// LikelyRange is where the true win rate likely is, from 0 to 1: the 80% Wilson score
+// interval. Unlike the plain normal range, it stays inside 0 and 1 and isn't zero wide for a
+// record like 2–0. With no games it's the whole range.
+func (r Record) LikelyRange() (lo, hi float64) {
+	n := float64(r.Games())
+	if n == 0 {
+		return 0, 1
+	}
+	p := float64(r.Wins) / n
+	z2 := likelyZ * likelyZ
+	d := 1 + z2/n
+	mid := (p + z2/(2*n)) / d
+	half := likelyZ * math.Sqrt(p*(1-p)/n+z2/(4*n*n)) / d
+	return max(mid-half, 0), min(mid+half, 1)
 }
 
 type TurnOrder struct {
@@ -214,6 +234,40 @@ func ForLeader(ms []Match, leader string) Leader {
 	l.Recent = games[:min(len(games), 10)]
 	l.Last, l.First = games[0].PlayedAt, games[len(games)-1].PlayedAt
 	return l
+}
+
+// Matchup is the local player's games with one of their leaders against one opposing leader.
+type Matchup struct {
+	// Leader is the opponent's leader.
+	Leader    string
+	Record    Record
+	TurnOrder TurnOrder
+	// Games are newest first.
+	Games []Match
+}
+
+// Matchups groups the matches, given newest first, played with one leader by the opponent's
+// leader, most played first.
+func Matchups(ms []Match, leader string) []Matchup {
+	idx := make(map[string]int)
+	var out []Matchup
+	for _, m := range ms {
+		if m.Me.Leader != leader || m.Opp.Leader == "" {
+			continue
+		}
+		i, seen := idx[m.Opp.Leader]
+		if !seen {
+			i = len(out)
+			idx[m.Opp.Leader] = i
+			out = append(out, Matchup{Leader: m.Opp.Leader})
+		}
+		mu := &out[i]
+		mu.Record.Add(m.Result)
+		mu.TurnOrder.Add(m)
+		mu.Games = append(mu.Games, m)
+	}
+	slices.SortStableFunc(out, func(a, b Matchup) int { return b.Record.Games() - a.Record.Games() })
+	return out
 }
 
 // Leaders is every leader the local player played, most played first.
@@ -394,9 +448,25 @@ func Filter(ms []Match, t GameType) []Match {
 	return out
 }
 
-// Scope is which matches the pages show: a game type, one deck or all of them, and a start.
+// TurnOrderFilter keeps games by who went first. GoingFirst and GoingSecond leave out games
+// whose log doesn't say.
+type TurnOrderFilter int
+
+const (
+	EitherTurn TurnOrderFilter = iota
+	GoingFirst
+	GoingSecond
+)
+
+func (f TurnOrderFilter) keeps(m Match) bool {
+	return f == EitherTurn || m.TurnOrderKnown && m.WentFirst == (f == GoingFirst)
+}
+
+// Scope is which matches the pages show: a game type, one deck or all of them, a turn order and
+// a start.
 type Scope struct {
 	Type GameType
+	Turn TurnOrderFilter
 	// Deck is the local player's leader, or "" for every deck.
 	Deck string
 	// Opp is the opponent's player ID and OppLeader their leader, or "" for any.
@@ -415,7 +485,7 @@ func (s Scope) Apply(ms []Match) []Match {
 	out := make([]Match, 0, len(ms))
 	for _, m := range Filter(ms, s.Type) {
 		if s.Deck != "" && m.Me.Leader != s.Deck || s.Opp != "" && m.Opp.ID != s.Opp ||
-			s.OppLeader != "" && m.Opp.Leader != s.OppLeader ||
+			s.OppLeader != "" && m.Opp.Leader != s.OppLeader || !s.Turn.keeps(m) ||
 			!s.Since.IsZero() && m.PlayedAt.Before(s.Since) || !s.Until.IsZero() && !m.PlayedAt.Before(s.Until) {
 			continue
 		}

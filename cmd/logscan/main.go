@@ -28,7 +28,19 @@ func main() {
 	verbose := flag.Bool("v", false, "list games whose end is unknown")
 	show := flag.String("show", "", "print the details of the games in one log file")
 	asJSON := flag.Bool("json", false, "print one JSON line per unique game instead of the report")
+	replays := flag.Bool("replay", false, "rebuild every game's board and report where it disagrees with the log")
+	simDir := flag.String("sim", "", "the sim's folder, whose card data gives printed power for -replay")
+	catalog := flag.String("catalog", "", "a cached tcgcsv card catalog, for printed power newer sets lack in the sim's data")
+	durations := flag.String("durations", "", "phrase=duration overrides for -replay, separated by ';', as \"Buff X N=next\"")
+	steps := flag.String("steps", "", "print the replay steps of the games in one log file")
 	flag.Parse()
+	if *steps != "" {
+		if err := showSteps(*steps); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *show != "" {
 		if err := showFile(*show); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -39,6 +51,20 @@ func main() {
 	if *dir == "" {
 		fmt.Fprintln(os.Stderr, "usage: logscan -dir <CombatLogs/AutoSaved>")
 		os.Exit(2)
+	}
+	if *replays {
+		power, err := printedPower(*simDir, *catalog)
+		if err == nil {
+			err = setDurations(*durations)
+		}
+		if err == nil {
+			err = replayReport(*dir, 40, power)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
 	}
 	if *asJSON {
 		if err := dumpJSON(*dir); err != nil {

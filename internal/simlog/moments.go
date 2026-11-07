@@ -68,7 +68,7 @@ func (g *Game) Moments(power func(code string) int) []Moment {
 	}
 	for t := range ms {
 		ms[t].Turn = t
-		ms[t].Player = g.turnPlayer(t)
+		ms[t].Player = g.TurnPlayer(t)
 	}
 	g.addCards(ms)
 	addRemovals(ms, power)
@@ -180,8 +180,8 @@ func (g *Game) moveTurn(mv Move) int {
 	return g.lastTurn()
 }
 
-// turnPlayer is whoever ended turn t, or by turn order when the game ended in it.
-func (g *Game) turnPlayer(t int) string {
+// TurnPlayer is the ID of whoever ended turn t, or by turn order when the game ended in it.
+func (g *Game) TurnPlayer(t int) string {
 	for _, l := range g.Lines {
 		if l.Turn == t && l.Text == "End Turn" && l.Player != "" && l.Player != "You" {
 			return l.Player
@@ -229,7 +229,7 @@ func (g *Game) Marks() []Mark {
 			continue
 		}
 		t := g.moveTurn(mv)
-		if owner := owners[mv.Owner]; owner != g.turnPlayer(t) {
+		if owner := owners[mv.Owner]; owner != g.TurnPlayer(t) {
 			out = append(out, Mark{Kind: MarkRemoved, Turn: t, Line: mv.Line, Player: owner, Card: mv.Card})
 		}
 	}

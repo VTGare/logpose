@@ -116,6 +116,61 @@ var _ = Describe("Record", func() {
 		Expect(ok).To(BeTrue())
 		Expect(rate).To(BeNumerically("~", 0.8))
 	})
+
+	DescribeTable("gives the 80% Wilson range as the likely win rate",
+		func(r stats.Record, lo, hi float64) {
+			gotLo, gotHi := r.LikelyRange()
+			Expect(gotLo).To(BeNumerically("~", lo, 0.0005))
+			Expect(gotHi).To(BeNumerically("~", hi, 0.0005))
+		},
+		Entry("10–4", stats.Record{Wins: 10, Losses: 4}, 0.5437, 0.8399),
+		Entry("5–5", stats.Record{Wins: 5, Losses: 5}, 0.3122, 0.6878),
+		Entry("2–0 stays under 100%", stats.Record{Wins: 2}, 0.5491, 1.0),
+		Entry("0–1 stays over 0%", stats.Record{Losses: 1}, 0.0, 0.6216),
+		Entry("no games", stats.Record{}, 0.0, 1.0),
+	)
+
+	It("narrows the likely range as games add up at the same rate", func() {
+		lo1, hi1 := stats.Record{Wins: 1, Losses: 1}.LikelyRange()
+		lo2, hi2 := stats.Record{Wins: 10, Losses: 10}.LikelyRange()
+		Expect(hi2 - lo2).To(BeNumerically("<", hi1-lo1))
+		Expect(lo2).To(BeNumerically("<", 0.5))
+		Expect(hi2).To(BeNumerically(">", 0.5))
+	})
+})
+
+var _ = Describe("Matchups", func() {
+	luffy, kaido, buggy := "OP13-001", "OP17-058", "OP09-042"
+	ms := stats.Matches(build(
+		game{ago: time.Hour, mine: luffy, theirs: buggy, won: true, first: true},
+		game{ago: 2 * time.Hour, mine: luffy, theirs: kaido},
+		game{ago: 3 * time.Hour, mine: "OP01-001", theirs: buggy, won: true},
+		game{ago: 4 * time.Hour, mine: luffy, theirs: kaido, won: true, first: true},
+		game{ago: 5 * time.Hour, mine: luffy, theirs: kaido, unknown: true},
+		game{ago: 6 * time.Hour, mine: luffy, theirs: ""},
+	), me)
+
+	It("groups one leader's games by the opponent's leader, most played first", func() {
+		mus := stats.Matchups(ms, luffy)
+		Expect(mus).To(HaveLen(2))
+		Expect(mus[0].Leader).To(Equal(kaido))
+		Expect(mus[0].Record).To(Equal(stats.Record{Wins: 1, Losses: 1}))
+		Expect(mus[0].TurnOrder.First).To(Equal(stats.Record{Wins: 1}))
+		Expect(mus[0].TurnOrder.Second).To(Equal(stats.Record{Losses: 1}))
+		Expect(mus[1].Leader).To(Equal(buggy))
+		Expect(mus[1].Record).To(Equal(stats.Record{Wins: 1}))
+	})
+
+	It("keeps each matchup's games newest first, unknown results included", func() {
+		games := stats.Matchups(ms, luffy)[0].Games
+		Expect(games).To(HaveLen(3))
+		Expect(games[0].PlayedAt).To(BeTemporally("==", now.Add(-2*time.Hour)))
+		Expect(games[2].Result).To(Equal(stats.Unknown))
+	})
+
+	It("is empty for a leader never played", func() {
+		Expect(stats.Matchups(ms, "OP13-079")).To(BeEmpty())
+	})
 })
 
 var _ = Describe("BuildOverview", func() {
@@ -342,6 +397,21 @@ var _ = Describe("Scope", func() {
 		got := stats.Scope{Type: stats.RankedGames, Deck: luffy, Since: now.AddDate(0, 0, -7)}.Apply(ms)
 		Expect(got).To(HaveLen(1))
 		Expect(got[0].Result).To(Equal(stats.Win))
+	})
+
+	It("keeps games by turn order and leaves out games that don't say who went first", func() {
+		ms := stats.Matches(build(
+			game{ago: time.Hour, mine: luffy, first: true},
+			game{ago: 2 * time.Hour, mine: luffy},
+			game{ago: 3 * time.Hour, mine: luffy, noFirst: true},
+		), me)
+		Expect(stats.Scope{Turn: stats.EitherTurn}.Apply(ms)).To(HaveLen(3))
+		first := stats.Scope{Turn: stats.GoingFirst}.Apply(ms)
+		Expect(first).To(HaveLen(1))
+		Expect(first[0].Fingerprint).To(Equal("0"))
+		second := stats.Scope{Turn: stats.GoingSecond, Deck: luffy}.Apply(ms)
+		Expect(second).To(HaveLen(1))
+		Expect(second[0].Fingerprint).To(Equal("1"))
 	})
 })
 

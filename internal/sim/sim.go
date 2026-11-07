@@ -43,6 +43,26 @@ func (i Install) CardImage(code string, small bool) string {
 	return filepath.Join(dir, code+".png")
 }
 
+// DonImage returns the path of the DON!! card's image. Some installs keep it only in the
+// folder's default subfolder.
+func (i Install) DonImage() string {
+	dir := filepath.Join(i.streamingAssets(), "Cards", "Don")
+	if p := filepath.Join(dir, "Don.png"); fileExists(p) {
+		return p
+	}
+	return filepath.Join(dir, "default", "Don.png")
+}
+
+// DonBack returns the path of the back of DON!! cards.
+func (i Install) DonBack() string {
+	return filepath.Join(i.streamingAssets(), "CardBacks", "CardBackDon.png")
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
 // OPBountyPack is the OPBounty client the sim ships, whose pack holds a card database.
 func (i Install) OPBountyPack() string {
 	return filepath.Join(i.streamingAssets(), "OPBounty", "win", "OPBounty.pck")
