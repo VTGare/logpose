@@ -2,6 +2,8 @@ package gui
 
 import (
 	"fmt"
+	"math"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -15,6 +17,11 @@ type leaderCache struct {
 	filters filters
 	leader  string
 	stats   stats.Leader
+	// turnOrder ignores the turn order filter, so the tile's other half still shows its games.
+	turnOrder stats.TurnOrder
+	// games are the leader's games, oldest first, and days its days played, latest first.
+	games []stats.Match
+	days  []stats.Day
 }
 
 // leaderData is the leader the deck filter names, or the most played one in scope, and every
@@ -30,164 +37,224 @@ func (v *view) leaderData() (stats.Leader, []stats.LeaderRecord) {
 	if lc.snap != v.snap || lc.filters != v.filter || lc.leader != leader || lc.stats.Leader == "" {
 		lc.snap, lc.filters, lc.leader = v.snap, v.filter, leader
 		lc.stats = stats.ForLeader(sc.anyDeck, leader)
+		lc.turnOrder = stats.ForLeader(sc.anyTurn, leader).TurnOrder
+		lc.games = lc.games[:0]
+		var newest []stats.Match
+		for _, m := range sc.anyDeck {
+			if m.Me.Leader == leader {
+				newest = append(newest, m)
+			}
+		}
+		for i := len(newest) - 1; i >= 0; i-- {
+			lc.games = append(lc.games, newest[i])
+		}
+		lc.days = stats.BuildOverview(newest, v.snap.Now).Days
 	}
 	return lc.stats, all
 }
 
 func (v *view) leadersPage(c *ui.Context) {
 	l, all := v.leaderData()
-	label := "Leader"
-	if l.Leader == v.snap.Overview.Deck {
-		label = "Current deck"
-	}
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
-			ui.Text(c, "Leaders").FontSize(20).Bold()
 			v.leaderPicker(c, all, l.Leader)
-			v.leaderBanner(c, l.Leader, label, l.Record)
-			ui.Row(c).Gap(12).AlignItems(ui.Stretch).Children(func() {
-				turnOrderTile(c, l.TurnOrder).Grow(2).Basis(0)
-				v.playedTile(c, l).Grow(1).Basis(0)
+			v.leaderHead(c, l)
+			ui.Row(c).Gap(16).AlignItems(ui.Start).Children(func() {
+				ui.Column(c).Grow(1).Basis(0).Gap(16).Children(func() {
+					v.rollingChart(c, l.Rolling, v.leaderStats.games, &v.leaderPoint)
+					v.leaderDays(c)
+				})
+				ui.Column(c).Width(320).Gap(16).Children(func() {
+					turnOrderTile(c, v.leaderStats.turnOrder, v.filter.turn, v.setTurn)
+					v.matchupLists(c, l)
+				})
 			})
-			v.rollingChart(c, "Win rate", l.Rolling, &v.leaderPoint)
-			v.matchupWall(c, l)
-			v.leaderRecent(c, l)
 		})
 	})
 }
 
-// leaderPicker lists every leader played as a card to choose from.
+// leaderPicker is a tab for each leader played, with its art, set, games and rate, which opens
+// it on the Leaders page.
 func (v *view) leaderPicker(c *ui.Context, all []stats.LeaderRecord, chosen string) {
+	v.deckTabs(c, all, chosen, "Show ", v.openLeader)
+}
+
+// deckTabs is a tab for each deck, calling pick with the one clicked. label starts each tab's
+// name for assistive technology.
+func (v *view) deckTabs(c *ui.Context, all []stats.LeaderRecord, chosen, label string, pick func(string)) {
 	t := c.Theme()
-	ui.Row(c).Gap(12).Wrap().Children(func() {
+	ui.Row(c).Gap(8).Wrap().Children(func() {
 		for i, lr := range all {
 			name := v.snap.card(lr.Leader).Name
-			card := ui.Column(c.Key(i)).Width(96).Gap(4).Padding(6).Radius(8).Label("Show " + name)
-			if lr.Leader == chosen {
-				card = card.Background(t.Surface).Border(2, t.Accent)
+			on := lr.Leader == chosen
+			tab := ui.Row(c.Key(i)).Gap(10).AlignItems(ui.Center).Padding(6, 12, 6, 6).
+				Border(1, t.Border.Alpha(0.6)).Label(label + name).Transition(ui.ElementTransition{Duration: hoverTime, Colors: true})
+			if on {
+				tab = tab.Background(t.Surface).Border(1, t.Border)
+			} else if tab.Hovered() {
+				tab = tab.Background(t.Surface.Alpha(0.5))
 			}
-			if card.Clicked() {
-				v.openLeader(lr.Leader)
+			lift(tab, 10)
+			if tab.Clicked() {
+				pick(lr.Leader)
 			}
-			card.Children(func() {
-				v.cardThumb(c, lr.Leader, 84)
-				ui.Text(c, name).FontSize(12).Bold().SingleLine()
-				ui.Text(c, fmt.Sprintf("%s · %s · %d", setOf(lr.Leader), rateOrTooFew(lr.Record), lr.Record.Games())).FontSize(11).TextColor(t.TextMuted)
+			tab.Children(func() {
+				v.artStrip(c, lr.Leader, 48, 34)
+				ui.Column(c).Gap(1).Children(func() {
+					nameText := ui.Text(c, name).FontSize(13).FontWeight(600).SingleLine()
+					if !on {
+						nameText.TextColor(t.TextMuted)
+					}
+					meta := fmt.Sprintf("%s · %s", setOf(lr.Leader), games(lr.Record.Games()))
+					if rate, ok := lr.Record.Rate(); ok {
+						meta += " · " + pct(rate)
+					}
+					ui.Text(c, meta).FontSize(12).TextColor(faintColor(t))
+				})
 			})
 		}
 	})
 }
 
-func (*view) playedTile(c *ui.Context, l stats.Leader) ui.Element {
+// leaderHead is the leader's banner with its win rate and the rate over its latest games.
+func (v *view) leaderHead(c *ui.Context, l stats.Leader) {
 	t := c.Theme()
-	return tile(c, "Played", func() {
-		if l.Record.Games() == 0 {
-			ui.Text(c, "No games").TextColor(t.TextMuted)
-			return
-		}
-		ui.Text(c, games(l.Record.Games())).FontSize(24).Bold()
-		ui.Text(c, fmt.Sprintf("%s to %s", l.First.Format("Jan 2"), l.Last.Format("Jan 2"))).FontSize(12).TextColor(t.TextMuted)
+	since := ""
+	if !l.First.IsZero() {
+		since = " · since " + l.First.Format("Jan 2")
+	}
+	v.banner(c, l.Leader, 150, func() {
+		ui.Row(c).Gap(8).AlignItems(ui.End).Children(func() {
+			ui.Text(c, v.snap.card(l.Leader).Name).FontSize(22).Bold()
+			ui.Text(c, setOf(l.Leader)+since).FontSize(13).TextColor(t.TextMuted).Margin(0, 0, 3, 0)
+		})
+		ui.Row(c).Gap(32).Margin(12, 0, 0, 0).Children(func() {
+			ui.Column(c).Gap(4).Children(func() {
+				ui.Text(c, "Win rate").FontSize(12).TextColor(t.TextMuted)
+				ui.Text(c, rateOrTooFew(l.Record)).FontSize(28).Bold()
+				ui.Text(c, fmt.Sprintf("%s · %s", record(l.Record), games(l.Record.Games()))).FontSize(12).TextColor(t.TextMuted)
+			})
+			if len(l.Rolling) == 0 {
+				return
+			}
+			last := l.Rolling[len(l.Rolling)-1]
+			ui.Column(c).Gap(4).Children(func() {
+				ui.Text(c, fmt.Sprintf("Last %d", stats.RollingWindow)).FontSize(12).TextColor(t.TextMuted)
+				ui.Text(c, pct(last.Rate)).FontSize(28).Bold()
+				overall, _ := l.Record.Rate()
+				d := math.Round((last.Rate - overall) * 100)
+				ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+					switch {
+					case d > 0:
+						ui.Icon(c, iconTrendUp).FontSize(12).TextColor(t.TextMuted).Label("Up")
+						ui.Text(c, fmt.Sprintf("%.0f pts above overall", d)).FontSize(12).TextColor(t.TextMuted)
+					case d < 0:
+						ui.Icon(c, iconTrendDown).FontSize(12).TextColor(t.TextMuted).Label("Down")
+						ui.Text(c, fmt.Sprintf("%.0f pts below overall", -d)).FontSize(12).TextColor(t.TextMuted)
+					default:
+						ui.Text(c, "same as overall").FontSize(12).TextColor(t.TextMuted)
+					}
+				})
+			})
+		})
 	})
 }
 
-var matchupOrderLabels = []string{"Most played", "Best", "Worst"}
-
-// matchupWall is the card wall of the leaders faced at least stats.MinGames times, with the
-// rest as small chips under it, which the switch hides.
-func (v *view) matchupWall(c *ui.Context, l stats.Leader) {
-	t := c.Theme()
-	sorted := stats.SortMatchups(l.Matchups, stats.MatchupOrder(v.matchupOrder))
-	enough, few := stats.SplitBySample(sorted)
-	tile(c, "Matchups", func() {
-		ui.Row(c).Gap(16).Children(func() {
-			ui.Segmented(c, &v.matchupOrder, matchupOrderLabels...).Label("Sort matchups")
-			ui.Spacer(c)
-			if ui.Text(c, fmt.Sprintf("Hide under %d games", stats.MinGames)).FontSize(12).TextColor(t.TextMuted).Clicked() {
-				v.hideFew = !v.hideFew
-			}
-			ui.Switch(c, &v.hideFew).Label(fmt.Sprintf("Hide under %d games", stats.MinGames))
-		})
-		if len(enough) == 0 {
-			ui.Text(c, fmt.Sprintf("No leader faced %d or more times yet.", stats.MinGames)).TextColor(t.TextMuted)
+// leaderDays is the leader's latest days played, like the Overview's.
+func (v *view) leaderDays(c *ui.Context) {
+	days := v.leaderStats.days
+	tile(c, "By day", func() {
+		for i, d := range days[:min(len(days), 5)] {
+			v.dayRow(c.Key(i), d)
 		}
-		ui.Row(c).Gap(12).Wrap().Children(func() {
-			for i, mu := range enough {
-				ui.Column(c.Key(i)).Width(108).Gap(3).Children(func() {
-					ui.Box(c).Size(108, 108*7/5).Children(func() {
-						v.cardThumb(c, mu.Leader, 108)
-						rateBadge(c, mu.Record).Absolute().Left(6).Right(6).Bottom(6)
-					})
-					ui.Text(c, v.snap.card(mu.Leader).Name).FontSize(12).Bold().SingleLine()
-					ui.Text(c, setOf(mu.Leader)+" · "+record(mu.Record)).FontSize(11).TextColor(t.TextMuted)
-				})
-			}
-		})
-		if len(few) == 0 || v.hideFew {
+	})
+}
+
+// matchupLists are the best and worst matchups with enough games, split at 50%, then the even
+// ones and a count of the rest, which the Matchups page lists in full.
+func (v *view) matchupLists(c *ui.Context, l stats.Leader) {
+	t := c.Theme()
+	var best, worst, even, few []stats.LeaderRecord
+	for _, mu := range stats.SortMatchups(l.Matchups, stats.BestFirst) {
+		rate, ok := mu.Record.Rate()
+		switch {
+		case !ok:
+			few = append(few, mu)
+		case rate > 0.5:
+			best = append(best, mu)
+		case rate < 0.5:
+			worst = append(worst, mu)
+		default:
+			even = append(even, mu)
+		}
+	}
+	slices.Reverse(worst)
+	list := func(title string, mus []stats.LeaderRecord) {
+		if len(mus) == 0 {
 			return
 		}
-		ui.Text(c, fmt.Sprintf("Also faced, under %d games", stats.MinGames)).FontSize(12).TextColor(t.TextMuted).Margin(6, 0, 0, 0)
-		ui.Row(c).Gap(8).Wrap().Children(func() {
-			for i, mu := range few {
-				ui.Row(c.Key(i)).Gap(6).Padding(5, 10).Radius(6).Background(t.Background).Children(func() {
-					v.leaderChip(c, mu.Leader, 10)
-					ui.Text(c, v.snap.card(mu.Leader).Name).FontSize(12)
-					ui.Text(c, setOf(mu.Leader)+" · "+record(mu.Record)).FontSize(11).TextColor(t.TextMuted)
-				})
+		tile(c, title, func() {
+			for i, mu := range mus[:min(len(mus), 3)] {
+				v.matchupLine(c.Key(i), mu)
 			}
 		})
+	}
+	list("Best matchups", best)
+	list("Worst matchups", worst)
+	if len(best)+len(worst)+len(even) == 0 {
+		tile(c, "Matchups", func() {
+			ui.Text(c, fmt.Sprintf("No leader faced %d or more times yet.", stats.MinGames)).FontSize(13).TextColor(t.TextMuted)
+		})
+	}
+	if len(even) > 0 {
+		names := make([]string, len(even))
+		for i, mu := range even {
+			names[i] = fmt.Sprintf("%s %s", shortName(v.snap.card(mu.Leader).Name), record(mu.Record))
+		}
+		titledTile(c, "Even", strings.Join(names, " · "), func() {})
+	}
+	if len(few) > 0 {
+		el := ui.Row(c).Label("Show every matchup")
+		if el.Clicked() {
+			v.page = pageMatchups
+		}
+		el.Children(func() {
+			titledTile(c, "Rarely faced", fmt.Sprintf("%d under %d games", len(few), stats.MinGames), func() {}).Grow(1)
+		})
+	}
+}
+
+// matchupLine is one opposing leader with its record as a split bar, the record and the rate.
+func (v *view) matchupLine(c *ui.Context, mu stats.LeaderRecord) {
+	t := c.Theme()
+	name := v.snap.card(mu.Leader).Name
+	el := ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(3, 6).Margin(0, -6).Radius(8).Label("Show games vs " + name)
+	if el.Hovered() {
+		el.Background(t.Surface)
+	}
+	if el.Clicked() {
+		v.filter.oppLeader = mu.Leader
+		v.page = pageMatches
+	}
+	el.Children(func() {
+		v.artStrip(c, mu.Leader, 42, 30)
+		ui.Text(c, shortName(name)).FontWeight(500).SingleLine().Grow(1).Basis(0)
+		ui.Box(c).Width(40).Children(func() { splitBar(c, winShare(mu.Record)) })
+		ui.Text(c, record(mu.Record)).Bold().Width(40).TextAlign(ui.End)
+		ui.Text(c, rateOrTooFew(mu.Record)).FontSize(12).TextColor(t.TextMuted).Width(34).TextAlign(ui.End)
 	})
+}
+
+// shortName drops the "Monkey D." and like from a leader's name, where a column is narrow.
+func shortName(name string) string {
+	if i := strings.LastIndex(name, " "); i > 0 && len(name) > 12 {
+		return name[i+1:]
+	}
+	return name
 }
 
 // setOf is a card code's set, "OP13" for OP13-001, which tells leaders with one name apart.
 func setOf(code string) string {
 	set, _, _ := strings.Cut(code, "-")
 	return set
-}
-
-// rateBadge is a win rate on the heatmap scale's color, or a grey game count under the minimum.
-func rateBadge(c *ui.Context, r stats.Record) ui.Element {
-	rate, ok := r.Rate()
-	if !ok {
-		t := c.Theme()
-		return ui.Text(c, games(r.Games())).FontSize(11).TextAlign(ui.Center).Padding(3, 0).Radius(4).
-			Background(t.Surface).TextColor(t.TextMuted)
-	}
-	bg, fg := heat(rate)
-	return ui.Text(c, pct(rate)).FontSize(12).Bold().TextAlign(ui.Center).Padding(3, 0).Radius(4).Background(bg).TextColor(fg)
-}
-
-// heat is the matchup scale from ui.md: under 40%, 40–47%, 48–52%, 53–60% and over 60%.
-func heat(rate float64) (bg, fg ui.Color) {
-	switch {
-	case rate < 0.40:
-		return ui.Hex("#F7C1C1"), ui.Hex("#791F1F")
-	case rate < 0.475:
-		return ui.Hex("#FCEBEB"), ui.Hex("#791F1F")
-	case rate <= 0.525:
-		return ui.Hex("#E6E4DC"), ui.Hex("#2C2C2A")
-	case rate <= 0.60:
-		return ui.Hex("#EAF3DE"), ui.Hex("#27500A")
-	default:
-		return ui.Hex("#C0DD97"), ui.Hex("#27500A")
-	}
-}
-
-func (v *view) leaderRecent(c *ui.Context, l stats.Leader) {
-	t := c.Theme()
-	tile(c, "Recent games", func() {
-		for i, m := range l.Recent {
-			row := ui.Row(c.Key(i)).Gap(8).Label("Open the match against " + m.Opp.Name)
-			if row.Clicked() {
-				v.openMatch(m)
-			}
-			row.Children(func() {
-				ui.Text(c, resultLetter(m.Result)).Bold().TextColor(resultColor(m.Result)).Width(14)
-				v.leaderChip(c, m.Opp.Leader, 12)
-				ui.Text(c, v.snap.card(m.Opp.Leader).Name).SingleLine().Width(180)
-				ui.Text(c, m.Opp.Name).SingleLine().Grow(1).TextColor(t.TextMuted)
-				ui.Text(c, turnOrderShort(m)).FontSize(12).TextColor(t.TextMuted)
-				ui.Text(c, m.PlayedAt.Format("Jan 2 15:04")).FontSize(12).TextColor(t.TextMuted).Width(90).TextAlign(ui.End)
-			})
-		}
-	})
 }

@@ -18,6 +18,7 @@ type filters struct {
 	deck string
 	// gameType is a stats.GameType, an int for ui.Segmented.
 	gameType int
+	turn     stats.TurnOrderFilter
 	// opp is an opponent's player ID and oppLeader their leader, or "" for any. The Matches
 	// page's row menu sets them.
 	opp, oppLeader string
@@ -34,6 +35,9 @@ var periods = []struct {
 }
 
 var gameTypeLabels = []string{"All games", "Ranked", "Casual"}
+
+// turnLabels are indexed by stats.TurnOrderFilter.
+var turnLabels = []string{"Either turn", "Going first", "Going second"}
 
 const (
 	// formatCurrent is the latest format, whichever that is when the user adds one.
@@ -65,7 +69,7 @@ func (v *view) formatRange() (stats.FormatRange, bool) {
 // lobbies can be any format. A period inside a format starts at the later of the two.
 func (v *view) currentScope() stats.Scope {
 	f := v.filter
-	s := stats.Scope{Type: stats.GameType(f.gameType), Deck: f.deck, Opp: f.opp, OppLeader: f.oppLeader}
+	s := stats.Scope{Type: stats.GameType(f.gameType), Turn: f.turn, Deck: f.deck, Opp: f.opp, OppLeader: f.oppLeader}
 	if d := periods[f.period].days; d > 0 {
 		s.Since = v.snap.Now.AddDate(0, 0, -d)
 	}
@@ -118,9 +122,10 @@ type scoped struct {
 
 	matches  []stats.Match
 	overview stats.Overview
-	// anyDeck is the scope without the deck, for choosing one.
-	anyDeck []stats.Match
-	decks   []stats.LeaderRecord
+	// anyDeck is the scope without the deck, for choosing one, and anyTurn the scope without
+	// the deck or the turn order, for the turn order tile.
+	anyDeck, anyTurn []stats.Match
+	decks            []stats.LeaderRecord
 }
 
 func (v *view) scoped() *scoped {
@@ -135,6 +140,8 @@ func (v *view) scoped() *scoped {
 	s.Deck = ""
 	sc.anyDeck = s.Apply(v.snap.Matches)
 	sc.decks = stats.Leaders(sc.anyDeck)
+	s.Turn = stats.EitherTurn
+	sc.anyTurn = s.Apply(v.snap.Matches)
 	return sc
 }
 
@@ -178,7 +185,26 @@ func (v *view) resetPoints() {
 
 func (v *view) clearFilters() {
 	v.filter = filters{}
+	v.matches.result = anyResult
 	v.resetPoints()
+}
+
+// setTurn sets the turn order filter, or clears it when it's already set to t.
+func (v *view) setTurn(t stats.TurnOrderFilter) {
+	if v.filter.turn == t {
+		t = stats.EitherTurn
+	}
+	v.filter.turn = t
+	v.resetPoints()
+}
+
+func (v *view) turnMenu(m *ui.Menu) {
+	for i, l := range turnLabels {
+		if m.Item(l).Radio(int(v.filter.turn) == i).Chosen() {
+			v.filter.turn = stats.TurnOrderFilter(i)
+			v.resetPoints()
+		}
+	}
 }
 
 // removablePill is a set filter shown as a tinted pill that clears it when clicked.
@@ -186,7 +212,10 @@ func (v *view) removablePill(c *ui.Context, key, label string, clear func()) {
 	t := c.Theme()
 	el := ui.ButtonBase(c.Key(key)).Label("Remove the filter "+label).Padding(6, 12).Radius(16).
 		Background(t.Accent.Alpha(0.18)).Border(1, t.Accent)
-	el.Children(func() { ui.Text(c, label+"  ✕").FontSize(13) })
+	el.Gap(6).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, label).FontSize(13)
+		ui.Icon(c, iconClose).FontSize(13)
+	})
 	if el.Clicked() {
 		clear()
 		v.resetPoints()
@@ -207,12 +236,17 @@ func (v *view) oppName(id string) string {
 func (v *view) filterBar(c *ui.Context) {
 	t := c.Theme()
 	pill := func(key, label string, on bool, build func(m *ui.Menu)) {
-		el := ui.ButtonBase(c.Key(key)).Label(label).Padding(6, 12).Radius(16).Border(1, t.Border)
+		el := ui.ButtonBase(c.Key(key)).Label(label).Padding(5, 12).Radius(16).Border(1, t.Border).Background(ui.Transparent)
 		if on {
 			el = el.Background(t.Accent.Alpha(0.18)).Border(1, t.Accent)
 		}
-		el.Children(func() {
-			ui.Text(c, label+"  ▾").FontSize(13)
+		el.Gap(6).AlignItems(ui.Center).Children(func() {
+			col := t.TextMuted
+			if on {
+				col = t.Text
+			}
+			ui.Text(c, label).FontSize(13).FontWeight(500).TextColor(col)
+			ui.Icon(c, iconChevron).FontSize(12).TextColor(col)
 		})
 		el.PopoverMenuButton(build)
 	}
@@ -233,6 +267,7 @@ func (v *view) filterBar(c *ui.Context) {
 				}
 			})
 		}
+		pill("turn", turnLabels[v.filter.turn], v.filter.turn != stats.EitherTurn, v.turnMenu)
 		// The opponent filters have no menu of their own, so they show only while set.
 		if v.filter.opp != "" {
 			v.removablePill(c, "opp", "vs "+v.oppName(v.filter.opp), func() { v.filter.opp = "" })
@@ -240,10 +275,11 @@ func (v *view) filterBar(c *ui.Context) {
 		if v.filter.oppLeader != "" {
 			v.removablePill(c, "oppLeader", "vs "+v.snap.card(v.filter.oppLeader).Name, func() { v.filter.oppLeader = "" })
 		}
-		if v.filter.active() && ui.Text(c, "Clear").FontSize(13).TextColor(t.Accent).Padding(6, 4).Clicked() {
+		listOnly := v.page == pageMatches && v.matches.result != anyResult
+		if (v.filter.active() || listOnly) && ui.Text(c, "Clear").FontSize(13).TextColor(t.Accent).Padding(6, 4).Clicked() {
 			v.clearFilters()
 		}
 		ui.Spacer(c)
-		ui.Text(c, games(len(v.scoped().matches))).FontSize(12).TextColor(t.TextMuted)
+		ui.Text(c, games(len(v.scoped().matches))).FontSize(13).TextColor(faintColor(t))
 	})
 }

@@ -24,9 +24,7 @@ type flowSeries struct {
 // turns line up.
 const flowAxisWidth = 44
 
-// flowTile shows life, hand or board by turn on one chart, picked by tabs, with the key moments'
-// pins on top and the tab's marks under the lines. Under it, who was ahead on each at the end
-// of every turn.
+// flowTile shows life, hand or board by turn, picked by tabs, as pips laid out like the table.
 func (v *view) flowTile(c *ui.Context, m stats.Match) ui.Element {
 	t := c.Theme()
 	return tile(c, "Turn by turn", func() {
@@ -52,81 +50,13 @@ func (v *view) flowTile(c *ui.Context, m stats.Match) ui.Element {
 		tab := &v.detail.flowTab
 		*tab = min(*tab, len(rows)-1)
 		r := rows[*tab]
-		ui.Row(c).Gap(14).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Gap(16).AlignItems(ui.Center).Children(func() {
 			ui.Segmented(c, tab, labels...)
-			legend(c, firstColor, "You")
-			legend(c, secondColor, m.Opp.Name)
 			ui.Spacer(c)
-			switch r.marks {
-			case simlog.MarkTrigger:
-				ui.Text(c, "○ Trigger").FontSize(12).TextColor(t.TextMuted)
-			case simlog.MarkRemoved:
-				ui.Text(c, "● Removed").FontSize(12).TextColor(t.TextMuted)
-			}
+			pipLegend(c, r, m)
 		})
-		x := chart.NewLinear(0, float64(len(l.Me)-1))
-		xs := make([]float32, len(l.Me))
-		for i := range xs {
-			xs[i] = x.At(float64(i))
-		}
-		v.flowChart(c, m, l, r, xs, rows)
-		v.aheadStrip(c, m, rows, xs)
+		v.pips(c, m, l, r, rows)
 	})
-}
-
-func (v *view) flowChart(c *ui.Context, m stats.Match, l *matchTimeline, r flowSeries, xs []float32, rows []flowSeries) {
-	t := c.Theme()
-	top := max(slices.Max(r.me), slices.Max(r.opp), 1)
-	lo := 0.0
-	if r.marks != 0 && slices.ContainsFunc(l.Marks, func(mk simlog.Mark) bool { return mk.Kind == r.marks }) {
-		lo = -0.3 * float64(top)
-	}
-	// Headroom keeps the pins off the lines at the top.
-	y := chart.NewLinear(lo, 1.25*float64(top))
-	mine := make([]float32, len(xs))
-	theirs := make([]float32, len(xs))
-	for i := range xs {
-		mine[i] = y.At(float64(r.me[i]))
-		theirs[i] = y.At(float64(r.opp[i]))
-	}
-	var left []chart.Tick
-	step := max(1, top/4)
-	for n := 0; n <= top; n += step {
-		left = append(left, chart.Tick{At: y.At(float64(n)), Label: fmt.Sprint(n)})
-	}
-	var bottom []chart.Tick
-	turns := len(xs) - 1
-	for i := 0; i <= turns; i += max(1, turns/12) {
-		bottom = append(bottom, chart.Tick{At: xs[i], Label: fmt.Sprint(i)})
-	}
-	sel := &v.detail.lifePoint
-	chart.Plot(c, chart.Axes{Left: left, Bottom: bottom, Label: flowAxisLabel(c)}, func(area ui.Element) {
-		area.Label(r.label + " by turn").Draw(func(p *ui.Painter, rect ui.Rect) {
-			for _, tick := range left {
-				p.Line(rect.X, chart.Y(rect, tick.At), rect.X+rect.W, chart.Y(rect, tick.At), 1, t.Border)
-			}
-			p.StrokePath(chart.Line(rect, xs, theirs, chart.CurveLinear), 2, secondColor)
-			p.StrokePath(chart.Line(rect, xs, mine, chart.CurveLinear), 2, firstColor)
-		})
-		for i, mo := range l.Moments {
-			if mo.Turn < len(xs) {
-				chart.Anchor(c.Key(fmt.Sprint("pin", i)), xs[mo.Turn], 1, ui.Center, ui.Start, func() {
-					pin(c, i+1, playerColor(m, mo.Player))
-				})
-			}
-		}
-		if lo < 0 {
-			chartMarks(c, m, l.Marks, r.marks, xs, y, lo)
-		}
-		chart.Select(c, area, sel, xs, func(i int) string { return flowSummary(m, rows, i) })
-		if i := *sel; i >= 0 && i < len(xs) {
-			chart.RuleX(c, xs[i], 1).Background(t.TextMuted)
-			chart.Point(c, xs[i], theirs[i], 8, 8).Radius(4).Background(secondColor)
-			chart.Point(c, xs[i], mine[i], 8, 8).Radius(4).Background(firstColor)
-			moment, marks := v.turnLines(m, l, i)
-			flowTooltip(c, xs[i], flowSummary(m, rows, i), moment, marks)
-		}
-	}).Height(200).Gap(4).Margin(8, 0, 0, 0)
 }
 
 // turnLines is a turn's key moment and the marks the moment doesn't already name.
@@ -144,81 +74,6 @@ func (v *view) turnLines(m stats.Match, l *matchTimeline, turn int) (moment, mar
 		}
 	}
 	return moment, marks
-}
-
-// flowAxisLabel gives left labels a fixed width, so the chart and the strip under it start at
-// the same x.
-func flowAxisLabel(c *ui.Context) func(chart.Side, chart.Tick) {
-	bottom := axisLabel(c)
-	return func(side chart.Side, tick chart.Tick) {
-		if side == chart.Left {
-			ui.Text(c, tick.Label).NoWrap().Width(flowAxisWidth).TextAlign(ui.End)
-			return
-		}
-		bottom(side, tick)
-	}
-}
-
-// aheadStrip has a row each for life, hand and board, with a cell per turn under the chart's
-// turn in the color of whoever had more at its end. The turn under the pointer is outlined.
-func (v *view) aheadStrip(c *ui.Context, m stats.Match, rows []flowSeries, xs []float32) {
-	t := c.Theme()
-	const rowH, gap = 14, 6
-	sel := v.detail.lifePoint
-	ticks := make([]chart.Tick, len(rows))
-	h := float32(len(rows)*(rowH+gap) - gap)
-	for i, r := range rows {
-		ticks[i] = chart.Tick{At: 1 - (float32(i)*(rowH+gap)+rowH/2)/h, Label: r.label}
-	}
-	ui.Text(c, "Who was ahead").FontSize(12).TextColor(t.TextMuted).Margin(12, 0, 0, 0)
-	chart.Plot(c, chart.Axes{Left: ticks, Label: flowAxisLabel(c)}, func(area ui.Element) {
-		area.Label("Who was ahead by turn").Draw(func(p *ui.Painter, rect ui.Rect) {
-			if len(xs) < 2 {
-				return
-			}
-			w := rect.W / float32(len(xs)-1)
-			for k, r := range rows {
-				top := rect.Y + float32(k)*(rowH+gap)
-				for i := 1; i < len(xs); i++ {
-					col := t.Border
-					switch {
-					case r.me[i] > r.opp[i]:
-						col = firstColor
-					case r.me[i] < r.opp[i]:
-						col = secondColor
-					}
-					cx := rect.X + rect.W*xs[i]
-					x0, x1 := max(rect.X, cx-w/2+1), min(rect.X+rect.W, cx+w/2-1)
-					p.Fill(ui.Rect{X: x0, Y: top, W: x1 - x0, H: rowH}, col, 2)
-				}
-			}
-			if sel > 0 && sel < len(xs) {
-				cx := rect.X + rect.W*xs[sel]
-				x0, x1 := max(rect.X, cx-w/2), min(rect.X+rect.W, cx+w/2)
-				p.Stroke(ui.Rect{X: x0 - 1, Y: rect.Y - 2, W: x1 - x0 + 2, H: rect.H + 4}, t.Text, 3, 1.5)
-			}
-		})
-	}).Height(h).Gap(4)
-	ui.Text(c, aheadCounts(m, rows)).FontSize(12).TextColor(t.TextMuted).Margin(4, 0, 0, flowAxisWidth+4).Wrap()
-}
-
-// aheadCounts says how many turns each player ended ahead, as "Turns ahead · life: you 2,
-// emog 11 · …".
-func aheadCounts(m stats.Match, rows []flowSeries) string {
-	parts := []string{"Turns ahead"}
-	for _, r := range rows {
-		mine, theirs := 0, 0
-		for i := 1; i < len(r.me); i++ {
-			switch {
-			case r.me[i] > r.opp[i]:
-				mine++
-			case r.me[i] < r.opp[i]:
-				theirs++
-			}
-		}
-		parts = append(parts, fmt.Sprintf("%s: you %d, %s %d", strings.ToLower(r.label), mine, m.Opp.Name, theirs))
-	}
-	return strings.Join(parts, " · ")
 }
 
 // flowSummary is a turn's counts for both players, as "End of turn 9 · You: life 2, hand 7,
@@ -240,71 +95,6 @@ func flowSummary(m stats.Match, rows []flowSeries, i int) string {
 		when = "Start"
 	}
 	return when + "\n" + side("You", true) + "\n" + side(m.Opp.Name, false)
-}
-
-// flowTooltip shows a turn's counts, then its moment in bold and its marks muted, kept inside
-// the chart near its edges.
-func flowTooltip(c *ui.Context, x float32, summary string, moment, marks []string) {
-	t := c.Theme()
-	align := ui.Center
-	switch {
-	case x < 0.2:
-		align = ui.Start
-	case x > 0.8:
-		align = ui.End
-	}
-	chart.Anchor(c, x, 1, align, ui.Start, func() {
-		ui.Column(c).Gap(3).Padding(4, 8).Radius(6).Background(t.Background).Border(1, t.Border).Children(func() {
-			for k, line := range strings.Split(summary, "\n") {
-				ui.Text(c.Key(fmt.Sprint("sum", k)), line).NoWrap().FontSize(12)
-			}
-			for k, line := range moment {
-				ui.Text(c.Key(k), line).NoWrap().FontSize(12).Bold()
-			}
-			for k, line := range marks {
-				ui.Text(c.Key(fmt.Sprint("mark", k)), line).NoWrap().FontSize(12).TextColor(t.TextMuted)
-			}
-		})
-	})
-}
-
-// chartMarks draws each turn's marks of one kind under the lines, a row per player in the
-// color of the card's owner: dots for removals and rings for Triggers.
-func chartMarks(c *ui.Context, m stats.Match, marks []simlog.Mark, kind simlog.MarkKind, xs []float32, y chart.Linear, lo float64) {
-	type key struct {
-		turn int
-		mine bool
-	}
-	count := make(map[key]int)
-	for _, mk := range marks {
-		if mk.Kind == kind {
-			count[key{mk.Turn, mk.Player == m.Me.ID}]++
-		}
-	}
-	for turn := range xs {
-		for _, mine := range []bool{true, false} {
-			k := key{turn, mine}
-			if count[k] == 0 {
-				continue
-			}
-			row, col := lo*0.72, secondColor
-			if mine {
-				row, col = lo*0.32, firstColor
-			}
-			chart.Anchor(c.Key(fmt.Sprint(turn, mine)), xs[turn], y.At(row), ui.Center, ui.Center, func() {
-				ui.Row(c).Gap(2).Children(func() {
-					for range count[k] {
-						dot := ui.Box(c).Size(6, 6).Radius(3)
-						if kind == simlog.MarkTrigger {
-							dot.Size(7, 7).Radius(4).Border(1.5, col)
-						} else {
-							dot.Background(col)
-						}
-					}
-				})
-			})
-		}
-	}
 }
 
 func (v *view) markLines(m stats.Match, marks []simlog.Mark, turn int) []string {
@@ -334,3 +124,209 @@ func (v *view) markLines(m stats.Match, marks []simlog.Mark, turn int) []string 
 }
 
 const removedPrefix = "Removed: "
+
+// pipGap is the room a pip takes in its column, and pipSpine the band between the two players
+// that holds the turn numbers and the key moments' pins.
+const (
+	pipGap   = 15
+	pipSize  = 11
+	pipSpine = 34
+)
+
+// pipPlot is what drawing one tab of pips needs.
+type pipPlot struct {
+	t        *ui.Theme
+	m        stats.Match
+	r        flowSeries
+	n, slots int
+	half     float32
+	asPips   bool
+	// triggers holds "true 5" for a Trigger from your life on turn 5, and pinned the turns
+	// with a key moment, whose pin stands in for the turn number.
+	triggers map[string]bool
+	pinned   map[int]bool
+}
+
+func newPipPlot(t *ui.Theme, m stats.Match, l *matchTimeline, r flowSeries) pipPlot {
+	pp := pipPlot{
+		t: t, m: m, r: r, n: len(r.me), slots: 5, asPips: r.label != "Hand", half: 30,
+		triggers: make(map[string]bool), pinned: make(map[int]bool),
+	}
+	if pp.asPips {
+		pp.slots = max(slices.Max(r.me), slices.Max(r.opp), 1)
+		pp.half = float32(pp.slots*pipGap + 6)
+	}
+	for _, mk := range l.Marks {
+		if r.marks == simlog.MarkTrigger && mk.Kind == simlog.MarkTrigger {
+			pp.triggers[fmt.Sprint(mk.Player == m.Me.ID, mk.Turn)] = true
+		}
+	}
+	for _, mo := range l.Moments {
+		pp.pinned[mo.Turn] = true
+	}
+	return pp
+}
+
+func (pp pipPlot) height() float32 { return 2*pp.half + pipSpine }
+
+func (pp pipPlot) draw(p *ui.Painter, rect ui.Rect, sel int) {
+	colW := rect.W / float32(pp.n)
+	for i := 1; i < pp.n; i++ {
+		if mineTurn(pp.m, i) {
+			p.Fill(ui.Rect{X: rect.X + float32(i)*colW + 1, Y: rect.Y, W: colW - 2, H: rect.H}, youColor.Alpha(0.07), 4)
+		}
+	}
+	for i := range pp.n {
+		cx := rect.X + (float32(i)+0.5)*colW
+		pp.column(p, rect, cx, pp.r.opp, i, oppColor, false)
+		pp.column(p, rect, cx, pp.r.me, i, youColor, true)
+		if !pp.pinned[i] {
+			label := fmt.Sprint(i)
+			if i == 0 {
+				label = "S"
+			}
+			p.Text(cx-float32(len(label))*3.3, rect.Y+pp.half+pipSpine/2-7, label, 11, faintColor(pp.t))
+		}
+	}
+	if sel >= 0 && sel < pp.n {
+		p.Stroke(ui.Rect{X: rect.X + float32(sel)*colW, Y: rect.Y - 2, W: colW, H: rect.H + 4}, pp.t.Text.Alpha(0.6), 5, 1.5)
+	}
+}
+
+// column draws one player's count at the end of turn i: a number for hand, else a pip per
+// card, with the ones lost that turn as rings.
+func (pp pipPlot) column(p *ui.Painter, rect ui.Rect, cx float32, counts []int, i int, col ui.Color, mine bool) {
+	v, prev := counts[i], counts[max(i-1, 0)]
+	if !pp.asPips {
+		y := rect.Y + pp.half/2
+		if mine {
+			y = rect.Y + pp.half + pipSpine + pp.half/2
+		}
+		s := fmt.Sprint(v)
+		p.Text(cx-float32(len(s))*3.6, y-8, s, 14, col)
+		return
+	}
+	ring := col
+	if pp.r.marks == simlog.MarkRemoved {
+		ring = lossColor
+	}
+	for k := range pp.slots {
+		y := rect.Y + pp.half - 6 - float32(k)*pipGap - pipSize/2
+		if mine {
+			y = rect.Y + pp.half + pipSpine + 6 + float32(k)*pipGap + pipSize/2
+		}
+		dot := ui.Rect{X: cx - pipSize/2, Y: y - pipSize/2, W: pipSize, H: pipSize}
+		switch {
+		case k < v:
+			p.Fill(dot, col, pipSize/2)
+		case k < prev:
+			p.Stroke(dot, ring, pipSize/2, 1.5)
+			if k == prev-1 && pp.triggers[fmt.Sprint(mine, i)] {
+				p.Text(cx-3, y-6, "T", 9, ring)
+			}
+		default:
+			p.Fill(ui.Rect{X: cx - 1.5, Y: y - 1.5, W: 3, H: 3}, pp.t.Border, 1.5)
+		}
+	}
+}
+
+// pips lays the turns out like the table: the opponent's counts above, yours below and the turn
+// numbers between. Life and board are drawn as pips, one per card, and a pip lost that turn is
+// a ring for that turn only. Hand goes past what pips can show, so it's numbers. Your turns are
+// shaded, and hovering a turn explains it.
+func (v *view) pips(c *ui.Context, m stats.Match, l *matchTimeline, r flowSeries, rows []flowSeries) {
+	pp := newPipPlot(c.Theme(), m, l, r)
+	h := pp.height()
+	xs := make([]float32, pp.n)
+	for i := range xs {
+		xs[i] = (float32(i) + 0.5) / float32(pp.n)
+	}
+	ticks := []chart.Tick{
+		{At: 1 - pp.half/2/h, Label: m.Opp.Name},
+		{At: pp.half / 2 / h, Label: "You"},
+	}
+	sel := &v.detail.lifePoint
+	label := func(_ chart.Side, tick chart.Tick) {
+		col := oppColor
+		if tick.Label == "You" {
+			col = youColor
+		}
+		ui.Text(c, tick.Label).NoWrap().Width(flowAxisWidth).TextAlign(ui.End).FontWeight(600).TextColor(col)
+	}
+	chart.Plot(c.Key(r.label), chart.Axes{Left: ticks, Label: label}, func(area ui.Element) {
+		area.Label(r.label + " by turn").Draw(func(p *ui.Painter, rect ui.Rect) { pp.draw(p, rect, *sel) })
+		for i, mo := range l.Moments {
+			if mo.Turn < pp.n {
+				chart.Anchor(c.Key(fmt.Sprint("pin", i)), xs[mo.Turn], 1-(pp.half+pipSpine/2)/h, ui.Center, ui.Center, func() {
+					v.momentPin(c, m, i, mo)
+				})
+			}
+		}
+		chart.Select(c, area, sel, xs, func(i int) string { return flowSummary(m, rows, i) })
+		if i := *sel; i >= 0 && i < pp.n {
+			moment, marks := v.turnLines(m, l, i)
+			pipTooltip(c, xs[i], 0.5/float32(pp.n), flowSummary(m, rows, i), moment, marks)
+		}
+	}).Height(h).Gap(8).Margin(10, 0, 0, 0).Transition(ui.ElementTransition{Duration: barTime, Colors: true, Enter: &ui.Motion{}})
+}
+
+// mineTurn reports whether turn i was the local player's, when the log says who went first.
+func mineTurn(m stats.Match, i int) bool {
+	if !m.TurnOrderKnown || i < 1 {
+		return false
+	}
+	return (i%2 == 1) == m.WentFirst
+}
+
+// pipTooltip explains a turn beside its column, on the side with more room.
+func pipTooltip(c *ui.Context, x, halfCol float32, summary string, moment, marks []string) {
+	t := c.Theme()
+	h, at := ui.Start, x+halfCol
+	if x > 0.5 {
+		h, at = ui.End, x-halfCol
+	}
+	chart.Anchor(c, at, 0.5, h, ui.Center, func() {
+		ui.Column(c).Gap(3).Padding(8, 10).Margin(0, 6).Radius(8).Background(t.Surface).Border(1, t.Border).
+			Shadow(0, 10, 24, 0, ui.RGBA(0, 0, 0, 0.55)).Children(func() {
+			for k, line := range strings.Split(summary, "\n") {
+				txt := ui.Text(c.Key(fmt.Sprint("sum", k)), line).NoWrap().FontSize(12)
+				if k == 0 {
+					txt.Bold()
+				} else {
+					txt.TextColor(t.TextMuted)
+				}
+			}
+			for k, line := range moment {
+				ui.Text(c.Key(k), line).NoWrap().FontSize(12)
+			}
+			for k, line := range marks {
+				ui.Text(c.Key(fmt.Sprint("mark", k)), line).NoWrap().FontSize(12).TextColor(t.TextMuted)
+			}
+		})
+	})
+}
+
+// pipLegend names the marks the tab draws.
+func pipLegend(c *ui.Context, r flowSeries, m stats.Match) {
+	t := c.Theme()
+	item := func(mark func(), label string) {
+		ui.Row(c.Key(label)).Gap(6).AlignItems(ui.Center).Children(func() {
+			mark()
+			ui.Text(c, label).FontSize(12).TextColor(t.TextMuted)
+		})
+	}
+	if r.label != "Hand" {
+		item(func() { ui.Box(c).Size(10, 10).Radius(5).Background(youColor) }, r.label)
+		taken, col := "Taken that turn", youColor
+		if r.marks == simlog.MarkRemoved {
+			taken, col = "Removed that turn", lossColor
+		}
+		item(func() { ui.Box(c).Size(10, 10).Radius(5).Border(1.5, col) }, taken)
+		if r.marks == simlog.MarkTrigger {
+			item(func() { ui.Text(c, "T").FontSize(10).Bold().TextColor(youColor) }, "Trigger")
+		}
+	}
+	if m.TurnOrderKnown {
+		item(func() { ui.Box(c).Size(18, 10).Radius(3).Background(youColor.Alpha(0.25)) }, "Your turns")
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/chart"
 
 	"github.com/VTGare/logpose/internal/stats"
 )
@@ -17,6 +18,8 @@ type formatsState struct {
 	// editing is the ID of the format being renamed, and rename its new name.
 	editing int64
 	rename  string
+	// day is the timeline's day under the pointer, or -1.
+	day int
 }
 
 func dayStart(t time.Time) time.Time {
@@ -37,14 +40,15 @@ func (v *view) formatsPage(c *ui.Context) {
 		s.start = dayStart(v.snap.Now)
 	}
 	ui.Scroll(c).Fill().Children(func() {
-		ui.Column(c).Padding(20).Gap(16).MaxWidth(760).Children(func() {
-			ui.Text(c, "Formats").FontSize(20).Bold()
-			ui.Text(c, "A format runs from the day it starts until the next one starts, and holds the ranked games in it. Casual lobbies can be any format, so they only show under All formats. The sim's logs don't say which format a game was played in, so you set where each one begins.").TextColor(t.TextMuted).Wrap()
+		ui.Column(c).Padding(20).Gap(16).Children(func() {
+			ui.Text(c, "Formats").FontSize(20).FontWeight(600)
+			ui.Text(c, "A format runs from the day it starts until the next one starts, and holds the ranked games in it. Casual lobbies can be any format, so they only show under All formats. The sim's logs don't say which format a game was played in, so you set where each one begins.").TextColor(t.TextMuted).Wrap().MaxWidth(820)
 			for _, d := range v.snap.Debuts {
 				v.debutTile(c.Key(d.Set), d)
 			}
-			v.addFormatTile(c)
+			v.formatTimeline(c)
 			v.formatList(c)
+			v.addFormatTile(c)
 		})
 	})
 }
@@ -61,7 +65,7 @@ func (v *view) debutBanner(c *ui.Context) {
 func (v *view) debutTile(c *ui.Context, d stats.SetDebut) {
 	t := c.Theme()
 	day := dayStart(d.First)
-	ui.Row(c).Gap(12).Padding(12, 16).Radius(8).Background(t.Surface).Border(1, t.Accent).Children(func() {
+	ui.Row(c).Gap(12).Padding(12, 16).Radius(12).Background(panelColor(t)).Border(1, t.Accent).Children(func() {
 		ui.Column(c).Grow(1).Gap(2).Children(func() {
 			ui.Text(c, fmt.Sprintf("%s cards first showed up in your games on %s", d.Set, day.Format("Jan 2"))).Bold()
 			ui.Text(c, "That usually means a new format started.").FontSize(12).TextColor(t.TextMuted)
@@ -82,7 +86,7 @@ func (v *view) addFormatTile(c *ui.Context) {
 		ui.Row(c).Gap(10).Children(func() {
 			ui.TextInput(c, &s.name).Placeholder("Name, like OP17 + EB05").Grow(1).Label("Format name")
 			ui.DateInput(c, &s.start).Label("Starts on")
-			if ui.Button(c, "Add").Clicked() {
+			if ui.PrimaryButton(c, "Add format").Label("Add").Clicked() {
 				v.addFormat()
 			}
 		})
@@ -149,7 +153,9 @@ func (v *view) formatRow(c *ui.Context, f stats.FormatRange) {
 	if !f.End.IsZero() {
 		end = f.End.Format("Jan 2")
 	}
-	ui.Row(c).Gap(12).Padding(6, 0).Children(func() {
+	current := f.End.IsZero()
+	ui.Row(c).Gap(14).Padding(8, 0).AlignItems(ui.Center).Children(func() {
+		ui.Box(c).Size(6, 36).Radius(3).Background(map[bool]ui.Color{true: t.Accent, false: t.Border}[current])
 		ui.Column(c).Grow(1).Gap(2).Children(func() {
 			if s.editing == f.ID {
 				ui.Row(c).Gap(8).Children(func() {
@@ -165,10 +171,18 @@ func (v *view) formatRow(c *ui.Context, f stats.FormatRange) {
 					}
 				})
 			} else {
-				ui.Text(c, f.Name).Bold()
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, f.Name).FontWeight(600)
+					if current {
+						ui.Text(c, "Current").FontSize(11).FontWeight(600).TextColor(t.AccentText).Padding(1, 7).Radius(9).Background(t.Accent)
+					}
+				})
 			}
 			ui.Text(c, fmt.Sprintf("%s to %s · %s ranked · %s", f.Start.Format("Jan 2"), end, games(len(ms)), record(r))).FontSize(12).TextColor(t.TextMuted)
 		})
+		if rate, ok := r.Rate(); ok && s.editing != f.ID {
+			ui.Text(c, pct(rate)).FontSize(18).Bold()
+		}
 		if s.editing != f.ID {
 			if ui.Button(c, "Rename").Clicked() {
 				s.editing, s.rename = f.ID, f.Name
@@ -179,4 +193,126 @@ func (v *view) formatRow(c *ui.Context, f stats.FormatRange) {
 			}
 		}
 	})
+}
+
+// formatTimeline is every day from the first game to today, with the day's ranked games over
+// its casual ones and each format as a band over the days it covers. Clicking a day puts it in
+// the add form as a start.
+func (v *view) formatTimeline(c *ui.Context) {
+	t := c.Theme()
+	ms := v.snap.Matches
+	if len(ms) == 0 {
+		return
+	}
+	first := dayStart(ms[len(ms)-1].PlayedAt)
+	ranked, casual, top := gamesByDay(ms, first, dayStart(v.snap.Now))
+	n := len(ranked)
+	dayAt := func(i int) time.Time { return first.AddDate(0, 0, i) }
+	inFormat := func(i int) bool {
+		fs := v.snap.Formats
+		return len(fs) > 0 && !dayAt(i).Before(fs[0].Start)
+	}
+	xs := make([]float32, n)
+	for i := range xs {
+		xs[i] = (float32(i) + 0.5) / float32(n)
+	}
+	var bottom []chart.Tick
+	for i := range n {
+		if d := dayAt(i); d.Weekday() == time.Monday || i == 0 {
+			bottom = append(bottom, chart.Tick{At: xs[i], Label: d.Format("Jan 2")})
+		}
+	}
+	s := &v.formats
+	describe := func(i int) string {
+		return fmt.Sprintf("%s · %d ranked, %d casual", dayAt(i).Format("Mon Jan 2"), ranked[i], casual[i])
+	}
+	tile(c, "Your games by day", func() {
+		chart.Plot(c, chart.Axes{Bottom: bottom, Label: axisLabel(c)}, func(area ui.Element) {
+			area.Label("Games by day").Cursor(ui.CursorPointer).Draw(func(p *ui.Painter, r ui.Rect) {
+				const labelH = 20
+				colW := r.W / float32(n)
+				formatBands(p, r, t, v.snap.Formats, first, n, labelH)
+				h := r.H - labelH
+				unit := h / float32(top)
+				bw := min(14, colW*0.7)
+				for i := range n {
+					cx := r.X + (float32(i)+0.5)*colW
+					rh, ch := float32(ranked[i])*unit, float32(casual[i])*unit
+					col := t.TextMuted
+					if inFormat(i) {
+						col = t.Accent
+					}
+					p.Fill(ui.Rect{X: cx - bw/2, Y: r.Y + r.H - rh, W: bw, H: rh}, col, 2)
+					p.Fill(ui.Rect{X: cx - bw/2, Y: r.Y + r.H - rh - ch, W: bw, H: max(ch-1, 0)}, t.Border, 2)
+				}
+				p.Line(r.X, r.Y+r.H, r.X+r.W, r.Y+r.H, 1, t.Border)
+			})
+			chart.Select(c, area, &s.day, xs, describe)
+			if area.Clicked() && s.day >= 0 && s.day < n {
+				s.start = dayAt(s.day)
+			}
+			if i := s.day; i >= 0 && i < n {
+				align := ui.Center
+				switch {
+				case xs[i] < 0.2:
+					align = ui.Start
+				case xs[i] > 0.8:
+					align = ui.End
+				}
+				chart.Anchor(c, xs[i], 1, align, ui.Start, func() {
+					ui.Text(c, describe(i)+" · click to start a format here").NoWrap().FontSize(12).Padding(4, 8).Radius(6).Background(t.Surface).Border(1, t.Border)
+				})
+			}
+		}).Height(150).Gap(6).Margin(6, 0, 0, 0)
+		ui.Row(c).Gap(18).AlignItems(ui.Center).Children(func() {
+			key := func(col ui.Color, label string) {
+				ui.Row(c.Key(label)).Gap(6).AlignItems(ui.Center).Children(func() {
+					ui.Box(c).Size(10, 10).Radius(2).Background(col)
+					ui.Text(c, label).FontSize(12).TextColor(t.TextMuted)
+				})
+			}
+			key(t.Accent, "Ranked, in a format")
+			key(t.TextMuted, "Ranked, before any format")
+			key(t.Border, "Casual, any format")
+		})
+	})
+}
+
+// gamesByDay counts ranked and casual games on each day from first to last, and the most on any
+// day.
+func gamesByDay(ms []stats.Match, first, last time.Time) (ranked, casual []int, top int) {
+	n := int(last.Sub(first).Hours()/24+0.5) + 1
+	ranked, casual, top = make([]int, n), make([]int, n), 1
+	for _, m := range ms {
+		i := int(dayStart(m.PlayedAt).Sub(first).Hours()/24 + 0.5)
+		if i < 0 || i >= n {
+			continue
+		}
+		if m.Ranked {
+			ranked[i]++
+		} else {
+			casual[i]++
+		}
+		top = max(top, ranked[i]+casual[i])
+	}
+	return ranked, casual, top
+}
+
+// formatBands shades the days each format covers on the timeline, with its name over it.
+func formatBands(p *ui.Painter, r ui.Rect, t *ui.Theme, fs []stats.FormatRange, first time.Time, n int, labelH float32) {
+	colW := r.W / float32(n)
+	for _, f := range fs {
+		i0 := max(0, int(f.Start.Sub(first).Hours()/24+0.5))
+		i1 := n
+		if !f.End.IsZero() {
+			i1 = min(n, int(f.End.Sub(first).Hours()/24+0.5))
+		}
+		if i0 >= n || i1 <= i0 {
+			continue
+		}
+		x0, x1 := r.X+float32(i0)*colW, r.X+float32(i1)*colW
+		p.Fill(ui.Rect{X: x0, Y: r.Y + labelH - 4, W: x1 - x0, H: r.H - labelH + 4}, t.Accent.Alpha(0.10), 6)
+		p.Fill(ui.Rect{X: x0, Y: r.Y + labelH - 4, W: 2, H: r.H - labelH + 4}, t.Accent, 0)
+		p.Text(x0+6, r.Y, f.Name, 12, t.Accent)
+	}
 }

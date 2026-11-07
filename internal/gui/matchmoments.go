@@ -38,9 +38,15 @@ func (v *view) momentsTile(c *ui.Context, m stats.Match) ui.Element {
 func (v *view) momentRow(c *ui.Context, m stats.Match, i int, mo simlog.Moment, last bool) {
 	t := c.Theme()
 	col := playerColor(m, mo.Player)
-	ui.Row(c).Gap(12).AlignItems(ui.Stretch).Children(func() {
+	row := ui.Row(c).Gap(12).AlignItems(ui.Stretch).Cursor(ui.CursorPointer).Tooltip("Watch from here")
+	defer func() {
+		if row.Clicked() {
+			v.openReplay(m, mo.Line)
+		}
+	}()
+	row.Children(func() {
 		ui.Column(c).Width(20).AlignItems(ui.Center).Gap(4).Padding(1, 0, 0, 0).Children(func() {
-			pin(c, i+1, col)
+			v.momentPin(c, m, i, mo)
 			if !last {
 				ui.Box(c).Width(2).Grow(1).MinHeight(12).Background(t.Border)
 			}
@@ -155,16 +161,25 @@ func possessive(name string) string {
 	return name + "'s"
 }
 
-func pin(c *ui.Context, n int, col ui.Color) {
-	ui.Text(c, fmt.Sprint(n)).FontSize(11).Bold().TextColor(ui.Hex("#FFFFFF")).
+func pin(c *ui.Context, n int, col ui.Color) ui.Element {
+	return ui.Text(c, fmt.Sprint(n)).FontSize(11).Bold().TextColor(ui.Hex("#FFFFFF")).
 		Size(18, 18).Radius(9).Background(col).TextAlign(ui.Center)
+}
+
+// momentPin is a key moment's numbered pin, which opens the replay at the moment's turn.
+func (v *view) momentPin(c *ui.Context, m stats.Match, i int, mo simlog.Moment) {
+	p := pin(c, i+1, playerColor(m, mo.Player)).Label(fmt.Sprintf("Replay moment %d", i+1)).
+		Tooltip("Watch from here").Cursor(ui.CursorPointer)
+	if p.Clicked() {
+		v.openReplay(m, mo.Line)
+	}
 }
 
 func playerColor(m stats.Match, id string) ui.Color {
 	if id == m.Me.ID {
-		return firstColor
+		return youColor
 	}
-	return secondColor
+	return oppColor
 }
 
 func turnOwner(m stats.Match, id string) string {

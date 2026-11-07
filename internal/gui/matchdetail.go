@@ -27,9 +27,13 @@ type detailState struct {
 	// note is the note as typed, and savedNote the last note saved, trimmed.
 	note, savedNote string
 	noteFocused     bool
+	// noteOpen shows the note box on a match without a note, after "Add note".
+	noteOpen bool
 	// focusNote puts the keyboard in the note box once, when the row menu opens the match to
 	// write one.
 	focusNote bool
+	// replay is the match's open replay, or nil on the match page.
+	replay *replayState
 }
 
 // matchTimeline is what the match page reads from a game's log.
@@ -42,6 +46,8 @@ type matchTimeline struct {
 	MeBoard, OppBoard []int
 	Moments           []simlog.Moment
 	Marks             []simlog.Mark
+	// Replayable is false for logs from sim versions without the RZ1 move stream.
+	Replayable bool
 }
 
 func (v *view) openMatch(m stats.Match) {
@@ -94,66 +100,90 @@ func (v *view) matchPage(c *ui.Context) {
 		v.matchesPage(c)
 		return
 	}
+	if v.detail.replay != nil {
+		v.replayPage(c, m)
+		return
+	}
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
-			ui.Row(c).Gap(12).Children(func() {
-				if ui.Button(c, "Back to matches").Clicked() {
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				back := ui.Row(c).Gap(6).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("Back to matches")
+				if back.Clicked() {
 					v.closeMatch()
 				}
-				v.bookmarkButton(c, m)
-				ui.Button(c, "Watch replay").Disabled(true).Tooltip("Replays aren't built yet")
+				back.Children(func() {
+					ui.Icon(c, iconPrevStep).TextColor(t.TextMuted)
+					ui.Text(c, "Matches").TextColor(t.TextMuted)
+				})
+				ui.Text(c, "/").TextColor(faintColor(t))
+				ui.Text(c, m.PlayedAt.Format("Mon Jan 2, 15:04")).Bold()
+				ui.Spacer(c)
 				// Only room lobbies can be ranked, so private ones have no choice to make.
 				if m.Lobby.InRoom() {
-					ui.Text(c, "Game type").TextColor(t.TextMuted).Margin(0, 0, 0, 12)
 					v.typeSelect(c, m)
 				}
-				ui.Spacer(c)
-				ui.Text(c, m.PlayedAt.Format("Mon Jan 2 2006, 15:04")).TextColor(t.TextMuted)
+				if !v.noteShown() && iconButton(c, iconNote, "Add note", false).Label("Add note").Clicked() {
+					v.detail.noteOpen = true
+					v.detail.focusNote = true
+				}
+				v.bookmarkButton(c, m)
+				v.replayButton(c, m)
 			})
 			v.faceOff(c, m)
-			ui.Row(c).Gap(12).AlignItems(ui.Stretch).Children(func() {
-				v.handsTile(c, m).Grow(2).Basis(0)
-				v.noteTile(c).Grow(1).Basis(0)
-			})
+			v.handsTile(c, m)
+			if v.noteShown() {
+				v.noteTile(c)
+			}
 			v.timeline(c, m)
 		})
 	})
 }
 
-// faceOff is both leaders with the result between them.
+// noteShown is whether the match page shows the note box: when the match has a note, or the
+// user asked to add one.
+func (v *view) noteShown() bool {
+	d := v.detail
+	return d.noteOpen || d.focusNote || strings.TrimSpace(d.note) != "" || d.savedNote != ""
+}
+
+// faceOff is both leaders' art coming in from the ends, each lit by its colors, with the names
+// on it and the result between them.
 func (v *view) faceOff(c *ui.Context, m stats.Match) {
-	side := func(p store.GamePlayer, who string, mine bool) {
-		info := func() {
-			align := ui.Start
-			if !mine {
-				align = ui.End
-			}
-			ui.Column(c).Gap(4).AlignItems(align).Children(func() {
-				ui.Text(c, who).FontSize(12).TextColor(bannerTextMuted)
-				ui.Text(c, v.snap.card(p.Leader).Name).FontSize(20).Bold().TextColor(bannerText)
-				ui.Text(c, setOf(p.Leader)+" · "+orderWord(m, mine)).FontSize(12).TextColor(bannerTextMuted)
-			})
+	t := c.Theme()
+	mine, theirs := v.art.get(m.Me.Leader, artFaceMine), v.art.get(m.Opp.Leader, artFaceTheirs)
+	myCols, theirCols := colorsOf(v.snap.card(m.Me.Leader)), colorsOf(v.snap.card(m.Opp.Leader))
+	base := panelColor(t)
+	side := func(p store.GamePlayer, who string, me bool) {
+		align := ui.Start
+		col := youColor
+		if !me {
+			align, col = ui.End, oppColor
 		}
-		justify := ui.Start
-		if !mine {
-			justify = ui.End
-		}
-		ui.Row(c).Grow(1).Basis(0).Gap(14).Justify(justify).Children(func() {
-			if mine {
-				v.cardThumb(c, p.Leader, 80)
-				info()
-				return
-			}
-			info()
-			v.cardThumb(c, p.Leader, 80)
+		ui.Column(c).Gap(1).AlignItems(align).Children(func() {
+			ui.Text(c, who).FontSize(12).Bold().TextColor(col)
+			ui.Text(c, v.snap.card(p.Leader).Name).FontSize(26).Bold()
+			ui.Text(c, setOf(p.Leader)+" · "+orderWord(m, me)).FontSize(12).TextColor(t.TextMuted)
 		})
 	}
-	ui.Row(c).Padding(18, 22).Gap(16).Radius(12).Background(bannerBase).Children(func() {
+	ui.Row(c).Height(180).Radius(12).Clip().Background(base).Border(1, t.Border.Alpha(0.6)).
+		Shadow(0, 6, 20, 0, panelShade).AlignItems(ui.End).Padding(0, 20, 16, 20).Draw(func(p *ui.Painter, r ui.Rect) {
+		p.FillRadialGradient(r, light(myCols[0].Glow, ui.Point{X: 0, Y: 1.1}, r.W*0.45, 0.3), 0)
+		p.FillRadialGradient(r, light(theirCols[0].Glow, ui.Point{X: 1, Y: 1.1}, r.W*0.45, 0.3), 0)
+		w := r.W * 0.44
+		if mine != nil {
+			p.Image(mine, ui.Rect{X: r.X, Y: r.Y, W: w, H: r.H}, ui.Cover)
+		}
+		if theirs != nil {
+			p.Image(theirs, ui.Rect{X: r.X + r.W - w, Y: r.Y, W: w, H: r.H}, ui.Cover)
+		}
+		p.FillGradient(r, ui.LinearGradient{Angle: 0, Stops: []ui.GradientStop{
+			{At: 0, Color: base.Alpha(0.94)}, {At: 0.4, Color: base.Alpha(0.5)}, {At: 0.7, Color: base.Alpha(0)},
+		}}, 0)
+	}).Children(func() {
 		side(m.Me, "You", true)
-		ui.Column(c).Gap(4).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, resultWord(m.Result)).FontSize(28).Bold().TextColor(resultColor(m.Result))
-			ui.Text(c, fmt.Sprintf("%d turns · %s", m.Turns, endWord(m.End.Kind))).TextColor(bannerText)
-			ui.Text(c, gameType(m)).FontSize(12).TextColor(bannerTextMuted)
+		ui.Column(c).Grow(1).Gap(2).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, resultWord(m.Result)).FontSize(44).Bold().TextColor(resultColor(m.Result))
+			ui.Text(c, fmt.Sprintf("%d turns · %s · %s", m.Turns, endWord(m.End.Kind), gameType(m))).FontSize(13)
 		})
 		side(m.Opp, m.Opp.Name, false)
 	})
@@ -230,6 +260,7 @@ func (v *view) noteTile(c *ui.Context) ui.Element {
 		if v.detail.focusNote {
 			box.Focus()
 			v.detail.focusNote = false
+			v.detail.noteOpen = true
 		}
 		focused := box.Focused()
 		if v.detail.noteFocused && !focused {
@@ -239,20 +270,37 @@ func (v *view) noteTile(c *ui.Context) ui.Element {
 	})
 }
 
-func legend(c *ui.Context, col ui.Color, label string) {
-	ui.Row(c).Gap(6).Children(func() {
-		ui.Box(c).Size(10, 10).Radius(5).Background(col)
-		ui.Text(c, label).FontSize(12)
-	})
+// replayButton opens the replay once the log is read and has the moves a replay needs.
+func (v *view) replayButton(c *ui.Context, m stats.Match) {
+	l := v.detail.timeline
+	switch {
+	case l == nil:
+		ui.Button(c, "Watch replay").Disabled(true).Tooltip("Reading the log")
+	case !l.Replayable:
+		ui.Button(c, "Watch replay").Disabled(true).Tooltip(noMovesText)
+	default:
+		b := ui.PrimaryButton(c, "").Label("Watch replay").Children(func() {
+			ui.Icon(c, iconPlay)
+			ui.Text(c, "Watch replay").SingleLine()
+		})
+		if b.Clicked() {
+			v.openReplay(m, -1)
+		}
+	}
 }
 
 // bookmarkButton bookmarks the match, or removes its bookmark.
 func (v *view) bookmarkButton(c *ui.Context, m stats.Match) {
-	label := "☆  Bookmark"
+	var b ui.Element
 	if m.Bookmarked {
-		label = "★  Bookmarked"
+		b = ui.Button(c, "").Label("Bookmarked").Children(func() {
+			ui.Icon(c, iconStarSet).TextColor(bookmarkColor)
+			ui.Text(c, "Bookmarked").SingleLine()
+		})
+	} else {
+		b = iconButton(c, iconStar, "Bookmark", false).Label("Bookmark")
 	}
-	if ui.Button(c, label).Clicked() {
+	if b.Clicked() {
 		v.act.SetBookmark(m.Fingerprint, !m.Bookmarked)
 	}
 }

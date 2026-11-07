@@ -29,7 +29,7 @@ var _ = Describe("match detail", func() {
 		s.Matches[0].Opp.HandBefore = []string{"OP17-058"}
 		v, tt := open(s)
 		Expect(tt.Click("Matches")).To(Succeed())
-		Expect(tt.Click("Nov 6 19:00")).To(Succeed())
+		Expect(tt.Click("19:00")).To(Succeed())
 		Expect(v.detail.fingerprint).To(Equal("0"))
 		Expect(fa.loaded).To(Equal([]string{"0"}))
 		for _, text := range []string{"Win", "12 turns · Concession", "Opening hands", "You mulliganed", "Sent back", "Opp kept", "went first", "went second", "Reading the log"} {
@@ -50,7 +50,7 @@ var _ = Describe("match detail", func() {
 		Expect(tt.HasText("Back to matches")).To(BeTrue())
 	})
 
-	It("shows life, hand and board by turn and who was ahead once the log is read", func() {
+	It("shows life, hand and board by turn once the log is read", func() {
 		v, tt := open(testSnapshot(3))
 		v.openMatch(v.snap.Matches[1])
 		v.setTimeline(matchTimeline{Fingerprint: "0", Me: []int{9}})
@@ -67,7 +67,7 @@ var _ = Describe("match detail", func() {
 		tt.Frame()
 		for _, text := range []string{
 			"Life", "Hand", "Board", "End of turn 1", "You: life 5, hand 6, board 2", "Opp: life 3, hand 7, board 1",
-			"Who was ahead", "Turns ahead · life: you 2, Opp 0 · hand: you 0, Opp 2 · board: you 1, Opp 1",
+			"Taken that turn",
 		} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
@@ -80,12 +80,14 @@ var _ = Describe("match detail", func() {
 		v, tt := open(s)
 		v.openMatch(s.Matches[0])
 		tt.Frame()
-		Expect(tt.Click("☆  Bookmark")).To(Succeed())
+		Expect(tt.Click("Bookmark")).To(Succeed())
 		Expect(fa.bookmarks).To(Equal([]string{"0=true"}))
 
 		s.Matches[0].Bookmarked = true
 		tt.Frame()
-		Expect(tt.Click("★  Bookmarked")).To(Succeed())
+		_, unset := tt.Find("Bookmark")
+		Expect(unset).To(BeFalse())
+		Expect(tt.Click("Bookmarked")).To(Succeed())
 		Expect(fa.bookmarks).To(Equal([]string{"0=true", "0=false"}))
 	})
 
@@ -94,7 +96,8 @@ var _ = Describe("match detail", func() {
 		s.Matches[1].Bookmarked = true
 		v, tt := open(s)
 		Expect(tt.Click("Matches")).To(Succeed())
-		Expect(tt.HasText("★")).To(BeTrue())
+		_, starred := tt.Find("Bookmarked")
+		Expect(starred).To(BeTrue())
 		Expect(tt.HasText("3 games · 2–1")).To(BeTrue())
 		Expect(tt.Click("Bookmarked · 1")).To(Succeed())
 		Expect(v.matches.bookmarked).To(Equal(1))
@@ -137,6 +140,8 @@ var _ = Describe("match detail", func() {
 		v, tt := open(s)
 		v.openMatch(s.Matches[0])
 		tt.Frame()
+		Expect(tt.HasText("Match note")).To(BeFalse())
+		Expect(tt.Click("Add note")).To(Succeed())
 		Expect(tt.Click("Match note")).To(Succeed())
 		tt.Type("missed lethal on 7 ")
 		tt.Frame()
@@ -210,7 +215,7 @@ var _ = Describe("match detail", func() {
 		rightClick := func() (*view, *ui.Tester) {
 			v, tt := open(testSnapshot(3))
 			Expect(tt.Click("Matches")).To(Succeed())
-			Expect(tt.RightClick("Nov 6 19:00")).To(Succeed())
+			Expect(tt.RightClick("19:00")).To(Succeed())
 			return v, tt
 		}
 

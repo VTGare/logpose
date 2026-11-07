@@ -18,6 +18,8 @@ type fakeActions struct {
 	types     []string
 	notes     []string
 	bookmarks []string
+	replays   []string
+	timers    []func()
 }
 
 func (f *fakeActions) SetBookmark(fingerprint string, on bool) {
@@ -30,6 +32,19 @@ func (f *fakeActions) AddFormat(name string, start time.Time) {
 func (*fakeActions) UpdateFormat(store.Format) {}
 func (*fakeActions) DeleteFormat(int64)        {}
 func (f *fakeActions) DismissSet(set string)   { f.dismissed = append(f.dismissed, set) }
+
+func (f *fakeActions) OpenReplay(fingerprint string) { f.replays = append(f.replays, fingerprint) }
+
+// After keeps the timer for a spec to fire with fire.
+func (f *fakeActions) After(_ time.Duration, fn func()) { f.timers = append(f.timers, fn) }
+
+func (f *fakeActions) fire() {
+	timers := f.timers
+	f.timers = nil
+	for _, fn := range timers {
+		fn()
+	}
+}
 
 func (f *fakeActions) LoadTimeline(fingerprint, _, _ string) {
 	f.loaded = append(f.loaded, fingerprint)

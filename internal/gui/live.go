@@ -13,9 +13,13 @@ import (
 // liveStrip is the game running in the sim right now: the lobby while it waits, then the
 // opponent, your history against them, and both players' life and hand.
 func (v *view) liveStrip(c *ui.Context) {
+	if v.detail.replay != nil {
+		return
+	}
 	s := v.live
 	t := c.Theme()
-	ui.Row(c).Margin(20, 20, 0, 20).Padding(12, 16).Gap(20).Radius(8).Background(t.Surface).Children(func() {
+	ui.Row(c).Margin(16, 20, 0, 20).Padding(12, 16).Gap(20).Radius(12).Background(panelColor(t)).Border(1, t.Border.Alpha(0.6)).
+		Shadow(0, 6, 20, 0, panelShade).AlignItems(ui.Center).Children(func() {
 		ui.Box(c).Size(8, 8).Radius(4).Background(winColor)
 		if s.Phase == live.Lobby {
 			ui.Text(c, lobbyStatus(s)).Bold()

@@ -22,52 +22,93 @@ func games(n int) string {
 	return fmt.Sprintf("%d games", n)
 }
 
-// tile is a stat tile: a muted label over its content, on the surface color.
+// tile is a panel with a title over its content.
 func tile(c *ui.Context, label string, body func()) ui.Element {
+	return titledTile(c, label, "", body)
+}
+
+// titledTile is a tile with a muted note at the right of its title, such as a count.
+func titledTile(c *ui.Context, label, note string, body func()) ui.Element {
 	t := c.Theme()
-	return ui.Column(c).Gap(6).Padding(12).Radius(8).Background(t.Surface).Children(func() {
-		ui.Text(c, label).FontSize(12).TextColor(t.TextMuted)
+	return panel(c).Gap(8).Padding(14, 16).Children(func() {
+		ui.Row(c).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, label).FontSize(13).FontWeight(600)
+			if note != "" {
+				ui.Spacer(c)
+				ui.Text(c, note).FontSize(12).TextColor(t.TextMuted)
+			}
+		})
 		body()
 	})
 }
 
-// rateTile shows a win rate, or "too few" below stats.MinGames, with a line under it.
-func rateText(c *ui.Context, r stats.Record, size float32) {
+// panel is the raised surface tiles sit on: a step above the page, with a hairline edge and a
+// soft shadow.
+func panel(c *ui.Context) ui.Element {
 	t := c.Theme()
-	if rate, ok := r.Rate(); ok {
-		ui.Text(c, pct(rate)).FontSize(size).Bold()
-		return
-	}
-	ui.Text(c, "too few").FontSize(size*0.7).TextColor(t.TextMuted).Margin(size*0.15, 0)
+	return ui.Column(c).Radius(12).Background(panelColor(t)).Border(1, t.Border.Alpha(0.6)).
+		Shadow(0, 6, 20, 0, panelShade)
 }
 
-// bar is a thin bar filled to a fraction.
-func bar(c *ui.Context, fraction float64, color ui.Color) {
-	t := c.Theme()
-	ui.Box(c).Height(4).Radius(2).Background(t.Border).Draw(func(p *ui.Painter, r ui.Rect) {
-		w := r.W * float32(min(max(fraction, 0), 1))
-		p.Fill(ui.Rect{X: r.X, Y: r.Y, W: w, H: r.H}, color, 2)
+// splitBar is the share won in the win color and the rest in the loss color.
+// It grows from the left when the page opens, and slides when a filter changes it.
+func splitBar(c *ui.Context, won float64) {
+	won = min(max(won, 0), 1)
+	box := ui.Box(c).Height(6).Radius(3).Clip()
+	shown := grow(box, "won", float32(won), barTime)
+	full := grow(box, "full", 1, barTime)
+	box.Draw(func(p *ui.Painter, r ui.Rect) {
+		w := r.W * shown
+		p.Fill(ui.Rect{X: r.X, Y: r.Y, W: w, H: r.H}, winColor, 0)
+		p.Fill(ui.Rect{X: r.X + w, Y: r.Y, W: r.W*full - w, H: r.H}, lossColor.Alpha(0.75), 0)
 	})
 }
 
-// turnOrderTile is the first/second tile: both turn orders as equal halves.
-func turnOrderTile(c *ui.Context, o stats.TurnOrder) ui.Element {
+// turnOrderTile is both turn orders as rows. Clicking a row calls pick with its turn order, and
+// the row chosen is tinted.
+func turnOrderTile(c *ui.Context, o stats.TurnOrder, chosen stats.TurnOrderFilter, pick func(stats.TurnOrderFilter)) ui.Element {
+	return tile(c, "Turn order", func() { turnRows(c, o, chosen, pick) })
+}
+
+// turnRows is a row for going first and one for going second, each with a filled or hollow mark,
+// the share won as a bar with 50% marked, the rate and the record. Turn order has no color of
+// its own, so the marks tell the rows apart.
+func turnRows(c *ui.Context, o stats.TurnOrder, chosen stats.TurnOrderFilter, pick func(stats.TurnOrderFilter)) {
 	t := c.Theme()
-	half := func(label string, r stats.Record, color ui.Color) {
-		ui.Column(c).Grow(1).Basis(0).Gap(6).Children(func() {
-			ui.Text(c, label).FontSize(12).TextColor(t.TextMuted)
-			rateText(c, r, 24)
-			rate, _ := r.Rate()
-			bar(c, rate, color)
-			ui.Text(c, games(r.Games())).FontSize(12).TextColor(t.TextMuted)
+	row := func(f stats.TurnOrderFilter, word, label string, r stats.Record, filled bool) {
+		el := ui.Row(c.Key(word)).Gap(10).AlignItems(ui.Center).Padding(5, 6).Margin(0, -6).Radius(6).
+			Label("Show games going " + word)
+		if f == chosen {
+			el = el.Background(t.Accent.Alpha(0.18))
+		}
+		if el.Clicked() {
+			pick(f)
+		}
+		el.Children(func() {
+			mark := ui.Box(c).Size(9, 9).Radius(4.5)
+			if filled {
+				mark.Background(t.Text)
+			} else {
+				mark.Border(1.5, t.Text)
+			}
+			ui.Text(c, label).FontWeight(600).Width(28)
+			track := ui.Box(c).Grow(1).Height(6).Radius(3).Background(t.Surface)
+			won := grow(track, "won", float32(winShare(r)), barTime)
+			track.Draw(func(p *ui.Painter, rect ui.Rect) {
+				p.Fill(ui.Rect{X: rect.X, Y: rect.Y, W: rect.W * won, H: rect.H}, t.Text.Alpha(0.75), 3)
+				p.Fill(ui.Rect{X: rect.X + rect.W/2 - 0.5, Y: rect.Y - 3, W: 1, H: rect.H + 6}, t.TextMuted, 0)
+			})
+			if rate, ok := r.Rate(); ok {
+				ui.Text(c, pct(rate)).FontSize(16).Bold().Width(44).TextAlign(ui.End)
+			} else {
+				ui.Text(c, "too few").FontSize(11).TextColor(faintColor(t)).Width(44).TextAlign(ui.End)
+			}
+			ui.Text(c, record(r)).FontSize(12).TextColor(t.TextMuted).Width(40).TextAlign(ui.End)
 		})
 	}
-	return tile(c, "Turn order", func() {
-		ui.Row(c).Gap(14).Children(func() {
-			half("First", o.First, firstColor)
-			ui.Box(c).Width(1).Background(t.Border)
-			half("Second", o.Second, secondColor)
-		})
+	ui.Column(c).Gap(4).Children(func() {
+		row(stats.GoingFirst, "first", "1st", o.First, true)
+		row(stats.GoingSecond, "second", "2nd", o.Second, false)
 	})
 }
 

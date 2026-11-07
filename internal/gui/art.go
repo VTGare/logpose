@@ -31,7 +31,18 @@ const (
 	artCrop
 	// artLarge is the whole full-size card, for the preview of a small one.
 	artLarge
+	// artCard is the whole full-size card scaled to cardArtWidth, for cards drawn larger than
+	// the sim's small images, such as on the replay's mat.
+	artCard
+	// artFaceMine and artFaceTheirs are the art area for the two ends of the match face-off,
+	// fading out toward the middle.
+	artFaceMine
+	artFaceTheirs
 )
+
+// cardArtWidth keeps cards sharp up to about 190 DIPs wide at 125% scaling, at a third of the
+// memory of a full image.
+const cardArtWidth = 240
 
 type artKey struct {
 	code string
@@ -89,7 +100,7 @@ func (a *artCache) get(code string, kind artKind) *ui.Bitmap {
 }
 
 func (a *artCache) load(k artKey) {
-	img, err := decode(a.install.CardImage(k.code, k.kind == artFull))
+	img, err := decode(a.path(k))
 	switch {
 	case err != nil:
 		img = nil
@@ -97,13 +108,31 @@ func (a *artCache) load(k artKey) {
 		img = fadeRight(portrait(img), 0.3)
 	case k.kind == artBackdrop:
 		img = backdrop(portrait(img))
+	case k.kind == artFaceMine:
+		img = fadeRight(portrait(img), faceFade)
+	case k.kind == artFaceTheirs:
+		img = fadeLeft(portrait(img), faceFade)
 	case k.kind == artCrop:
 		img = topArt(img)
+	case k.kind == artCard:
+		img = scaleToWidth(img, cardArtWidth)
 	}
 	a.mu.Lock()
 	a.images[k] = img
 	a.mu.Unlock()
 	a.redraw(func() {})
+}
+
+// path is where the sim keeps an image. DON!! cards have no small image, so every size
+// comes from the full one.
+func (a *artCache) path(k artKey) string {
+	switch k.code {
+	case donCode:
+		return a.install.DonImage()
+	case donBackCode:
+		return a.install.DonBack()
+	}
+	return a.install.CardImage(k.code, k.kind == artFull)
 }
 
 func decode(path string) (image.Image, error) {
@@ -134,6 +163,39 @@ func topArt(img image.Image) image.Image {
 	crop := image.Rect(b.Min.X+w*6/100, b.Min.Y+h*10/100, b.Max.X-w*6/100, b.Min.Y+h*40/100)
 	out := image.NewRGBA(image.Rect(0, 0, crop.Dx(), crop.Dy()))
 	draw.Draw(out, out.Bounds(), img, crop.Min, draw.Src)
+	return out
+}
+
+// scaleToWidth scales an image down to a width, keeping its shape. Catmull-Rom keeps the
+// card's text readable where bilinear blurs it.
+func scaleToWidth(img image.Image, w int) image.Image {
+	b := img.Bounds()
+	if b.Dx() <= w {
+		return img
+	}
+	h := b.Dy() * w / b.Dx()
+	out := image.NewRGBA(image.Rect(0, 0, w, h))
+	xdraw.CatmullRom.Scale(out, out.Bounds(), img, b, xdraw.Src, nil)
+	return out
+}
+
+// faceFade is how much of the face-off art fades, so the result in the middle sits on the
+// panel.
+const faceFade = 0.6
+
+// fadeLeft fades the left part of an image, as a fraction of its width, to transparent.
+func fadeLeft(img image.Image, part float64) *image.NRGBA {
+	b := img.Bounds()
+	out := image.NewNRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	draw.Draw(out, out.Bounds(), img, b.Min, draw.Src)
+	end := float64(b.Dx()) * part
+	for x := 0; x < int(end); x++ {
+		t := 1 - float64(x)/end
+		alpha := uint8(255 * (1 - t*t))
+		for y := range b.Dy() {
+			out.Pix[out.PixOffset(x, y)+3] = alpha
+		}
+	}
 	return out
 }
 

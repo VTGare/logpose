@@ -37,8 +37,8 @@ func (v *view) handsTile(c *ui.Context, m stats.Match) ui.Element {
 				ui.Text(c, "The log doesn't show this hand.").FontSize(12).TextColor(t.TextMuted)
 				return
 			}
-			ui.Text(c, who+" "+verdict(p)).FontSize(12).Bold()
-			v.thumbRow(c, hand, 52, false)
+			ui.Text(c, who+" "+verdict(p)).FontSize(12).FontWeight(600)
+			v.thumbRow(c, hand, 60, false)
 			if len(sent) > 0 {
 				ui.Text(c, "Sent back").FontSize(11).TextColor(t.TextMuted)
 				v.thumbRow(c, sent, 34, true)

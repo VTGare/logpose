@@ -16,6 +16,7 @@ import (
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/importer"
 	"github.com/VTGare/logpose/internal/live"
+	"github.com/VTGare/logpose/internal/replay"
 	"github.com/VTGare/logpose/internal/sim"
 	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
@@ -73,6 +74,9 @@ func Run(ctx context.Context, opts Options) error {
 		opts.Log = slog.Default()
 	}
 	a := &app{opts: opts}
+	if err := registerFonts(); err != nil {
+		opts.Log.Warn("fonts", "err", err)
+	}
 	mygo.App.WhenReady(func() { a.ready(ctx) })
 	return mygo.App.Run()
 }
@@ -397,9 +401,28 @@ func (x *appActions) LoadTimeline(fingerprint, me, opp string) {
 			db := x.a.cardDB()
 			l.Moments = g.Moments(func(code string) int { return db.Card(code).Power })
 			l.Marks = g.Marks()
+			l.Replayable = g.HasRZ()
 		}
 		x.a.win.Update(func() { x.a.view.setTimeline(l) })
 	}()
+}
+
+// OpenReplay maximizes the window, since the board needs the room, and builds the replay.
+func (x *appActions) OpenReplay(fingerprint string) {
+	x.a.win.Maximize()
+	go func() {
+		l := loadedReplay{Fingerprint: fingerprint}
+		l.Game, l.Err = x.parseGame(fingerprint)
+		if l.Err == nil {
+			db := x.a.cardDB()
+			l.Replay, l.Err = replay.Build(l.Game, func(code string) int { return db.Card(code).Power })
+		}
+		x.a.win.Update(func() { x.a.view.setReplay(l) })
+	}()
+}
+
+func (x *appActions) After(d time.Duration, fn func()) {
+	time.AfterFunc(d, func() { x.a.win.Update(fn) })
 }
 
 func (x *appActions) parseGame(fingerprint string) (*simlog.Game, error) {

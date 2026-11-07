@@ -16,78 +16,103 @@ import (
 func (v *view) overviewPage(c *ui.Context) {
 	o := v.scoped().overview
 	ui.Scroll(c).Fill().Children(func() {
-		ui.Row(c).Padding(20).Gap(16).AlignItems(ui.Start).Children(func() {
-			ui.Column(c).Grow(1).Basis(0).Gap(16).Children(func() {
-				v.headline(c, o)
-				v.daysTile(c, o.Days)
-			})
-			ui.Column(c).Width(340).Gap(16).Children(func() {
-				v.decksTile(c, o.Decks)
-				v.facedTile(c, o.FacedThisWeek)
+		ui.Column(c).Padding(20).Gap(16).Children(func() {
+			v.headline(c, o)
+			ui.Row(c).Gap(16).AlignItems(ui.Start).Children(func() {
+				ui.Column(c).Grow(1).Basis(0).Gap(16).Children(func() {
+					v.daysTile(c, o.Days)
+				})
+				ui.Column(c).Width(340).Gap(16).Children(func() {
+					v.decksTile(c, o.Decks)
+					v.facedTile(c, o.FacedThisWeek)
+				})
 			})
 		})
 	})
 }
 
-// headline is today, the streak, this week and the whole period side by side in one tile.
+// headline is this week, the streak, the whole period and today, on the banner of the deck
+// played last.
 func (v *view) headline(c *ui.Context, o stats.Overview) {
 	t := c.Theme()
-	block := func(label string, body func()) {
-		ui.Column(c).Grow(1).Basis(0).Gap(4).Children(func() {
+	muted := func(text string) { ui.Text(c, text).FontSize(12).TextColor(t.TextMuted) }
+	none := func(text string) { ui.Text(c, text).FontSize(28).Bold().TextColor(faintColor(t)) }
+	big := func(text string, col ui.Color) { ui.Text(c, text).FontSize(28).Bold().TextColor(col) }
+	block := func(i int, label string, body func()) {
+		el := ui.Column(c.Key(label)).Grow(1).Basis(0).Gap(6).Padding(0, 18)
+		if i > 0 {
+			el.BorderStartWidth(1).BorderColor(t.Border)
+		} else {
+			el.Padding(0, 18, 0, 0)
+		}
+		el.Children(func() {
 			ui.Text(c, label).FontSize(12).TextColor(t.TextMuted)
 			body()
 		})
 	}
-	muted := func(text string) { ui.Text(c, text).FontSize(12).TextColor(t.TextMuted) }
-	none := func(text string) { ui.Text(c, text).FontSize(16).TextColor(t.TextMuted).Margin(6, 0) }
-	sep := func() { ui.Box(c).Width(1).Background(t.Border) }
-	ui.Row(c).Gap(16).Padding(14).Radius(8).Background(t.Surface).AlignItems(ui.Stretch).Children(func() {
-		block("Today", func() {
-			if len(o.Today) == 0 {
-				none("No games yet")
-				return
-			}
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, record(o.TodayRecord)).FontSize(24).Bold()
-				resultSquares(c, o.Today)
+	var deck stats.Deck
+	for _, d := range o.Decks {
+		if d.Leader == o.Deck {
+			deck = d
+		}
+	}
+	v.banner(c, o.Deck, 170, func() {
+		ui.Text(c, "Current deck").FontSize(12).TextColor(t.TextMuted)
+		ui.Row(c).Gap(8).AlignItems(ui.End).Children(func() {
+			ui.Text(c, v.snap.card(o.Deck).Name).FontSize(22).Bold()
+			ui.Text(c, fmt.Sprintf("%s · %s", setOf(o.Deck), games(deck.Record.Games()))).FontSize(13).TextColor(t.TextMuted).Margin(0, 0, 3, 0)
+		})
+		ui.Row(c).Margin(14, 0, 0, 0).AlignItems(ui.Stretch).Children(func() {
+			block(0, "This week", func() {
+				if o.Week.Games() == 0 {
+					none("–")
+					muted("No games")
+					return
+				}
+				big(rateOrTooFew(o.Week), t.Text)
+				change, d := weekChange(o)
+				ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+					muted(record(o.Week) + " ·")
+					switch {
+					case d > 0:
+						ui.Icon(c, iconTrendUp).FontSize(12).TextColor(t.TextMuted).Label("Up")
+					case d < 0:
+						ui.Icon(c, iconTrendDown).FontSize(12).TextColor(t.TextMuted).Label("Down")
+					}
+					muted(change)
+				})
 			})
-			muted(fmt.Sprintf("%s · %s", games(len(o.Today)), duration(o.TodayTime)))
+			block(1, "Streak", func() {
+				if o.Streak == 0 {
+					none("–")
+					muted("None")
+					return
+				}
+				big(fmt.Sprintf("%s%d", resultLetter(o.StreakResult), o.Streak), resultColor(o.StreakResult))
+				muted(streakText(o))
+			})
+			block(2, v.periodTitle(), func() {
+				if o.Total.Games() == 0 {
+					none("–")
+					muted("No games")
+					return
+				}
+				big(rateOrTooFew(o.Total), t.Text)
+				muted(record(o.Total))
+			})
+			block(3, "Today", func() {
+				if len(o.Today) == 0 {
+					none("–")
+					muted("None yet")
+					return
+				}
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					big(record(o.TodayRecord), t.Text)
+					resultSquares(c, o.Today)
+				})
+				muted(fmt.Sprintf("%s · %s", games(len(o.Today)), duration(o.TodayTime)))
+			})
 		})
-		sep()
-		block("Streak", func() {
-			if o.Streak == 0 {
-				none("None")
-				return
-			}
-			ui.Text(c, fmt.Sprintf("%s%d", resultLetter(o.StreakResult), o.Streak)).FontSize(24).Bold().TextColor(resultColor(o.StreakResult))
-			muted(streakText(o))
-		})
-		sep()
-		block("This week", func() {
-			if o.Week.Games() == 0 {
-				none("No games")
-				return
-			}
-			rateLine(c, o.Week)
-			muted(weekChange(o))
-		})
-		sep()
-		block(v.periodTitle(), func() {
-			if o.Total.Games() == 0 {
-				none("No games")
-				return
-			}
-			rateLine(c, o.Total)
-			muted(games(o.Total.Games()))
-		})
-	})
-}
-
-// rateLine is a win rate with its record beside it.
-func rateLine(c *ui.Context, r stats.Record) {
-	ui.Row(c).Gap(8).AlignItems(ui.End).Children(func() {
-		rateText(c, r, 24)
-		ui.Text(c, record(r)).FontSize(12).TextColor(c.Theme().TextMuted).Margin(0, 0, 4, 0)
 	})
 }
 
@@ -99,21 +124,22 @@ func streakText(o stats.Overview) string {
 	return fmt.Sprintf("%d %s in a row", o.Streak, word)
 }
 
-// weekChange compares this week's win rate with last week's, when both have enough games.
-func weekChange(o stats.Overview) string {
+// weekChange compares this week's win rate with last week's, when both have enough games, and
+// returns the change in points, which the headline shows as an arrow.
+func weekChange(o stats.Overview) (string, float64) {
 	now, ok := o.Week.Rate()
 	before, okBefore := o.PrevWeek.Rate()
 	if !ok || !okBefore {
-		return games(o.Week.Games())
+		return games(o.Week.Games()), 0
 	}
 	d := math.Round((now - before) * 100)
 	switch {
 	case d > 0:
-		return fmt.Sprintf("▲ %.0f from last week", d)
+		return fmt.Sprintf("%.0f pts", d), d
 	case d < 0:
-		return fmt.Sprintf("▼ %.0f from last week", -d)
+		return fmt.Sprintf("%.0f pts", -d), d
 	default:
-		return "Same as last week"
+		return "same as last week", 0
 	}
 }
 
@@ -161,7 +187,7 @@ func (v *view) weekHeader(c *ui.Context, start time.Time, days []stats.Day) {
 		name = "Last week"
 	}
 	ui.Row(c).Gap(8).Padding(8, 0, 2, 0).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, name).FontSize(12).Bold().TextColor(t.TextMuted)
+		ui.Text(c, name).FontSize(12).Bold()
 		ui.Text(c, fmt.Sprintf("%s · %s", record(r), pct(winShare(r)))).FontSize(12).TextColor(t.TextMuted)
 		ui.Box(c).Grow(1).Height(1).Background(t.Border)
 	})
@@ -177,24 +203,22 @@ func winShare(r stats.Record) float64 {
 
 func (v *view) dayRow(c *ui.Context, d stats.Day) {
 	t := c.Theme()
-	row := ui.Row(c).Gap(12).AlignItems(ui.Start).Padding(4, 8).Margin(0, -8).Radius(6)
+	row := ui.Row(c).Gap(12).AlignItems(ui.Start).Padding(8, 8).Margin(0, -8).Radius(8)
 	if v.dayName(d.Date) == "Today" {
-		row.Background(t.Background)
+		row.Background(t.Surface)
 	}
 	row.Children(func() {
-		ui.Column(c).Width(150).Gap(2).Children(func() {
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, v.dayName(d.Date)).SingleLine()
-				v.dayDecks(c, d)
-			})
+		ui.Column(c).Width(170).Gap(3).Children(func() {
+			ui.Text(c, v.dayName(d.Date)).SingleLine().FontWeight(500)
 			ui.Row(c).Gap(6).AlignItems(ui.End).Children(func() {
-				ui.Text(c, record(d.Record)).Bold()
-				ui.Text(c, fmt.Sprintf("%s · %s", pct(winShare(d.Record)), duration(d.Played))).FontSize(12).TextColor(t.TextMuted)
+				ui.Text(c, record(d.Record)).FontSize(18).Bold()
+				ui.Text(c, fmt.Sprintf("%s · %s", pct(winShare(d.Record)), duration(d.Played))).FontSize(12).TextColor(faintColor(t)).Margin(0, 0, 2, 0)
 			})
+			v.dayDecks(c, d)
 		})
-		ui.Row(c).Gap(4).Grow(1).Basis(0).Wrap().Children(func() {
+		ui.Row(c).Gap(6).Grow(1).Basis(0).Wrap().Children(func() {
 			for i, m := range d.Matches {
-				v.gameTile(c.Key(i), m)
+				v.gameTile(c.Key(m.Fingerprint), m, i)
 			}
 		})
 	})
@@ -218,28 +242,35 @@ func (v *view) dayDecks(c *ui.Context, d stats.Day) {
 		for i, m := range d.Matches {
 			if !seen[m.Me.Leader] {
 				seen[m.Me.Leader] = true
-				v.leaderChip(c.Key(i), m.Me.Leader, 10)
+				v.artStrip(c.Key(i), m.Me.Leader, 22, 16)
 			}
 		}
 	})
 }
 
-// gameTile is one game: the top of the opponent's leader art over a bar in the result's color.
-// It opens the match.
-func (v *view) gameTile(c *ui.Context, m stats.Match) {
+// gameTile is one game: the top of the opponent's leader art, with its corner and bottom edge
+// in the result's color. It opens the match.
+func (v *view) gameTile(c *ui.Context, m stats.Match, i int) {
 	t := c.Theme()
 	leader := v.snap.card(m.Opp.Leader).Name
-	el := ui.Column(c).Gap(2).Label("Open the match against " + m.Opp.Name)
+	el := ui.Column(c).Label("Open the match against " + m.Opp.Name)
 	if el.Clicked() {
 		v.openMatch(m)
 	}
-	el.Children(func() {
+	lift(el.Transition(tileEnter(i)), 7)
+	el.Width(gameTileW).Height(gameTileH).Clip().Children(func() {
 		if art := v.art.get(m.Opp.Leader, artCrop); art != nil {
-			ui.Image(c, art).Size(30, 20).Fit(ui.Cover).Radius(3)
+			ui.Image(c, art).Size(gameTileW, gameTileH).Fit(ui.Cover)
 		} else {
-			v.leaderChip(c, m.Opp.Leader, 20)
+			v.leaderChip(c, m.Opp.Leader, gameTileH)
 		}
-		ui.Box(c).Size(30, 3).Radius(1.5).Background(resultColor(m.Result))
+		col := resultColor(m.Result)
+		ui.Box(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Draw(func(p *ui.Painter, r ui.Rect) {
+			var corner ui.Path
+			corner.MoveTo(r.X+r.W-16, r.Y).LineTo(r.X+r.W, r.Y).LineTo(r.X+r.W, r.Y+16).Close()
+			p.FillPath(&corner, col)
+			p.Fill(ui.Rect{X: r.X, Y: r.Y + r.H - 3, W: r.W, H: 3}, col, 0)
+		})
 	})
 	ui.TooltipBase(c, el, func(tip ui.Element) {
 		tip.Padding(6, 10).Radius(6).Background(t.Background).Border(1, t.Border).Children(func() {
@@ -247,6 +278,11 @@ func (v *view) gameTile(c *ui.Context, m stats.Match) {
 		})
 	})
 }
+
+const (
+	gameTileW = 52
+	gameTileH = 38
+)
 
 func gameTip(m stats.Match, leader string) string {
 	text := fmt.Sprintf("%s vs %s · %s", resultWord(m.Result), leader, m.Opp.Name)
@@ -261,22 +297,31 @@ func gameTip(m stats.Match, leader string) string {
 func (v *view) decksTile(c *ui.Context, decks []stats.Deck) {
 	t := c.Theme()
 	tile(c, "Your decks", func() {
-		for i, d := range decks {
+		for _, d := range decks {
 			card := v.snap.card(d.Leader)
-			el := ui.Row(c.Key(i)).Gap(10).AlignItems(ui.Center).Padding(2, 0).Label("Show " + card.Name)
+			el := ui.Row(c.Key(d.Leader)).Gap(12).AlignItems(ui.Center).Padding(5, 6).Margin(0, -6).Label("Show " + card.Name).
+				Transition(slide)
+			if el.Hovered() {
+				el.Background(t.Surface)
+			}
+			el.Radius(8)
 			if el.Clicked() {
 				v.openLeader(d.Leader)
 			}
 			el.Children(func() {
-				v.artStrip(c, d.Leader, 48, 30)
-				ui.Column(c).Grow(1).Basis(0).Children(func() {
-					ui.Text(c, card.Name).Bold().SingleLine()
-					ui.Text(c, fmt.Sprintf("%s · %s", games(d.Record.Games()), ago(v.snap.Now, d.Last))).FontSize(11).TextColor(t.TextMuted)
+				v.artStrip(c, d.Leader, 52, 36)
+				ui.Column(c).Grow(1).Basis(0).Gap(1).Children(func() {
+					ui.Text(c, card.Name).FontWeight(600).SingleLine()
+					ui.Text(c, fmt.Sprintf("%s · %s", games(d.Record.Games()), ago(v.snap.Now, d.Last))).FontSize(12).TextColor(t.TextMuted)
 				})
-				if rate, ok := d.Record.Rate(); ok {
-					ui.Text(c, pct(rate)).Bold()
-				}
-				ui.Text(c, record(d.Record)).FontSize(12).TextColor(t.TextMuted).Width(40).TextAlign(ui.End)
+				ui.Column(c).AlignItems(ui.End).Gap(1).Children(func() {
+					if rate, ok := d.Record.Rate(); ok {
+						ui.Text(c, pct(rate)).FontSize(17).Bold()
+					} else {
+						ui.Text(c, "too few").FontSize(11).TextColor(faintColor(t))
+					}
+					ui.Text(c, record(d.Record)).FontSize(12).TextColor(t.TextMuted)
+				})
 			})
 		}
 	})
@@ -286,22 +331,30 @@ func (v *view) decksTile(c *ui.Context, decks []stats.Deck) {
 // row narrows every page to games against that leader.
 func (v *view) facedTile(c *ui.Context, faced []stats.LeaderRecord) {
 	t := c.Theme()
-	tile(c, "Facing most this week", func() {
+	n := 0
+	for _, lr := range faced {
+		n += lr.Record.Games()
+	}
+	titledTile(c, "Facing most this week", games(n), func() {
 		if len(faced) == 0 {
 			ui.Text(c, "No games this week").TextColor(t.TextMuted)
 			return
 		}
-		for i, lr := range faced[:min(len(faced), 5)] {
+		for _, lr := range faced[:min(len(faced), 5)] {
 			name := v.snap.card(lr.Leader).Name
-			el := ui.Row(c.Key(i)).Gap(8).AlignItems(ui.Center).Padding(2, 0).Label("Show games vs " + name)
+			el := ui.Row(c.Key(lr.Leader)).Gap(12).AlignItems(ui.Center).Padding(4, 6).Margin(0, -6).Radius(8).
+				Label("Show games vs " + name).Transition(slide)
+			if el.Hovered() {
+				el.Background(t.Surface)
+			}
 			if el.Clicked() {
 				v.filter.oppLeader = lr.Leader
 			}
 			el.Children(func() {
-				v.artStrip(c, lr.Leader, 44, 28)
-				ui.Text(c, name).SingleLine().Grow(1).Basis(0)
-				ui.Text(c, record(lr.Record)).FontSize(12).TextColor(t.TextMuted).Width(34).TextAlign(ui.End)
-				ui.Box(c).Width(70).Children(func() { bar(c, winShare(lr.Record), winColor) })
+				v.artStrip(c, lr.Leader, 44, 30)
+				ui.Text(c, name).FontWeight(500).SingleLine().Grow(1).Basis(0)
+				ui.Box(c).Width(80).Children(func() { splitBar(c, winShare(lr.Record)) })
+				ui.Text(c, record(lr.Record)).Bold().Width(36).TextAlign(ui.End)
 			})
 		}
 	})
@@ -329,41 +382,29 @@ func (v *view) periodTitle() string {
 	return periods[v.filter.period].label
 }
 
-// bannerArtW is the width of the sharp art on the left of a leader banner.
+// bannerArtW is the width of the art on the left of a leader banner.
 const bannerArtW = 300
 
-// leaderBanner is a leader's art over its own blurred backdrop, lit from the corners of the
-// panel by the leader's card colors, with its record. Without art the panel is plain dark, and
-// the glows are stronger.
-func (v *view) leaderBanner(c *ui.Context, code, label string, r stats.Record) ui.Element {
-	leader := v.snap.card(code)
-	cols := colorsOf(leader)
-	back := v.art.get(code, artBackdrop)
-	strength := 0.95
-	if back != nil {
-		strength = 0.6
+// banner is a leader's art on the left, fading into the panel, with the leader's colors glowing
+// faintly from two corners and body beside the art.
+func (v *view) banner(c *ui.Context, code string, height float32, body func()) ui.Element {
+	t := c.Theme()
+	cols := colorsOf(v.snap.card(code))
+	art := v.art.get(code, artPortrait)
+	strength := 0.5
+	if art != nil {
+		strength = 0.3
 	}
-	return ui.Row(c).Height(180).Radius(12).Clip().Background(bannerBase).AlignItems(ui.Stretch).Draw(func(p *ui.Painter, rect ui.Rect) {
-		if back != nil {
-			p.Image(back, rect, ui.Cover)
-		}
-		panel := ui.Rect{X: rect.X + bannerArtW, Y: rect.Y, W: rect.W - bannerArtW, H: rect.H}
-		glow(p, panel, cols, strength)
+	return ui.Row(c).Height(height).Radius(12).Clip().Background(panelColor(t)).Border(1, t.Border.Alpha(0.6)).
+		Shadow(0, 6, 20, 0, panelShade).AlignItems(ui.Stretch).Draw(func(p *ui.Painter, rect ui.Rect) {
+		glow(p, rect, cols, strength)
 	}).Children(func() {
-		if art := v.art.get(code, artPortrait); art != nil {
+		if art != nil {
 			ui.Image(c, art).Width(bannerArtW).Fit(ui.Cover)
 		} else {
-			ui.Box(c).Width(bannerArtW)
+			ui.Box(c).Width(bannerArtW / 3)
 		}
-		ui.Column(c).Grow(1).Padding(18, 22).Gap(4).Justify(ui.End).Children(func() {
-			ui.Text(c, label).FontSize(12).TextColor(bannerTextMuted)
-			ui.Text(c, leader.Name).FontSize(26).Bold().TextColor(bannerText)
-			ui.Row(c).Gap(28).Margin(8, 0, 0, 0).Children(func() {
-				bannerStat(c, "Win rate", rateOrTooFew(r))
-				bannerStat(c, "Record", record(r))
-				bannerStat(c, "Games", fmt.Sprint(r.Games()))
-			})
-		})
+		ui.Column(c).Grow(1).Basis(0).Padding(18, 22, 18, 4).Gap(2).Justify(ui.Center).Children(body)
 	})
 }
 
@@ -399,48 +440,88 @@ func rateOrTooFew(r stats.Record) string {
 	return "too few"
 }
 
-func bannerStat(c *ui.Context, label, value string) {
-	ui.Column(c).Gap(2).Children(func() {
-		ui.Text(c, label).FontSize(12).TextColor(bannerTextMuted)
-		ui.Text(c, value).FontSize(20).Bold().TextColor(bannerText)
-	})
-}
-
-// rollingChart is the rolling win rate. sel is the point under the pointer, kept per chart.
-func (*view) rollingChart(c *ui.Context, title string, pts []stats.Point, sel *int) {
+// rollingChart is the rolling win rate on an axis that fits it, with 50% marked, over every game
+// as a win or loss square, grouped by day. games are oldest first, and sel is the point under
+// the pointer.
+func (*view) rollingChart(c *ui.Context, pts []stats.Point, games []stats.Match, sel *int) {
 	t := c.Theme()
-	label := fmt.Sprintf("%s, rolling %d games", title, stats.RollingWindow)
+	label := fmt.Sprintf("Win rate, last %d games", stats.RollingWindow)
 	tile(c, label, func() {
-		if len(pts) < 2 {
+		if len(pts) < 2 || len(games) == 0 {
 			ui.Text(c, fmt.Sprintf("Shows up after %d games.", stats.RollingWindow+1)).TextColor(t.TextMuted)
 			return
 		}
-		// Games, not time, along x: sessions are hours apart and games minutes apart, so a time
-		// axis is mostly flat lines between sessions.
-		x := chart.NewLinear(float64(pts[0].Game), float64(pts[len(pts)-1].Game))
-		y := chart.NewLinear(0, 1)
-		ticks := []chart.Tick{{At: 0, Label: "0%"}, {At: 0.5, Label: "50%"}, {At: 1, Label: "100%"}}
+		n := len(games)
+		gx := func(i int) float32 { return (float32(i) + 0.5) / float32(n) }
+		lo := 1.0
+		for _, p := range pts {
+			lo = min(lo, p.Rate)
+		}
+		lo = max(0, math.Floor((lo-0.05)*5)/5)
+		const height, band = 190, 26
+		// yAt is a rate's height up the plot as a fraction, above the band of squares.
+		yAt := func(rate float64) float32 {
+			return (band + float32((rate-lo)/(1-lo))*(height-band-8)) / height
+		}
 		xs := make([]float32, len(pts))
 		ys := make([]float32, len(pts))
 		for i, p := range pts {
-			xs[i] = float32(x.At(float64(p.Game)))
-			ys[i] = float32(y.At(p.Rate))
+			xs[i], ys[i] = gx(p.Game-1), yAt(p.Rate)
+		}
+		var left []chart.Tick
+		for r := lo; r <= 1.0001; r += 0.2 {
+			left = append(left, chart.Tick{At: yAt(r), Label: pct(r)})
+		}
+		days := dayRuns(games)
+		var bottom []chart.Tick
+		for _, d := range days {
+			at := (gx(d.start) + gx(d.end-1)) / 2
+			// Labels closer than this would run into each other.
+			if len(bottom) > 0 && at-bottom[len(bottom)-1].At < 0.09 {
+				continue
+			}
+			bottom = append(bottom, chart.Tick{At: at, Label: d.date.Format("Jan 2")})
 		}
 		describe := func(i int) string {
 			p := pts[i]
 			return fmt.Sprintf("%s · game %d · %s, %d of the last %d won", p.At.Format("Jan 2 15:04"), p.Game, pct(p.Rate), p.Wins, stats.RollingWindow)
 		}
-		chart.Plot(c, chart.Axes{Left: ticks, Bottom: dateTicks(pts, xs, 5), Label: axisLabel(c)}, func(area ui.Element) {
+		chart.Plot(c, chart.Axes{Left: left, Bottom: bottom, Label: axisLabel(c)}, func(area ui.Element) {
+			drawn := grow(area, "draw", 1, drawTime)
 			area.Label(label).Draw(func(p *ui.Painter, r ui.Rect) {
-				for _, tick := range ticks {
-					p.Line(r.X, chart.Y(r, tick.At), r.X+r.W, chart.Y(r, tick.At), 1, t.Border)
+				for k, d := range days {
+					if k%2 == 1 {
+						x0, x1 := r.X+r.W*float32(d.start)/float32(n), r.X+r.W*float32(d.end)/float32(n)
+						p.Fill(ui.Rect{X: x0, Y: r.Y, W: x1 - x0, H: r.H}, ui.RGBA(255, 255, 255, 0.025), 0)
+					}
 				}
-				p.StrokePath(chart.Line(r, xs, ys, chart.CurveMonotone), 2, firstColor)
+				for _, tick := range left {
+					p.Line(r.X, chart.Y(r, tick.At), r.X+r.W, chart.Y(r, tick.At), 1, t.Border.Alpha(0.6))
+				}
+				if lo < 0.5 {
+					y := chart.Y(r, yAt(0.5))
+					for x := r.X; x < r.X+r.W; x += 8 {
+						p.Line(x, y, min(x+4, r.X+r.W), y, 1, t.TextMuted)
+					}
+				}
+				p.Clip(ui.Rect{X: r.X - 4, Y: r.Y - 4, W: (r.W + 8) * drawn, H: r.H + 8}, 0, func() {
+					p.StrokePath(chart.Line(r, xs, ys, chart.CurveLinear), 2.25, youColor)
+				})
+				size := min(11, r.W/float32(n)-2)
+				for i, m := range games {
+					cx := r.X + r.W*gx(i)
+					p.Fill(ui.Rect{X: cx - size/2, Y: r.Y + r.H - 4 - size, W: size, H: size}, resultColor(m.Result), 2)
+				}
+			})
+			last := len(pts) - 1
+			chart.Point(c, xs[last], ys[last], 8, 8).Radius(4).Background(youColor)
+			chart.Anchor(c, xs[last], ys[last], ui.End, ui.End, func() {
+				ui.Text(c, pct(pts[last].Rate)).FontSize(12).Bold().Margin(0, 6, 4, 0)
 			})
 			chart.Select(c, area, sel, xs, describe)
 			if i := *sel; i >= 0 && i < len(pts) {
 				chart.RuleX(c, xs[i], 1).Background(t.TextMuted)
-				chart.Point(c, xs[i], ys[i], 10, 10).Radius(5).Background(firstColor)
+				chart.Point(c, xs[i], ys[i], 10, 10).Radius(5).Background(youColor)
 				align := ui.Center
 				switch {
 				case xs[i] < 0.2:
@@ -449,11 +530,30 @@ func (*view) rollingChart(c *ui.Context, title string, pts []stats.Point, sel *i
 					align = ui.End
 				}
 				chart.Anchor(c, xs[i], 1, align, ui.Start, func() {
-					ui.Text(c, describe(i)).NoWrap().FontSize(12).Padding(4, 8).Radius(6).Background(t.Background).Border(1, t.Border)
+					ui.Text(c, describe(i)).NoWrap().FontSize(12).Padding(4, 8).Radius(6).Background(t.Surface).Border(1, t.Border)
 				})
 			}
-		}).Height(170).Gap(6).Margin(8, 0, 0, 0)
+		}).Height(height).Gap(6).Margin(6, 0, 0, 0)
 	})
+}
+
+// dayRun is the games of one day, as indexes into the games oldest first.
+type dayRun struct {
+	date       time.Time
+	start, end int
+}
+
+func dayRuns(games []stats.Match) []dayRun {
+	var out []dayRun
+	for i, m := range games {
+		y, mo, d := m.PlayedAt.Date()
+		day := time.Date(y, mo, d, 0, 0, 0, 0, m.PlayedAt.Location())
+		if len(out) == 0 || !out[len(out)-1].date.Equal(day) {
+			out = append(out, dayRun{date: day, start: i})
+		}
+		out[len(out)-1].end = i + 1
+	}
+	return out
 }
 
 // cardThumb is a whole card at the given width, or a block in its colors while the image
@@ -470,11 +570,12 @@ func (v *view) cardThumb(c *ui.Context, code string, width float32) {
 		})
 		return
 	}
-	img := ui.Image(c, art).Size(width, h).Fit(ui.Cover).Radius(5)
-	if width < previewWidth/2 {
+	img := lift(ui.Image(c, art).Size(width, h).Fit(ui.Cover), 5)
+	if width < previewMin {
+		pw := previewWidth(c)
 		ui.TooltipBase(c, img, func(tip ui.Element) {
 			tip.Radius(10).Shadow(0, 6, 24, 0, ui.RGBA(0, 0, 0, 0.5)).Children(func() {
-				ui.Image(c, v.largeArt(code, art)).Size(previewWidth, previewWidth*7/5).Fit(ui.Cover).Radius(10)
+				ui.Image(c, v.largeArt(code, art)).Size(pw, pw*7/5).Fit(ui.Cover).Radius(10)
 			})
 		})
 	}
@@ -489,9 +590,16 @@ func (v *view) largeArt(code string, small *ui.Bitmap) *ui.Bitmap {
 	return small
 }
 
-// previewWidth is the size a small card shows at while the pointer rests on it, large enough to
-// read its text.
-const previewWidth = 300
+// previewWidth is the width of the card shown while the pointer rests on a small one. It takes
+// about 40% of the window's height, and stays wide enough to read the card's text.
+func previewWidth(c *ui.Context) float32 {
+	const smallest, largest = 180, 300
+	_, h := c.Size()
+	return min(max(h*0.4*5/7, smallest), largest)
+}
+
+// previewMin is the card width from which a card is big enough to need no preview.
+const previewMin = 150
 
 func turnOrderShort(m stats.Match) string {
 	switch {
@@ -508,39 +616,21 @@ func turnOrderShort(m stats.Match) string {
 // the ones at the ends of the bottom axis would hang half outside. They line up with the end
 // instead.
 func axisLabel(c *ui.Context) func(chart.Side, chart.Tick) {
+	col := faintColor(c.Theme())
+	small := func(label string) ui.Element { return ui.Text(c, label).NoWrap().FontSize(11).TextColor(col) }
 	return func(side chart.Side, t chart.Tick) {
-		text := func() { ui.Text(c, t.Label).NoWrap() }
 		switch {
 		case side == chart.Bottom && t.At > 0.95:
 			// The invisible copy keeps the axis row as tall as the text, and the real one ends
 			// at the tick.
 			ui.Box(c).Width(0).Children(func() {
-				ui.Text(c, t.Label).NoWrap().Invisible()
-				ui.Text(c, t.Label).NoWrap().Absolute().Right(0).Top(0)
+				small(t.Label).Invisible()
+				small(t.Label).Absolute().Right(0).Top(0)
 			})
 		case side == chart.Bottom && t.At < 0.05:
-			ui.Row(c).Width(0).Justify(ui.Start).Children(text)
+			ui.Row(c).Width(0).Justify(ui.Start).Children(func() { small(t.Label) })
 		default:
-			text()
+			small(t.Label)
 		}
 	}
-}
-
-// dateTicks labels about n evenly spread points with their dates.
-func dateTicks(pts []stats.Point, xs []float32, n int) []chart.Tick {
-	if len(pts) < 2 {
-		return nil
-	}
-	var ticks []chart.Tick
-	last := ""
-	for k := range n {
-		i := k * (len(pts) - 1) / (n - 1)
-		label := pts[i].At.Format("Jan 2")
-		if label == last {
-			continue
-		}
-		last = label
-		ticks = append(ticks, chart.Tick{At: xs[i], Label: label})
-	}
-	return ticks
 }

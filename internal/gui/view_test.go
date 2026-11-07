@@ -51,7 +51,10 @@ func testSnapshot(n int) *snapshot {
 func tester(s *snapshot) (*view, *ui.Tester) {
 	v := newView(nil)
 	v.snap = s
-	return v, ui.NewTester(v.build, 1180, 780)
+	tt := ui.NewTester(v.build, 1180, 780)
+	// The specs check what pages show, and frames of motion only slow them down.
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true, TextScale: 1})
+	return v, tt
 }
 
 var _ = Describe("view", func() {
@@ -71,7 +74,10 @@ var _ = Describe("view", func() {
 		Expect(tt.Click("Show games vs Kaido")).To(Succeed())
 		Expect(v.filter.oppLeader).To(Equal("OP17-058"))
 		tt.Frame()
-		Expect(tt.HasText("vs Kaido  ✕")).To(BeTrue())
+		_, pill := tt.Find("vs Kaido")
+		Expect(pill).To(BeTrue())
+		Expect(tt.Click("Remove the filter vs Kaido")).To(Succeed())
+		Expect(v.filter.oppLeader).To(BeEmpty())
 	})
 
 	It("lists the days played under their week", func() {
@@ -88,7 +94,7 @@ var _ = Describe("view", func() {
 	It("shows the current deck and its turn order split on the Leaders page", func() {
 		_, tt := tester(testSnapshot(10))
 		Expect(tt.Click("Leaders")).To(Succeed())
-		for _, text := range []string{"Current deck", "Monkey D. Luffy", "50%", "5–5", "Turn order", "First", "Second"} {
+		for _, text := range []string{"Monkey D. Luffy", "Win rate", "50%", "5–5", "Turn order", "1st", "2nd"} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
 	})
@@ -118,7 +124,8 @@ var _ = Describe("view", func() {
 		Expect(v.page).To(Equal(pageMatches))
 		Expect(tt.HasText("10 games · 5–5")).To(BeTrue())
 		Expect(tt.HasText("Kaido")).To(BeTrue())
-		Expect(tt.HasText("Ranked · Spoiler")).To(BeTrue())
+		Expect(tt.HasText("Ranked")).To(BeTrue())
+		Expect(tt.HasText("Today")).To(BeTrue())
 	})
 
 	It("shows a newly imported game on the Matches page", func() {
@@ -148,9 +155,9 @@ var _ = Describe("view", func() {
 	It("shows the most played leader on the Leaders page by default", func() {
 		_, tt := tester(testSnapshot(10))
 		Expect(tt.Click("Leaders")).To(Succeed())
-		Expect(tt.HasText("Current deck")).To(BeTrue())
-		Expect(tt.HasText("Played")).To(BeTrue())
-		Expect(tt.HasText("Recent games")).To(BeTrue())
+		Expect(tt.HasText("Monkey D. Luffy")).To(BeTrue())
+		Expect(tt.HasText("Win rate")).To(BeTrue())
+		Expect(tt.HasText("By day")).To(BeTrue())
 	})
 
 	It("filters the Leaders page by game type", func() {
@@ -160,7 +167,7 @@ var _ = Describe("view", func() {
 		}
 		v, tt := tester(s)
 		Expect(tt.Click("Leaders")).To(Succeed())
-		Expect(tt.HasText("Played")).To(BeTrue())
+		Expect(tt.HasText("By day")).To(BeTrue())
 		Expect(tt.HasText("All games")).To(BeTrue())
 		v.filter.gameType = int(stats.CasualGames)
 		tt.Frame()
@@ -169,16 +176,17 @@ var _ = Describe("view", func() {
 		Expect(l.Record.Games()).To(Equal(4))
 	})
 
-	It("puts matchups under the minimum games in their own row, which the switch hides", func() {
+	It("splits matchups with enough games at 50%, and counts the rest, which open the Matchups page", func() {
 		s := testSnapshot(10)
 		s.Matches[0].Opp.Leader = "OP09-042"
 		v, tt := tester(s)
 		Expect(tt.Click("Leaders")).To(Succeed())
-		Expect(tt.HasText("Also faced, under 5 games")).To(BeTrue())
-		Expect(tt.HasText("OP17 · 4–5")).To(BeTrue())
-		Expect(tt.Click("Hide under 5 games")).To(Succeed())
-		Expect(v.hideFew).To(BeTrue())
-		Expect(tt.HasText("Also faced, under 5 games")).To(BeFalse())
+		for _, text := range []string{"Worst matchups", "Kaido", "4–5", "44%", "Rarely faced", "1 under 5 games"} {
+			Expect(tt.HasText(text)).To(BeTrue(), text)
+		}
+		Expect(tt.HasText("Best matchups")).To(BeFalse())
+		Expect(tt.Click("Show every matchup")).To(Succeed())
+		Expect(v.page).To(Equal(pageMatchups))
 	})
 
 	It("asks for the sim when it has no games and no sim", func() {
