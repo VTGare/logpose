@@ -12,8 +12,27 @@ session-*.jsonl
 
 .vscode
 .idea
-.claude/settings.local.json
 CLAUDE.local.md
 
 # Task checksums
 /.task/
+
+# Local Claude settings and worktrees
+/.claude/
+
+# The prototype the GUI decision was based on
+/prototypes/
+
+# Scratch databases
+*.db
+*.db-shm
+*.db-wal
+
+# Python caches from research tools
+__pycache__/
+*.pyc
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
