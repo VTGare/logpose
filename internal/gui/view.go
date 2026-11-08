@@ -47,6 +47,15 @@ const (
 	pageCards    = "cards"
 )
 
+// Pages are the ids of every page, which -page takes.
+func Pages() []string {
+	ids := []string{pageSettings}
+	for _, p := range navPages {
+		ids = append(ids, p.id)
+	}
+	return ids
+}
+
 // actions are the changes the view asks the app for. The app makes them off the main thread
 // and sends a new snapshot.
 type actions interface {

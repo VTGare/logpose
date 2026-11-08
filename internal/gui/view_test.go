@@ -58,6 +58,14 @@ func tester(s *snapshot) (*view, *ui.Tester) {
 }
 
 var _ = Describe("view", func() {
+	It("opens on any page -page names", func() {
+		Expect(Pages()).To(ContainElements("overview", "leaders", "matchups", "matches", "formats", "cards", "settings"))
+		v, tt := tester(testSnapshot(10))
+		v.page = "leaders"
+		tt.Frame()
+		Expect(tt.HasText("Turn order")).To(BeTrue())
+	})
+
 	It("shows today, the week, each day played and every deck on the overview", func() {
 		_, tt := tester(testSnapshot(10))
 		for _, text := range []string{

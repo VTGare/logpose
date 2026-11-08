@@ -49,6 +49,9 @@ type Options struct {
 	Log     *slog.Logger
 	// Dev marks a test copy in the window title.
 	Dev bool
+	// Page is the page to open on instead of the Overview, one of Pages. It lets screenshots of a
+	// test copy show a page other than the first.
+	Page string
 }
 
 //go:embed assets/tray.png
@@ -142,6 +145,9 @@ func openGallery(opts Options, web *webArt) *arts.Gallery {
 
 func (a *app) ready(ctx context.Context) {
 	a.view = newView(nil)
+	if a.opts.Page != "" {
+		a.view.page = a.opts.Page
+	}
 	a.view.act = &appActions{a: a, ctx: ctx}
 	// The window's look and close behavior are needed before it shows, so they're read here.
 	set, err := a.opts.Store.Settings(ctx)

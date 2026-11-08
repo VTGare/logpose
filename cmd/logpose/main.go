@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -88,7 +89,11 @@ func runApp(ctx context.Context, args []string) (err error) {
 	db := dbFlag(fs)
 	simDir := fs.String("sim", "", "OPTCGSim's folder, the one with OPTCGSim.exe (default: found from the running sim)")
 	dev := fs.Bool("dev", false, "run as a test copy next to the real logpose, with -db pointing at a scratch database")
+	page := fs.String("page", "", "the page to open on, for screenshots of a test copy: "+strings.Join(gui.Pages(), ", "))
 	_ = fs.Parse(args)
+	if *page != "" && !slices.Contains(gui.Pages(), *page) {
+		return fmt.Errorf("-page: no page %q", *page)
+	}
 	if !gui.Claim(*dev) {
 		return nil
 	}
@@ -100,7 +105,7 @@ func runApp(ctx context.Context, args []string) (err error) {
 	defer func() { err = errors.Join(err, st.Close()) }()
 
 	opts := gui.Options{
-		Store: st, Log: logger(), Dev: *dev,
+		Store: st, Log: logger(), Dev: *dev, Page: *page,
 		DBPath:      dbPath(*db),
 		CatalogPath: filepath.Join(filepath.Dir(dbPath(*db)), "cards.json"),
 		LibraryPath: filepath.Join(filepath.Dir(dbPath(*db)), "library.json"),
