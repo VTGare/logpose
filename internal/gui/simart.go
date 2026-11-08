@@ -193,7 +193,7 @@ func (v *view) artChoices(c *ui.Context, card cards.Card, info simArtInfo, loade
 		ui.Row(c).Gap(10).Wrap().Children(func() {
 			for i, p := range printsOf(card) {
 				on := loaded && info.cur.Kind == sim.ArtPrint && info.cur.Key == p.Key
-				look, use := v.artColumn(c, p.Key, printName(card, p), s.print == i, on, usable)
+				look, use := v.artColumn(c, p.Key, printName(card, p), s.print == i, on, usable && !v.prefs.artOff)
 				if look {
 					s.print = i
 				}
@@ -244,6 +244,9 @@ func (v *view) artNote(c *ui.Context, info simArtInfo) {
 		})
 	case info.err != "":
 		ui.Text(c, info.err).FontSize(12).TextColor(lossColor).Wrap()
+	case v.prefs.artOff:
+		ui.Text(c, "Card art downloads are off in Settings, so only the sim's own art and your own file can be used.").
+			FontSize(12).TextColor(t.TextMuted).Wrap()
 	case info.cur.Kind == sim.ArtFile:
 		ui.Text(c, "The sim shows a file you added yourself. If you pick other art, logpose keeps your file "+
 			"and it stays here to pick again.").FontSize(12).TextColor(t.TextMuted).Wrap()
@@ -340,7 +343,7 @@ func (v *view) cardMenu(card cards.Card) func(m *ui.Menu) {
 		m.Submenu("Art in the sim", func(m *ui.Menu) {
 			for _, p := range printsOf(card) {
 				on := info.cur.Kind == sim.ArtPrint && info.cur.Key == p.Key
-				if m.Item(menuPrintName(card, p)).Radio(on).Disabled(!usable).Chosen() {
+				if m.Item(menuPrintName(card, p)).Radio(on).Disabled(!usable || v.prefs.artOff).Chosen() {
 					v.useSimArt(card, sim.ArtChoice{Kind: sim.ArtPrint, Key: p.Key})
 				}
 			}
@@ -396,15 +399,6 @@ func (a *app) simArt() *sim.SimArt {
 	return a.simArtObj
 }
 
-func (a *app) webImages() *webArt {
-	a.simArtMu.Lock()
-	defer a.simArtMu.Unlock()
-	if a.web == nil {
-		a.web = newWebArt(a.opts.ArtDir)
-	}
-	return a.web
-}
-
 // readSimArt is what the sim shows for the card. A file of the user's is compared with the
 // card's printings once, so one that is a printing shows as that printing.
 func (a *app) readSimArt(card cards.Card) simArtInfo {
@@ -440,8 +434,7 @@ func (a *app) firstMatch(code string) bool {
 
 // matchPrint is the printing the image at path shows, or "".
 func (a *app) matchPrint(path string, card cards.Card) string {
-	web := a.webImages()
-	if web == nil || path == "" {
+	if a.web == nil || path == "" {
 		return ""
 	}
 	img, err := decode(path)
@@ -450,7 +443,7 @@ func (a *app) matchPrint(path string, card cards.Card) string {
 	}
 	want := artGrid(img)
 	for _, p := range printsOf(card) {
-		other, err := web.image(p.Key)
+		other, err := a.web.full(p.Key)
 		if err == nil && gridDistance(want, artGrid(other)) <= artMatchMax {
 			return p.Key
 		}
@@ -520,11 +513,10 @@ func (a *app) useSimArt(card cards.Card, choice sim.ArtChoice) error {
 	case sim.ArtFile:
 		return art.UseFile(card.Code)
 	}
-	web := a.webImages()
-	if web == nil {
+	if a.web == nil {
 		return errNoWebArt
 	}
-	img, err := web.image(choice.Key)
+	img, err := a.web.full(choice.Key)
 	if err != nil {
 		return fmt.Errorf("download %s: %w", choice.Key, err)
 	}
@@ -543,11 +535,10 @@ func (a *app) artImage(key string) (image.Image, error) {
 	if path, ok := strings.CutPrefix(key, ownFilePrefix); ok {
 		return decode(path)
 	}
-	web := a.webImages()
-	if web == nil {
+	if a.web == nil {
 		return nil, errNoWebArt
 	}
-	return web.image(key)
+	return a.web.full(key)
 }
 
 // artFileName is the name a saved picture gets: the printing's key, or the card's code.

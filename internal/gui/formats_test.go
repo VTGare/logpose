@@ -21,6 +21,8 @@ type fakeActions struct {
 	replays   []string
 	timers    []func()
 	calls     []string
+	// usageLoads counts LoadArtUsage, which entering Settings calls on its own.
+	usageLoads int
 }
 
 func (f *fakeActions) SetBookmark(fingerprint string, on bool) {

@@ -41,6 +41,11 @@ const (
 	artFaceTheirs
 )
 
+// fromThumb reports whether the kind is made from a Limitless thumb rather than the full image.
+func (k artKind) fromThumb() bool {
+	return k == artFull || k == artCard
+}
+
 // cardArtWidth keeps cards sharp up to about 190 DIPs wide at 125% scaling, at a third of the
 // memory of a full image.
 const cardArtWidth = 240
@@ -144,7 +149,11 @@ func (a *artCache) source(k artKey) (image.Image, error) {
 		return img, err
 	}
 	if a.web != nil && k.code != donCode && k.code != donBackCode {
-		if img, err := a.web.image(k.code); err == nil {
+		read := a.web.full
+		if k.kind.fromThumb() {
+			read = a.web.thumb
+		}
+		if img, err := read(k.code); err == nil {
 			if k.kind == artFull {
 				img = scaleToWidth(img, webSmallWidth)
 			}

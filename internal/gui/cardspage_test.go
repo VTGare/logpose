@@ -297,6 +297,25 @@ var _ = Describe("Cards page", func() {
 		Expect(tt.HasText("The sim shows a file you added yourself.")).To(BeTrue())
 	})
 
+	It("keeps printings out of the sim while art downloads are off", func() {
+		v, tt := cardsTester()
+		fa := &fakeActions{}
+		v.act = fa
+		v.prefs.artOff = true
+		v.cardsUI.selected = "OP01-024"
+		v.setSimArt("OP01-024", simArtInfo{cur: sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024"}})
+		v.cardsUI.tab = tabArt
+		tt.Frame()
+		Expect(tt.HasText("Card art downloads are off in Settings, so only the sim's own art and your own file can be used.")).
+			To(BeTrue())
+		Expect(tt.Click("Use Alt art in the sim")).To(Succeed())
+		tt.Frame()
+		Expect(fa.calls).To(BeEmpty())
+		Expect(tt.Click("Use Sim's own in the sim")).To(Succeed())
+		tt.Frame()
+		Expect(fa.calls).To(Equal([]string{"use art OP01-024 "}))
+	})
+
 	It("says why the dots are off without a sim", func() {
 		v, tt := cardsTester()
 		fa := &fakeActions{}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +32,8 @@ type settingsInfo struct {
 	Fetched time.Time
 
 	DBPath string
+	// ArtDir is the card art folder, empty when there's none.
+	ArtDir string
 	// DBFolder is the database's folder, short for the page.
 	DBFolder string
 	DBSize   int64
@@ -57,6 +60,7 @@ func (a *app) settingsInfo(ctx context.Context, set map[string]string, games, ca
 		Cards:   cardCount,
 		Fetched: fetched,
 		DBPath:  a.opts.DBPath,
+		ArtDir:  a.opts.ArtDir,
 		Games:   games,
 		Players: players,
 		You:     store.SplitNames(set[store.SettingYou]),
@@ -99,7 +103,15 @@ type prefs struct {
 	openAtLogin bool
 	sideWidth   float32
 	panelWidth  float32
+	artOff      bool
+	// artCap is the MB of large card images kept, one of artCaps.
+	artCap int
 }
+
+// artCaps are the sizes in MB the large card images can be capped at.
+var artCaps = []int{100, 150, 300, 600}
+
+const artCapDefault = webFullCap >> 20
 
 func prefsFrom(set map[string]string) prefs {
 	return prefs{
@@ -109,7 +121,17 @@ func prefsFrom(set map[string]string) prefs {
 		startHidden: set[store.SettingStartHidden] == "1",
 		sideWidth:   widthFrom(set[store.SettingSidebarWidth], sideDefault, snapSide),
 		panelWidth:  widthFrom(set[store.SettingCardPanelWidth], panelDefault, snapPanel),
+		artOff:      set[store.SettingArtOff] == "1",
+		artCap:      artCapFrom(set[store.SettingArtCap]),
 	}
+}
+
+func artCapFrom(s string) int {
+	mb, err := strconv.Atoi(s)
+	if err != nil || !slices.Contains(artCaps, mb) {
+		return artCapDefault
+	}
+	return mb
 }
 
 func widthFrom(s string, def float32, snap func(float32) float32) float32 {
@@ -257,5 +279,64 @@ func (x *appActions) Backup() {
 			return
 		}
 		x.note(noteData, "Saved "+filepath.Base(path)+".")
+	}()
+}
+
+func (x *appActions) LoadArtUsage() {
+	web := x.a.web
+	if web == nil {
+		return
+	}
+	go func() {
+		u := web.usage()
+		x.a.win.Update(func() { x.a.view.settings.art = &u })
+	}()
+}
+
+func (x *appActions) ClearArt() {
+	web := x.a.web
+	if web == nil {
+		return
+	}
+	go func() {
+		freed, err := web.clear()
+		text := "Cleared " + megabytes(freed) + "."
+		if err != nil {
+			x.a.opts.Log.Error("clear card art", "err", err)
+			text = "Some images couldn't be deleted. The log file has the reason."
+		}
+		x.a.win.Update(func() {
+			x.a.view.settings.note(noteArt, text)
+			x.a.view.art = newArtCache(x.a.install(), web, x.a.win.Update)
+		})
+		x.LoadArtUsage()
+	}()
+}
+
+func (x *appActions) SetArtCap(mb int) {
+	web := x.a.web
+	go func() {
+		if err := x.a.opts.Store.SetSetting(x.ctx, store.SettingArtCap, strconv.Itoa(mb)); err != nil {
+			x.a.opts.Log.Error("save art cap", "err", err)
+		}
+		if web == nil {
+			return
+		}
+		web.setLimit(int64(mb) << 20)
+		web.trim()
+		x.LoadArtUsage()
+	}()
+}
+
+func (x *appActions) SetArtDownloads(on bool) {
+	web := x.a.web
+	if web != nil {
+		web.setOff(!on)
+		x.a.view.art = newArtCache(x.a.install(), web, x.a.win.Update)
+	}
+	go func() {
+		if err := x.a.opts.Store.SetSetting(x.ctx, store.SettingArtOff, flag(!on)); err != nil {
+			x.a.opts.Log.Error("save art downloads", "err", err)
+		}
 	}()
 }

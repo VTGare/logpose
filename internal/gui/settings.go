@@ -18,12 +18,15 @@ const (
 	noteCards   = "cards"
 	noteData    = "data"
 	noteStartup = "startup"
+	noteArt     = "art"
 )
 
 type settingsState struct {
 	notes map[string]string
 	// allNames shows every player in the You list, not only the top ones.
 	allNames bool
+	// art is nil until the card art folder is counted.
+	art *artUsage
 }
 
 func (s *settingsState) note(part, text string) {
@@ -43,6 +46,9 @@ const cardDataHelp = "Cards come from Limitless (onepiece.limitlesstcg.com), whi
 const topNames = 3
 
 func (v *view) settingsPage(c *ui.Context) {
+	if pageEntered && v.snap.Settings.ArtDir != "" {
+		v.do(func(a actions) { a.LoadArtUsage() })
+	}
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
 			ui.Text(c, "Settings").FontSize(20).FontWeight(600)
@@ -53,7 +59,10 @@ func (v *view) settingsPage(c *ui.Context) {
 				v.dataTile(c)
 			})
 			ui.Row(c).Gap(16).AlignItems(ui.Start).Children(func() {
-				panel(c).Grow(1).Basis(0).Padding(14, 16).Gap(4).Children(func() { v.youSettings(c) })
+				ui.Column(c).Grow(1).Basis(0).Gap(16).Children(func() {
+					panel(c).Padding(14, 16).Gap(4).Children(func() { v.youSettings(c) })
+					panel(c).Padding(14, 16).Gap(4).Children(func() { v.artSettings(c) })
+				})
 				panel(c).Grow(1).Basis(0).Padding(14, 16).Gap(4).Children(func() {
 					v.lookSettings(c)
 					ui.Box(c).Height(14)
@@ -281,6 +290,79 @@ func (v *view) startupSettings(c *ui.Context) {
 	if n := v.settings.notes[noteStartup]; n != "" {
 		ui.Text(c, n).FontSize(12).TextColor(t.Accent)
 	}
+}
+
+func (v *view) artSettings(c *ui.Context) {
+	t := c.Theme()
+	ui.Text(c, "Card art").FontSize(13).FontWeight(600)
+	ui.Text(c, "Pictures of cards come from Limitless and stay on this PC.").FontSize(12).TextColor(t.TextMuted).Wrap()
+	on := !v.prefs.artOff
+	if switchRow(c, "Download card art", "Off shows the sim's own images", &on, false) {
+		v.prefs.artOff = !on
+		v.do(func(a actions) { a.SetArtDownloads(on) })
+	}
+	dir := v.snap.Settings.ArtDir
+	if dir == "" {
+		return
+	}
+	divider(c)
+	capIndex := slices.Index(artCaps, v.prefs.artCap)
+	if capIndex < 0 {
+		capIndex = slices.Index(artCaps, artCapDefault)
+	}
+	u := v.settings.art
+	label, sub := "Counting…", ""
+	if u != nil {
+		label = megabytes(u.total()) + " on disk"
+		sub = fmt.Sprintf("Thumbnails %s · large images %s of %d MB", megabytes(u.ThumbBytes), megabytes(u.FullBytes), artCaps[capIndex])
+	}
+	prefRow(c, label, sub, func() {
+		ui.Row(c).Gap(6).Children(func() {
+			if ui.Button(c, "Show").Label("Show the card art folder").Clicked() {
+				v.do(func(a actions) { a.OpenPath(dir) })
+			}
+			if ui.Button(c, "Clear").Label("Clear card art").Disabled(u == nil || u.total() == 0).Clicked() {
+				v.do(func(a actions) { a.ClearArt() })
+			}
+		})
+	})
+	if n := v.settings.notes[noteArt]; n != "" {
+		ui.Text(c, n).FontSize(12).TextColor(t.Accent)
+	}
+	divider(c)
+	picked := capIndex
+	// The four sizes leave too little room beside them for a label, so it sits above.
+	ui.Column(c).Gap(8).Padding(6, 0).AlignItems(ui.Start).Children(func() {
+		ui.Text(c, "Keep large images up to").FontWeight(500)
+		ui.Segmented(c, &picked, artCapLabels...).Label("Keep large images up to")
+	})
+	if picked != capIndex {
+		mb := artCaps[picked]
+		v.prefs.artCap = mb
+		v.do(func(a actions) { a.SetArtCap(mb) })
+	}
+	ui.Text(c, "Past this, the ones you opened longest ago are deleted. Thumbnails stay.").
+		FontSize(12).TextColor(t.TextMuted).Wrap()
+}
+
+var artCapLabels = func() []string {
+	var out []string
+	for _, mb := range artCaps {
+		out = append(out, fmt.Sprintf("%d MB", mb))
+	}
+	return out
+}()
+
+// megabytes is a size such as "8.4 MB" or "258 MB".
+func megabytes(n int64) string {
+	mb := float64(n) / (1 << 20)
+	if n == 0 {
+		return "0 MB"
+	}
+	if mb < 10 {
+		return fmt.Sprintf("%.1f MB", mb)
+	}
+	return fmt.Sprintf("%.0f MB", mb)
 }
 
 // switchRow is prefRow with a switch, where a click anywhere on the row flips it. It reports

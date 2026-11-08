@@ -32,6 +32,10 @@ const (
 	// SettingCardPanelWidth is the width in DIPs of the Cards page's card panel. Empty means
 	// the default.
 	SettingCardPanelWidth = "card_panel_width"
+	// SettingArtOff is "1" when card art isn't downloaded. Empty means it is.
+	SettingArtOff = "art_off"
+	// SettingArtCap is how many MB of large card images are kept. Empty means the default.
+	SettingArtCap = "art_cap_mb"
 )
 
 // Setting returns a setting's value, or "" when it isn't set.

@@ -76,6 +76,10 @@ type actions interface {
 	ImportAgain()
 	RefreshCards()
 	Backup()
+	LoadArtUsage()
+	ClearArt()
+	SetArtCap(mb int)
+	SetArtDownloads(on bool)
 
 	// LoadSimArt reads what the sim shows for the card and shows it with view.setSimArt.
 	LoadSimArt(card cards.Card)

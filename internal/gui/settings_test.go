@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -24,6 +25,14 @@ func (f *fakeActions) ShowFile(path string) { f.calls = append(f.calls, "show "+
 func (f *fakeActions) ImportAgain()         { f.calls = append(f.calls, "import") }
 func (f *fakeActions) RefreshCards()        { f.calls = append(f.calls, "refresh cards") }
 func (f *fakeActions) Backup()              { f.calls = append(f.calls, "backup") }
+func (f *fakeActions) LoadArtUsage()        { f.usageLoads++ }
+func (f *fakeActions) ClearArt()            { f.calls = append(f.calls, "clear art") }
+func (f *fakeActions) SetArtCap(mb int)     { f.calls = append(f.calls, fmt.Sprintf("art cap %d", mb)) }
+
+func (f *fakeActions) SetArtDownloads(on bool) {
+	f.calls = append(f.calls, map[bool]string{true: "art downloads on", false: "art downloads off"}[on])
+}
+
 func (f *fakeActions) LoadSimArt(card cards.Card) {
 	f.calls = append(f.calls, "load art "+card.Code)
 }
@@ -41,6 +50,7 @@ func settingsSnapshot() *snapshot {
 		SimDir: `E:\Games\OPTCG\Builds_Windows`, SimVersion: "1.44a", SimExe: true, Logs: 93,
 		Cards: 2926, Fetched: now.Add(-25 * time.Hour),
 		DBPath: `C:\Users\you\AppData\Roaming\logpose\logpose.db`, DBFolder: `AppData\Roaming\logpose`, DBSize: 1 << 20, Games: 93,
+		ArtDir:  `C:\Users\you\AppData\Roaming\logpose\art`,
 		Players: []store.PlayerCount{{ID: me, Games: 93}, {ID: "Opp#2", Games: 9}, {ID: "Alt#3", Games: 2}, {ID: "Rare#4", Games: 1}},
 	}
 	return s
@@ -145,6 +155,73 @@ var _ = Describe("settings", func() {
 		st.click("Start hidden in the tray")
 		Expect(st.v.prefs.startHidden).To(BeTrue())
 		Expect(st.fa.calls).To(Equal([]string{"login on", store.SettingStartHidden + "=1"}))
+	})
+
+	Describe("card art", func() {
+		artTester := func() settingsSpec {
+			st := settingsTester()
+			st.tt.SetSize(1180, 1100)
+			st.tt.Frame()
+			return st
+		}
+		used := &artUsage{FullBytes: 141 << 20, FullCount: 1378, ThumbBytes: 117 << 20, ThumbCount: 2889}
+
+		It("counts the folder when Settings opens, then shows its size", func() {
+			st := artTester()
+			Expect(st.fa.usageLoads).To(Equal(1))
+			Expect(st.has("Counting…")).To(BeTrue())
+			st.v.settings.art = used
+			Expect(st.has("258 MB on disk")).To(BeTrue())
+			Expect(st.has("Thumbnails 117 MB · large images 141 MB of 150 MB")).To(BeTrue())
+			Expect(st.fa.usageLoads).To(Equal(1))
+		})
+
+		It("shows the folder, clears it and says how much it freed", func() {
+			st := artTester()
+			st.click("Clear card art")
+			Expect(st.fa.calls).To(BeEmpty())
+			st.v.settings.art = used
+			st.click("Show the card art folder")
+			st.click("Clear card art")
+			Expect(st.fa.calls).To(Equal([]string{`open C:\Users\you\AppData\Roaming\logpose\art`, "clear art"}))
+			st.v.settings.note(noteArt, "Cleared 258 MB.")
+			st.v.settings.art = &artUsage{}
+			Expect(st.has("Cleared 258 MB.")).To(BeTrue())
+			Expect(st.has("0 MB on disk")).To(BeTrue())
+		})
+
+		It("caps the large images at the size picked", func() {
+			st := artTester()
+			st.v.settings.art = used
+			st.click("300 MB")
+			Expect(st.v.prefs.artCap).To(Equal(300))
+			Expect(st.has("Thumbnails 117 MB · large images 141 MB of 300 MB")).To(BeTrue())
+			Expect(st.fa.calls).To(Equal([]string{"art cap 300"}))
+		})
+
+		It("turns art downloads off and on", func() {
+			st := artTester()
+			st.click("Download card art")
+			Expect(st.v.prefs.artOff).To(BeTrue())
+			st.click("Download card art")
+			Expect(st.v.prefs.artOff).To(BeFalse())
+			Expect(st.fa.calls).To(Equal([]string{"art downloads off", "art downloads on"}))
+		})
+
+		It("offers only the switch without an art folder", func() {
+			s := settingsSnapshot()
+			s.Settings.ArtDir = ""
+			v, tt := tester(s)
+			fa := &fakeActions{}
+			v.act = fa
+			v.page = pageSettings
+			tt.SetSize(1180, 1100)
+			tt.Frame()
+			Expect(tt.HasText("Download card art")).To(BeTrue())
+			Expect(tt.HasText("Counting…")).To(BeFalse())
+			Expect(tt.HasText("Keep large images up to")).To(BeFalse())
+			Expect(fa.usageLoads).To(BeZero())
+		})
 	})
 
 	It("asks for the sim's folder when there's no sim and no games", func() {

@@ -76,9 +76,11 @@ type app struct {
 	// playing is set while the sim runs a game, when card data isn't fetched.
 	playing atomic.Bool
 
+	// web is the only owner of the art folder. Nil without one.
+	web *webArt
+
 	simArtMu  sync.Mutex
 	simArtObj *sim.SimArt
-	web       *webArt
 	// matched holds the cards whose own file was compared with their printings this run.
 	matched map[string]bool
 }
@@ -100,7 +102,7 @@ func Run(ctx context.Context, opts Options) error {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
-	a := &app{opts: opts, inst: opts.Install}
+	a := &app{opts: opts, inst: opts.Install, web: newWebArt(opts.ArtDir)}
 	if err := registerFonts(); err != nil {
 		opts.Log.Warn("fonts", "err", err)
 	}
@@ -118,6 +120,11 @@ func (a *app) ready(ctx context.Context) {
 	}
 	a.view.prefs = prefsFrom(set)
 	a.view.prefs.openAtLogin = mygo.App.OpenAtLogin()
+	if a.web != nil {
+		a.web.setOff(a.view.prefs.artOff)
+		a.web.setLimit(int64(a.view.prefs.artCap) << 20)
+		go a.web.trim()
+	}
 	a.closeQuits.Store(a.view.prefs.closeQuits)
 	title := "logpose"
 	if a.opts.Dev {
@@ -132,7 +139,7 @@ func (a *app) ready(ctx context.Context) {
 		Hidden:    a.view.prefs.startHidden && mygo.App.WasOpenedAtLogin(),
 		Content:   ui.View(a.view.build),
 	})
-	a.view.art = newArtCache(a.install(), newWebArt(a.opts.ArtDir), a.win.Update)
+	a.view.art = newArtCache(a.install(), a.web, a.win.Update)
 	a.win.OnClose(func(e *mygo.CloseEvent) {
 		if a.quitting {
 			return
@@ -186,7 +193,7 @@ func (a *app) setInstall(ctx context.Context, in sim.Install, chosen bool) error
 	a.pack, a.cards = nil, nil
 	a.cardsMu.Unlock()
 	a.win.Update(func() {
-		a.view.art = newArtCache(&in, newWebArt(a.opts.ArtDir), a.win.Update)
+		a.view.art = newArtCache(&in, a.web, a.win.Update)
 		a.view.resetSimArt()
 	})
 	a.watch(ctx)
