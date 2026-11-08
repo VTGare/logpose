@@ -59,11 +59,14 @@ func tester(s *snapshot) (*view, *ui.Tester) {
 
 var _ = Describe("view", func() {
 	It("opens on any page -page names", func() {
-		Expect(Pages()).To(ContainElements("overview", "decks", "matchups", "matches", "formats", "cards", "settings"))
+		Expect(Pages()).To(ContainElements("overview", "decks", "decks/list", "matchups", "matches", "formats", "cards", "settings"))
 		v, tt := tester(testSnapshot(10))
-		v.page = "decks"
+		v.open("decks")
 		tt.Frame()
 		Expect(tt.HasText("Turn order")).To(BeTrue())
+		v.open("decks/list")
+		Expect(v.page).To(Equal(pageDecks))
+		Expect(v.decks.tab).To(Equal(tabList))
 	})
 
 	It("shows today, the week, each day played and every deck on the overview", func() {

@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -53,13 +54,27 @@ const (
 	pageCards    = "cards"
 )
 
-// Pages are the ids of every page, which -page takes.
+// Pages are the ids of every page, which -page takes. A Decks tab is "decks/" and its name.
 func Pages() []string {
 	ids := []string{pageSettings}
 	for _, p := range navPages {
 		ids = append(ids, p.id)
 	}
+	for _, tab := range deckTabLabels[1:] {
+		ids = append(ids, pageDecks+"/"+strings.ToLower(tab))
+	}
 	return ids
+}
+
+// open shows a page from Pages.
+func (v *view) open(id string) {
+	page, tab, _ := strings.Cut(id, "/")
+	v.page = page
+	for i, label := range deckTabLabels {
+		if strings.ToLower(label) == tab {
+			v.decks.tab = i
+		}
+	}
 }
 
 // actions are the changes the view asks the app for. The app makes them off the main thread
@@ -75,6 +90,8 @@ type actions interface {
 	SetGameType(fingerprint string, t store.GameType)
 	SetGameNote(fingerprint, note string)
 	SetBookmark(fingerprint string, on bool)
+	SaveBuild(b store.Build)
+	DismissSuggestion(d store.Dismissal)
 	// OpenReplay builds a match's replay from its log and shows it with view.setReplay.
 	OpenReplay(fingerprint string)
 	// After runs fn on the main thread once d has passed.

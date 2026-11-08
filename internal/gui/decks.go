@@ -22,14 +22,25 @@ const (
 
 var deckTabLabels = []string{"Results", "List", "Cards", "Changes"}
 
-// decksState is what the Decks page shows of the leader: which tab.
+// decksState is what the Decks page shows of the leader.
 type decksState struct {
 	tab int
+	// build is the chosen build's ID, 0 for none. List then shows the suggestions.
+	build int64
+	// naming is the core key of the suggestion being made a build, and name the name typed.
+	naming, name string
+	// saved is the name of a build just saved, chosen once the next snapshot has it.
+	saved     string
+	showSmall bool
 }
+
+// suggestionKey tells suggestions apart by their searchers.
+func suggestionKey(s stats.Suggestion) string { return strings.Join(s.Core, ",") }
 
 // leaderDecks are the leader's games in scope with what the deck did, how they split into the
 // user's builds, and the suggested builds among the rest.
 type leaderDecks struct {
+	leader      string
 	games       []stats.DeckGame
 	staples     []string
 	builds      []store.Build
@@ -40,7 +51,7 @@ type leaderDecks struct {
 }
 
 func (v *view) deckData(leader string, ms []stats.Match) leaderDecks {
-	var d leaderDecks
+	d := leaderDecks{leader: leader}
 	for _, m := range ms {
 		if g, ok := v.snap.Decks[m.Fingerprint]; ok {
 			d.games = append(d.games, g)
@@ -103,11 +114,10 @@ func (v *view) suggestions(leader string) []stats.Suggestion {
 	return stats.Suggest(rest, v.snap.Dismissed[leader])
 }
 
-// minSuggested is the fewest games a suggested build gets its own chip for. Smaller groups are
-// only counted, in the note at the row's end.
+// minSuggested is the fewest games a suggested build is shown for. Smaller groups fold away.
 const minSuggested = 3
 
-// buildRow is the leader's builds, then the suggested ones, and how many games are in none.
+// buildRow is the leader's builds, or one chip for the suggestions, and how many games are in no build.
 func (v *view) buildRow(c *ui.Context, d leaderDecks) {
 	t := c.Theme()
 	ui.Row(c).Gap(16).AlignItems(ui.Center).Children(func() {
@@ -115,32 +125,60 @@ func (v *view) buildRow(c *ui.Context, d leaderDecks) {
 		if len(d.games) == 0 {
 			return
 		}
-		ui.Column(c).Gap(2).AlignItems(ui.End).Children(func() {
-			note := games(d.unbuilt) + " in no build"
-			if len(d.builds) == 0 {
-				note = "No builds yet · " + games(len(d.games))
-			}
-			ui.Text(c, note).FontSize(12).TextColor(faintColor(t)).SingleLine()
-			switch small := smallSuggestions(d); small {
-			case 0:
-			case 1:
-				ui.Text(c, "+1 small group").FontSize(12).TextColor(faintColor(t)).SingleLine()
-			default:
-				ui.Text(c, fmt.Sprintf("+%d small groups", small)).FontSize(12).TextColor(faintColor(t)).SingleLine()
-			}
-		})
+		note := games(d.unbuilt) + " in no build"
+		if len(d.builds) == 0 {
+			note = "No builds yet · " + games(len(d.games))
+		}
+		ui.Text(c, note).FontSize(12).TextColor(faintColor(t)).SingleLine()
 	})
 }
 
+// buildChips choose a build, which opens List on it. Without builds, one chip opens List on the
+// suggestions.
 func (v *view) buildChips(c *ui.Context, d leaderDecks) {
+	s := &v.decks
 	for _, b := range d.builds {
-		buildChip(c.Key(fmt.Sprint("b", b.ID)), b.Name, buildMeta(d.assignment.Builds[b.ID]), false)
-	}
-	for i, s := range d.suggestions {
-		if len(s.Games) >= minSuggested {
-			buildChip(c.Key(fmt.Sprint("s", i)), v.suggestionName(s, d.suggestions)+"?", "Suggested · "+games(len(s.Games)), true)
+		if buildChip(c.Key(fmt.Sprint("b", b.ID)), b.Name, buildMeta(d.assignment.Builds[b.ID]), false, s.build == b.ID) {
+			s.build, s.tab = b.ID, tabList
 		}
 	}
+	if len(d.builds) > 0 || len(d.suggestions) == 0 {
+		return
+	}
+	if buildChip(c.Key("suggested"), fmt.Sprintf("%d suggested", shownSuggestions(d)), "Builds to make", true, s.tab == tabList) {
+		s.tab = tabList
+	}
+}
+
+// chooseBuild keeps the chosen build to the leader's, chooses the first when none is, and
+// chooses a build just saved once it's in.
+func (v *view) chooseBuild(d leaderDecks) {
+	s := &v.decks
+	if s.saved != "" {
+		for _, b := range d.builds {
+			if b.Name == s.saved {
+				s.build, s.saved, s.tab = b.ID, "", tabList
+			}
+		}
+	}
+	if !slices.ContainsFunc(d.builds, func(b store.Build) bool { return b.ID == s.build }) {
+		s.build = 0
+	}
+	if s.build == 0 && len(d.builds) > 0 {
+		s.build = d.builds[0].ID
+	}
+	if s.build == 0 && (s.tab == tabCards || s.tab == tabChanges) {
+		s.tab = tabResults
+	}
+}
+
+// shownSuggestions counts the suggestions of minSuggested games or more, or every one when all
+// are smaller.
+func shownSuggestions(d leaderDecks) int {
+	if n := len(d.suggestions) - smallSuggestions(d); n > 0 {
+		return n
+	}
+	return len(d.suggestions)
 }
 
 func smallSuggestions(d leaderDecks) int {
@@ -192,32 +230,43 @@ func (v *view) suggestionName(s stats.Suggestion, all []stats.Suggestion) string
 	return strings.Join(names, " + ")
 }
 
-func buildChip(c *ui.Context, name, meta string, suggested bool) {
+// buildChip reports a click.
+func buildChip(c *ui.Context, name, meta string, suggested, on bool) bool {
 	t := c.Theme()
-	chip := ui.Column(c).Gap(1).Padding(7, 12).Radius(10).Border(1, t.Border.Alpha(0.6))
+	chip := ui.ButtonBase(c).Label(name).Column().Gap(1).Padding(7, 12).Radius(10).Border(1, t.Border.Alpha(0.6)).
+		Background(ui.Transparent).AlignItems(ui.Start)
 	nameCol := t.Text
+	switch {
+	case on:
+		chip.Background(t.Surface).Border(1, t.Accent)
+	case chip.Hovered():
+		chip.Background(t.SurfaceHover)
+	}
 	if suggested {
 		chip.BorderStyle(ui.BorderDashed)
-		nameCol = t.TextMuted
+		if !on {
+			nameCol = t.TextMuted
+		}
 	}
 	chip.Children(func() {
 		ui.Text(c, name).FontSize(13).FontWeight(600).TextColor(nameCol).SingleLine()
 		ui.Text(c, meta).FontSize(12).TextColor(faintColor(t)).SingleLine()
 	})
+	return chip.Clicked()
 }
 
-// pageTabs are the page's tabs. Only Results opens. List, Cards and Changes need a build.
+// pageTabs are the page's tabs. Cards and Changes stay off.
 func (v *view) pageTabs(c *ui.Context) {
 	t := c.Theme()
 	s := &v.decks
-	if s.tab != tabResults {
+	if s.tab == tabCards || s.tab == tabChanges {
 		s.tab = tabResults
 	}
 	ui.Column(c).Children(func() {
 		tabs := ui.TabsBase(c, &s.tab, len(deckTabLabels))
 		tabs.List.Gap(4).Children(func() {
 			for i, label := range deckTabLabels {
-				on := i == tabResults
+				on := i == tabResults || i == tabList
 				tab := tabs.Tab(i).Column().Gap(6).Padding(7, 4, 0, 4)
 				col, bar := faintColor(t), ui.Transparent
 				switch {

@@ -146,7 +146,7 @@ func openGallery(opts Options, web *webArt) *arts.Gallery {
 func (a *app) ready(ctx context.Context) {
 	a.view = newView(nil)
 	if a.opts.Page != "" {
-		a.view.page = a.opts.Page
+		a.view.open(a.opts.Page)
 	}
 	a.view.act = &appActions{a: a, ctx: ctx}
 	// The window's look and close behavior are needed before it shows, so they're read here.
@@ -662,6 +662,17 @@ func (x *appActions) SetGameNote(fingerprint, note string) {
 
 func (x *appActions) SetBookmark(fingerprint string, on bool) {
 	x.run("set bookmark", func(ctx context.Context, st *store.Store) error { return st.SetBookmark(ctx, fingerprint, on) })
+}
+
+func (x *appActions) SaveBuild(b store.Build) {
+	x.run("save build", func(ctx context.Context, st *store.Store) error {
+		_, err := st.SaveBuild(ctx, b)
+		return err
+	})
+}
+
+func (x *appActions) DismissSuggestion(d store.Dismissal) {
+	x.run("dismiss build suggestion", func(ctx context.Context, st *store.Store) error { return st.DismissSuggestion(ctx, d) })
 }
 
 func (x *appActions) LoadTimeline(fingerprint, me, opp string) {

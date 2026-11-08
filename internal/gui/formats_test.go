@@ -24,8 +24,14 @@ type fakeActions struct {
 	// usageLoads counts LoadArtUsage, which entering Settings calls on its own.
 	usageLoads int
 	// artLoads holds each LoadArts as "<code> <gen>". Showing a card calls it on its own.
-	artLoads []string
+	artLoads   []string
+	builds     []store.Build
+	dismissals []store.Dismissal
 }
+
+func (f *fakeActions) SaveBuild(b store.Build) { f.builds = append(f.builds, b) }
+
+func (f *fakeActions) DismissSuggestion(d store.Dismissal) { f.dismissals = append(f.dismissals, d) }
 
 func (f *fakeActions) SetBookmark(fingerprint string, on bool) {
 	f.bookmarks = append(f.bookmarks, fmt.Sprintf("%s=%t", fingerprint, on))

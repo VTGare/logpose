@@ -61,8 +61,14 @@ func (v *view) decksPage(c *ui.Context) {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
 			v.leaderPicker(c, all, l.Leader)
 			v.leaderHead(c, l)
-			v.buildRow(c, v.leaderStats.decks)
+			d := v.leaderStats.decks
+			v.chooseBuild(d)
+			v.buildRow(c, d)
 			v.pageTabs(c)
+			if v.decks.tab == tabList {
+				v.listTab(c, d)
+				return
+			}
 			ui.Row(c).Gap(16).AlignItems(ui.Start).Children(func() {
 				ui.Column(c).Grow(1).Basis(0).Gap(16).Children(func() {
 					v.rollingChart(c, l.Rolling, v.leaderStats.games, &v.leaderPoint)

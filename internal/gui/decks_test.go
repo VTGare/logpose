@@ -42,16 +42,26 @@ func deckSnapshot(builds ...store.Build) *snapshot {
 }
 
 var _ = Describe("Decks page", func() {
-	It("shows the leader's builds with their record and suggests the rest", func() {
+	It("shows the leader's builds with their record, without suggestions", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
 		_, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
-		for _, text := range []string{"Wano/Miracle", "5 games · 5–0 · 100%", "Garp + Kid & Killer + Luffy?", "Suggested · 5 games", "5 games in no build"} {
+		for _, text := range []string{"Wano/Miracle", "5 games · 5–0 · 100%", "5 games in no build"} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
+		Expect(tt.HasText("suggested")).To(BeFalse())
 	})
 
-	It("counts suggestions of fewer than 3 games instead of showing each", func() {
+	It("offers the suggestions in one chip when the leader has no builds", func() {
+		_, tt := tester(deckSnapshot())
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.HasText("No builds yet · 10 games")).To(BeTrue())
+		Expect(tt.Click("2 suggested")).To(Succeed())
+		tt.Frame()
+		Expect(tt.HasText("Suggested builds · 2")).To(BeTrue())
+	})
+
+	It("folds suggestions of fewer than 3 games away", func() {
 		s := deckSnapshot()
 		s.Cards.Name("SUN", "Thousand Sunny")
 		g := s.Decks["0"]
@@ -60,16 +70,19 @@ var _ = Describe("Decks page", func() {
 		s.Decks["0"] = g
 		_, tt := tester(s)
 		Expect(tt.Click("Decks")).To(Succeed())
-		Expect(tt.HasText("+1 small group")).To(BeTrue())
-		Expect(tt.HasText("Thousand Sunny?")).To(BeFalse())
+		Expect(tt.Click("List")).To(Succeed())
+		tt.Frame()
+		Expect(tt.HasText("Show 1 small group")).To(BeTrue())
+		Expect(tt.HasText("Thousand Sunny")).To(BeFalse())
 	})
 
 	It("names suggestions by the searchers that tell them apart", func() {
 		_, tt := tester(deckSnapshot())
 		Expect(tt.Click("Decks")).To(Succeed())
-		Expect(tt.HasText("Otama?")).To(BeTrue())
-		Expect(tt.HasText("Kid & Killer + Luffy?")).To(BeTrue())
-		Expect(tt.HasText("Garp + Otama?")).To(BeFalse())
+		Expect(tt.Click("List")).To(Succeed())
+		tt.Frame()
+		Expect(tt.HasText("Kid & Killer + Luffy")).To(BeTrue())
+		Expect(tt.HasText("Garp + Otama")).To(BeFalse())
 	})
 
 	It("names a suggestion by what its searchers look for", func() {
@@ -82,8 +95,12 @@ var _ = Describe("Decks page", func() {
 		lib.Apply(s.Cards)
 		_, tt := tester(s)
 		Expect(tt.Click("Decks")).To(Succeed())
-		Expect(tt.HasText("Land of Wano?")).To(BeTrue())
-		Expect(tt.HasText("Supernovas?")).To(BeTrue())
+		Expect(tt.Click("List")).To(Succeed())
+		tt.Frame()
+		_, wano := tt.Find("Land of Wano")
+		_, novas := tt.Find("Supernovas")
+		Expect(wano).To(BeTrue())
+		Expect(novas).To(BeTrue())
 	})
 
 	It("suggests builds from every game, whatever the filters", func() {
@@ -91,14 +108,7 @@ var _ = Describe("Decks page", func() {
 		Expect(tt.Click("Decks")).To(Succeed())
 		v.filter.gameType = int(stats.RankedGames)
 		tt.Frame()
-		Expect(tt.HasText("Suggested · 5 games")).To(BeTrue())
-	})
-
-	It("suggests builds when the leader has none yet", func() {
-		_, tt := tester(deckSnapshot())
-		Expect(tt.Click("Decks")).To(Succeed())
-		Expect(tt.HasText("No builds yet · 10 games")).To(BeTrue())
-		Expect(tt.HasText("Suggested · 5 games")).To(BeTrue())
+		Expect(tt.HasText("2 suggested")).To(BeTrue())
 	})
 
 	It("opens on the Results tab with the leader's own stats", func() {
@@ -107,8 +117,59 @@ var _ = Describe("Decks page", func() {
 		for _, text := range []string{"Results", "List", "Cards", "Changes", "Turn order"} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
+	})
+
+	It("keeps Cards and Changes shut", func() {
+		v, tt := tester(deckSnapshot())
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("Cards")).To(Succeed())
+		tt.Frame()
+		Expect(v.decks.tab).NotTo(Equal(tabCards))
+	})
+
+	It("makes a suggestion a build with the name given, its searchers as the core", func() {
+		v, tt := tester(deckSnapshot())
+		f := &fakeActions{}
+		v.act = f
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("2 suggested")).To(Succeed())
+		tt.Frame()
+		Expect(tt.Click("Make this a build")).To(Succeed())
+		tt.Frame()
+		v.decks.name = "Supernovas"
+		Expect(tt.Click("Save")).To(Succeed())
+		Expect(f.builds).To(Equal([]store.Build{{Leader: "OP13-001", Name: "Supernovas", Core: []string{"GARP", "KID", "LUF"}}}))
+	})
+
+	It("dismisses a suggestion", func() {
+		v, tt := tester(deckSnapshot())
+		f := &fakeActions{}
+		v.act = f
+		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.Click("List")).To(Succeed())
 		tt.Frame()
-		Expect(tt.HasText("Turn order")).To(BeTrue())
+		Expect(tt.Click("Not a build")).To(Succeed())
+		Expect(f.dismissals).To(HaveLen(1))
+		Expect(f.dismissals[0].Leader).To(Equal("OP13-001"))
+	})
+
+	It("opens List on the first build", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
+		_, tt := tester(deckSnapshot(wano))
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("List")).To(Succeed())
+		tt.Frame()
+		Expect(tt.HasText("Latest list")).To(BeTrue())
+	})
+
+	It("shows a build's latest list with its stats", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
+		_, tt := tester(deckSnapshot(wano))
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("Wano/Miracle")).To(Succeed())
+		tt.Frame()
+		for _, text := range []string{"Core", "Latest list", "Cost curve", "Counters", "Types", "Traits", "×4"} {
+			Expect(tt.HasText(text)).To(BeTrue(), text)
+		}
 	})
 })
