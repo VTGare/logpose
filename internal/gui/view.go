@@ -1,12 +1,14 @@
 package gui
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/live"
+	"github.com/VTGare/logpose/internal/sim"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
 )
@@ -41,6 +43,7 @@ const (
 	pageMatchups = "matchups"
 	pageFormats  = "formats"
 	pageSettings = "settings"
+	pageCards    = "cards"
 )
 
 // actions are the changes the view asks the app for. The app makes them off the main thread
@@ -73,6 +76,16 @@ type actions interface {
 	ImportAgain()
 	RefreshCards()
 	Backup()
+
+	// LoadSimArt reads what the sim shows for the card and shows it with view.setSimArt.
+	LoadSimArt(card cards.Card)
+	// ScanSimArt finds the cards the sim shows other art for.
+	ScanSimArt()
+	// UseSimArt makes the sim show choice for the card. prev is what it showed, for Undo.
+	UseSimArt(card cards.Card, choice, prev sim.ArtChoice)
+	SaveArt(key string)
+	CopyArt(key string)
+	OpenURL(url string)
 }
 
 type view struct {
@@ -97,10 +110,15 @@ type view struct {
 	// shownPage is the page the last frame showed, which tells a page's first frame.
 	shownPage string
 
-	matchups matchupsState
-	settings settingsState
-	prefs    prefs
-	periodUI periodState
+	matchups  matchupsState
+	settings  settingsState
+	prefs     prefs
+	periodUI  periodState
+	cardsUI   cardsState
+	cardSync  cardSync
+	sideDrag  paneDrag
+	panelDrag paneDrag
+	simArt    simArtState
 }
 
 // openLeader shows a leader on the Leaders page.
@@ -148,6 +166,7 @@ func (v *view) build(c *ui.Context) {
 	}
 	v.replayKeys(c)
 	v.applyLook(c)
+	v.showToast(c)
 	open := v.detail.fingerprint != ""
 	shown := v.page
 	if open {
@@ -155,10 +174,9 @@ func (v *view) build(c *ui.Context) {
 	}
 	pageEntered = shown != v.shownPage
 	v.shownPage = shown
-	ui.Row(c).Fill().AlignItems(ui.Stretch).FontFeatures("tnum").Children(func() {
-		v.sidebar(c)
+	body := func() {
 		ui.Column(c).Grow(1).Fill().Children(func() {
-			if v.snap.Loaded && len(v.snap.Matches) > 0 && v.page != pageFormats && v.page != pageSettings && !open {
+			if v.snap.Loaded && len(v.snap.Matches) > 0 && v.page != pageFormats && v.page != pageSettings && v.page != pageCards && !open {
 				v.filterBar(c)
 			}
 			if v.snap.Loaded && v.live.Phase != live.Idle {
@@ -169,6 +187,21 @@ func (v *view) build(c *ui.Context) {
 			}
 			v.pageBody(c, open, shown)
 		})
+	}
+	ui.Row(c).Fill().AlignItems(ui.Stretch).FontFeatures("tnum").Children(func() {
+		if v.detail.replay != nil {
+			body()
+			return
+		}
+		if v.prefs.sideWidth == 0 {
+			v.prefs.sideWidth = sideDefault
+		}
+		shown := v.prefs.sideWidth
+		size := shown
+		split := ui.Split(c, &size, func() { v.sidebar(c) }, body).Fill()
+		if split.Changed() {
+			v.dragPane(&v.prefs.sideWidth, &v.sideDrag, size-shown, snapSide, store.SettingSidebarWidth)
+		}
 	})
 }
 
@@ -181,6 +214,8 @@ func (v *view) pageBody(c *ui.Context, open bool, shown string) {
 		v.formatsPage(c)
 	case v.page == pageSettings:
 		v.settingsPage(c)
+	case v.page == pageCards:
+		v.cardsPage(c)
 	case len(v.snap.Matches) == 0 && !v.snap.SimFound:
 		v.setupPage(c)
 	case len(v.snap.Matches) == 0:
@@ -208,12 +243,79 @@ func (v *view) statsPage(c *ui.Context) {
 	}
 }
 
+// The sidebar is resized by dragging its edge. Narrower than sideSnap it folds to an icon rail.
+const (
+	sideDefault = 200
+	sideMin     = 160
+	sideMax     = 320
+	sideSnap    = 120
+	sideRail    = 60
+	// sideSaveDelay waits for a drag to end before a width is saved.
+	sideSaveDelay = 400 * time.Millisecond
+)
+
+func snapSide(w float32) float32 {
+	switch {
+	case w < sideSnap:
+		return sideRail
+	case w < sideMin:
+		return sideMin
+	}
+	return min(w, sideMax)
+}
+
+// paneDrag follows a drag of a split's edge. The split moves the edge a few DIPs a frame from
+// where it shows it, so the drag's own position is kept apart from the snapped width, or each
+// small move would snap straight back.
+type paneDrag struct {
+	at    float32
+	saves int
+}
+
+// dragPane moves *width by moved through snap, and saves it under key once the drag stops.
+func (v *view) dragPane(width *float32, d *paneDrag, moved float32, snap func(float32) float32, key string) {
+	if d.at == 0 {
+		d.at = *width
+	}
+	d.at += moved
+	*width = snap(d.at)
+	d.saves++
+	n := d.saves
+	v.do(func(a actions) {
+		a.After(sideSaveDelay, func() {
+			if n != d.saves {
+				return
+			}
+			d.at = 0
+			v.savePane(*width, key)
+		})
+	})
+}
+
+func (v *view) savePane(width float32, key string) {
+	v.do(func(a actions) { a.SetSetting(key, fmt.Sprint(int(width))) })
+}
+
+var navPages = []struct {
+	id    string
+	icon  *ui.SVG
+	label string
+}{
+	{pageOverview, iconOverview, "Overview"},
+	{pageLeaders, iconLeaders, "Leaders"},
+	{pageMatchups, iconMatchups, "Matchups"},
+	{pageMatches, iconMatches, "Matches"},
+	{pageFormats, iconFormats, "Formats"},
+	{pageCards, iconCards, "Cards"},
+}
+
 func (v *view) sidebar(c *ui.Context) {
-	if v.detail.replay != nil {
+	t := c.Theme()
+	if v.prefs.sideWidth <= sideRail {
+		v.rail(c)
 		return
 	}
-	t := c.Theme()
-	ui.Column(c).Width(200).Background(sidebarColor(t)).BorderEndWidth(1).BorderColor(t.Border.Alpha(0.6)).Padding(12, 8).Gap(8).Children(func() {
+	ui.Column(c).Fill().Background(sidebarColor(t)).Padding(12, 8).Gap(8).Children(func() {
 		ui.Row(c).Gap(8).Padding(4, 8, 8, 8).Children(func() {
 			ui.Icon(c, iconCompass).Size(20, 20).TextColor(t.Accent)
 			ui.Text(c, "logpose").Bold().FontSize(16)
@@ -222,11 +324,9 @@ func (v *view) sidebar(c *ui.Context) {
 		// is the muted text.
 		ui.Themed(c, sidebarTheme(t)).Background(ui.Transparent).Children(func() {
 			ui.Sidebar(c, &v.page, func() {
-				ui.SidebarItem(c, pageOverview, iconOverview, "Overview")
-				ui.SidebarItem(c, pageLeaders, iconLeaders, "Leaders")
-				ui.SidebarItem(c, pageMatchups, iconMatchups, "Matchups")
-				ui.SidebarItem(c, pageMatches, iconMatches, "Matches")
-				ui.SidebarItem(c, pageFormats, iconFormats, "Formats")
+				for _, p := range navPages {
+					ui.SidebarItem(c, p.id, p.icon, p.label)
+				}
 			}).Background(ui.Transparent).Padding(0)
 		})
 		ui.Spacer(c)
@@ -235,6 +335,35 @@ func (v *view) sidebar(c *ui.Context) {
 				ui.SidebarItem(c, pageSettings, iconSettings, "Settings")
 			}).Background(ui.Transparent).Padding(0)
 		})
+	})
+}
+
+// rail is the folded sidebar: the pages as icons, each named in a tooltip.
+func (v *view) rail(c *ui.Context) {
+	t := c.Theme()
+	item := func(id string, icon *ui.SVG, label string) {
+		b := ui.ButtonBase(c.Key(id)).Label(label).Size(44, 40).Radius(8).Center().Background(ui.Transparent)
+		col := t.TextMuted
+		switch {
+		case v.page == id:
+			b.Background(t.Surface)
+			col = t.Text
+		case b.Hovered():
+			b.Background(t.SurfaceHover)
+		}
+		if b.Clicked() {
+			v.page = id
+		}
+		b.Tooltip(label)
+		b.Children(func() { ui.Icon(c, icon).Size(18, 18).TextColor(col) })
+	}
+	ui.Column(c).Fill().Background(sidebarColor(t)).Padding(12, 0).Gap(4).AlignItems(ui.Center).Children(func() {
+		ui.Box(c).Height(36).Center().Children(func() { ui.Icon(c, iconCompass).Size(20, 20).TextColor(t.Accent) })
+		for _, p := range navPages {
+			item(p.id, p.icon, p.label)
+		}
+		ui.Spacer(c)
+		item(pageSettings, iconSettings, "Settings")
 	})
 }
 

@@ -103,6 +103,8 @@ func runApp(ctx context.Context, args []string) (err error) {
 		Store: st, Log: logger(), Dev: *dev,
 		DBPath:      dbPath(*db),
 		CatalogPath: filepath.Join(filepath.Dir(dbPath(*db)), "cards.json"),
+		LibraryPath: filepath.Join(filepath.Dir(dbPath(*db)), "library.json"),
+		ArtDir:      filepath.Join(filepath.Dir(dbPath(*db)), "art"),
 		SimFlag:     *simDir != "",
 	}
 	if in, err := locateSim(ctx, st, *simDir); err == nil {

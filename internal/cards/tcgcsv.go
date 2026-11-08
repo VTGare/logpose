@@ -146,7 +146,7 @@ func (c *Catalog) addProducts(p tcgProducts) {
 			continue
 		}
 		// Alternate arts share a number. The first printing's name has the fewest extras.
-		if old, ok := c.Cards[code]; ok && len(old.Name) <= len(cleanName(r.Name)) {
+		if old, ok := c.Cards[code]; ok && len(old.Name) <= len(CleanName(r.Name)) {
 			if old.Power == 0 {
 				old.Power = power(fields["Power"])
 				c.Cards[code] = old
@@ -154,7 +154,7 @@ func (c *Catalog) addProducts(p tcgProducts) {
 			continue
 		}
 		c.Cards[code] = catalogCard{
-			Name: cleanName(r.Name), Type: fields["CardType"], Colors: colors(fields["Color"]), Power: power(fields["Power"]),
+			Name: CleanName(r.Name), Type: fields["CardType"], Colors: colors(fields["Color"]), Power: power(fields["Power"]),
 		}
 	}
 }

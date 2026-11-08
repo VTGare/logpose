@@ -230,3 +230,52 @@ var _ = Describe("view", func() {
 		Expect(tt.HasText("Against New")).To(BeFalse())
 	})
 })
+
+var _ = Describe("sidebar", func() {
+	It("snaps to the icon rail below its smallest width and stops at its largest", func() {
+		Expect(snapSide(100)).To(BeEquivalentTo(sideRail))
+		Expect(snapSide(140)).To(BeEquivalentTo(sideMin))
+		Expect(snapSide(250)).To(BeEquivalentTo(250))
+		Expect(snapSide(500)).To(BeEquivalentTo(sideMax))
+		Expect(widthFrom("", sideDefault, snapSide)).To(BeEquivalentTo(sideDefault))
+		Expect(widthFrom("90", sideDefault, snapSide)).To(BeEquivalentTo(sideRail))
+	})
+
+	It("folds to the rail and opens again when its edge is dragged a few DIPs at a time", func() {
+		v, tt := tester(testSnapshot(4))
+		tt.Frame()
+		drag := func(from, to float32) {
+			GinkgoHelper()
+			tt.Press(from, 400)
+			tt.Frame()
+			step := float32(3)
+			if to < from {
+				step = -3
+			}
+			for x := from; (step > 0 && x < to) || (step < 0 && x > to); x += step {
+				tt.Move(x, 400)
+				tt.Frame()
+			}
+			tt.Release(to, 400)
+			tt.Frame()
+		}
+		drag(sideDefault, 230)
+		Expect(v.prefs.sideWidth).To(BeNumerically("~", 230, 3))
+		drag(230, 90)
+		Expect(v.prefs.sideWidth).To(BeEquivalentTo(sideRail))
+		drag(sideRail, 200)
+		Expect(v.prefs.sideWidth).To(BeNumerically(">=", sideMin))
+	})
+
+	It("folded, still goes to every page", func() {
+		v, tt := tester(testSnapshot(4))
+		v.prefs.sideWidth = sideRail
+		tt.Frame()
+		Expect(tt.Click("Matchups")).To(Succeed())
+		tt.Frame()
+		Expect(v.page).To(Equal(pageMatchups))
+		Expect(tt.Click("Settings")).To(Succeed())
+		tt.Frame()
+		Expect(v.page).To(Equal(pageSettings))
+	})
+})

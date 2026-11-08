@@ -27,6 +27,11 @@ const (
 	SettingCloseQuits = "close_quits"
 	// SettingStartHidden is "1" when a start with Windows stays in the tray.
 	SettingStartHidden = "start_hidden"
+	// SettingSidebarWidth is the sidebar's width in DIPs. Empty means the default.
+	SettingSidebarWidth = "sidebar_width"
+	// SettingCardPanelWidth is the width in DIPs of the Cards page's card panel. Empty means
+	// the default.
+	SettingCardPanelWidth = "card_panel_width"
 )
 
 // Setting returns a setting's value, or "" when it isn't set.

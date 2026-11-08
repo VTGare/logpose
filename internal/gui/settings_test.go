@@ -5,6 +5,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"github.com/VTGare/logpose/internal/cards"
+	"github.com/VTGare/logpose/internal/sim"
 	"github.com/VTGare/logpose/internal/store"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -22,6 +24,16 @@ func (f *fakeActions) ShowFile(path string) { f.calls = append(f.calls, "show "+
 func (f *fakeActions) ImportAgain()         { f.calls = append(f.calls, "import") }
 func (f *fakeActions) RefreshCards()        { f.calls = append(f.calls, "refresh cards") }
 func (f *fakeActions) Backup()              { f.calls = append(f.calls, "backup") }
+func (f *fakeActions) LoadSimArt(card cards.Card) {
+	f.calls = append(f.calls, "load art "+card.Code)
+}
+func (f *fakeActions) ScanSimArt() { f.calls = append(f.calls, "scan art") }
+func (f *fakeActions) UseSimArt(card cards.Card, choice, _ sim.ArtChoice) {
+	f.calls = append(f.calls, "use art "+card.Code+" "+choice.Key)
+}
+func (f *fakeActions) SaveArt(key string) { f.calls = append(f.calls, "save art "+key) }
+func (f *fakeActions) CopyArt(key string) { f.calls = append(f.calls, "copy art "+key) }
+func (f *fakeActions) OpenURL(url string) { f.calls = append(f.calls, "open url "+url) }
 
 func settingsSnapshot() *snapshot {
 	s := testSnapshot(4)
@@ -116,7 +128,7 @@ var _ = Describe("settings", func() {
 		st.click("Dark")
 		st.click("Colorblind-safe colors")
 		st.click("Quits logpose")
-		Expect(st.v.prefs).To(Equal(prefs{theme: "dark", colorblind: true, closeQuits: true}))
+		Expect(st.v.prefs).To(Equal(prefs{theme: "dark", colorblind: true, closeQuits: true, sideWidth: sideDefault}))
 		Expect(st.fa.calls).To(Equal([]string{
 			store.SettingTheme + "=dark", store.SettingColorblind + "=1", store.SettingCloseQuits + "=1",
 		}))

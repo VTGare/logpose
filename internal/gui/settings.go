@@ -33,10 +33,11 @@ func (s *settingsState) note(part, text string) {
 	s.notes[part] = text
 }
 
-const cardDataHelp = "Card names, colors, types and power come from two places. The OPBounty client " +
-	"inside the sim carries a card list that updates with the sim. logpose also downloads the card " +
-	"list from tcgcsv.com once a day, which gets new sets sooner. Names in your logs win over both.\n\n" +
-	"Refresh now downloads it again. Without a connection logpose keeps the cards it has."
+const cardDataHelp = "Cards come from Limitless (onepiece.limitlesstcg.com), which has every card, its " +
+	"text and its art, and bans come from Bandai's list. logpose checks both once a day, and never " +
+	"during a game. The OPBounty client inside the sim and tcgcsv.com fill in cards Limitless doesn't " +
+	"have yet. Names in your logs win over all of them.\n\n" +
+	"Refresh now checks again. Without a connection logpose keeps the cards it has."
 
 // topNames is how many players the You list shows before "Show all".
 const topNames = 3

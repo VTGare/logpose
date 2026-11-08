@@ -33,6 +33,10 @@ type Options struct {
 	// CatalogPath caches the card catalog from tcgcsv.com. Empty means no refresh, and only
 	// the catalog the sim's OPBounty pack carries.
 	CatalogPath string
+	// LibraryPath caches every card from Limitless and Bandai's ban list. Empty means none.
+	LibraryPath string
+	// ArtDir caches card images from Limitless. Empty means only the sim's images.
+	ArtDir string
 	// DBPath is the database file, which Settings shows.
 	DBPath string
 	// SimFlag is true when -sim named the sim's folder.
@@ -67,6 +71,16 @@ type app struct {
 	cards   *cards.DB
 	// fetched is when the cached tcgcsv catalog was fetched, zero without one.
 	fetched time.Time
+	// checked is when the card library was last refreshed, zero without one.
+	checked time.Time
+	// playing is set while the sim runs a game, when card data isn't fetched.
+	playing atomic.Bool
+
+	simArtMu  sync.Mutex
+	simArtObj *sim.SimArt
+	web       *webArt
+	// matched holds the cards whose own file was compared with their printings this run.
+	matched map[string]bool
 }
 
 // Claim makes this the only running logpose. It returns false when another one is running,
@@ -118,7 +132,7 @@ func (a *app) ready(ctx context.Context) {
 		Hidden:    a.view.prefs.startHidden && mygo.App.WasOpenedAtLogin(),
 		Content:   ui.View(a.view.build),
 	})
-	a.view.art = newArtCache(a.install(), a.win.Update)
+	a.view.art = newArtCache(a.install(), newWebArt(a.opts.ArtDir), a.win.Update)
 	a.win.OnClose(func(e *mygo.CloseEvent) {
 		if a.quitting {
 			return
@@ -171,7 +185,10 @@ func (a *app) setInstall(ctx context.Context, in sim.Install, chosen bool) error
 	a.cardsMu.Lock()
 	a.pack, a.cards = nil, nil
 	a.cardsMu.Unlock()
-	a.win.Update(func() { a.view.art = newArtCache(&in, a.win.Update) })
+	a.win.Update(func() {
+		a.view.art = newArtCache(&in, newWebArt(a.opts.ArtDir), a.win.Update)
+		a.view.resetSimArt()
+	})
 	a.watch(ctx)
 	a.refresh(ctx)
 	return nil
@@ -210,6 +227,10 @@ func (a *app) follow(ctx context.Context) {
 		Path:    path,
 		Running: sim.Running,
 		OnChange: func(s live.State) {
+			was := a.playing.Swap(s.Phase == live.Playing)
+			if was && s.Phase != live.Playing {
+				go func() { _ = a.refreshCatalog(ctx, false) }()
+			}
 			a.win.Update(func() { a.view.live = s })
 		},
 		OnSaved: func(sv live.Saved) {
@@ -226,14 +247,28 @@ func (a *app) follow(ctx context.Context) {
 	_ = f.Run(ctx)
 }
 
-// refreshCatalog fetches card data for sets newer than the cached catalog, then shows it.
-// Without a network logpose keeps the cards it has.
-// refreshCatalog fetches card data for sets newer than the cached catalog, then shows it. It
-// does nothing while the catalog is fresh, unless forced. Without a network logpose keeps the
-// cards it has.
+// refreshCatalog fetches card data from tcgcsv.com and Limitless for sets newer than the
+// cached copies, and Bandai's ban list, then shows them. It does nothing while they're fresh or
+// a game is running, unless forced. Without a network logpose keeps the cards it has.
 func (a *app) refreshCatalog(ctx context.Context, force bool) error {
+	if !force && a.playing.Load() {
+		return nil
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	changed := false
+	err := errors.Join(a.refreshTCGCSV(ctx, client, force, &changed), a.refreshLibrary(ctx, client, force, &changed))
+	if changed {
+		a.cardsMu.Lock()
+		a.cards = nil
+		a.cardsMu.Unlock()
+		a.refresh(ctx)
+	}
+	return err
+}
+
+func (a *app) refreshTCGCSV(ctx context.Context, client *http.Client, force bool, changed *bool) error {
 	if a.opts.CatalogPath == "" {
-		return errors.New("no card catalog file")
+		return nil
 	}
 	cat, err := cards.LoadCatalog(a.opts.CatalogPath)
 	if err != nil {
@@ -243,7 +278,6 @@ func (a *app) refreshCatalog(ctx context.Context, force bool) error {
 	if !force && !cat.Stale(time.Now(), catalogMaxAge) {
 		return nil
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
 	n, err := cat.Refresh(ctx, client, cards.TCGCSVBase)
 	if err != nil {
 		a.opts.Log.Warn("refresh card catalog", "err", err, "sets", n)
@@ -254,10 +288,41 @@ func (a *app) refreshCatalog(ctx context.Context, force bool) error {
 		return err
 	}
 	a.opts.Log.Info("card catalog refreshed", "sets", n, "cards", len(cat.Cards))
-	a.cardsMu.Lock()
-	a.cards = nil
-	a.cardsMu.Unlock()
-	a.refresh(ctx)
+	*changed = true
+	return nil
+}
+
+// libraryPause is the wait between two Limitless pages. The first refresh reads about 60.
+const libraryPause = 500 * time.Millisecond
+
+func (a *app) refreshLibrary(ctx context.Context, client *http.Client, force bool, changed *bool) error {
+	if a.opts.LibraryPath == "" {
+		return nil
+	}
+	lib, err := cards.LoadLibrary(a.opts.LibraryPath)
+	if err != nil {
+		a.opts.Log.Warn("card library", "err", err)
+		return err
+	}
+	if !force && !lib.Stale(time.Now(), catalogMaxAge) {
+		return nil
+	}
+	src := cards.Source{Client: client, Limitless: cards.LimitlessBase, Rules: cards.BandaiRestrictions, Pause: libraryPause}
+	src.Progress = func(p cards.SetProgress) { a.win.Update(func() { a.view.cardSync.add(p) }) }
+	n, err := lib.Refresh(ctx, src, time.Now())
+	a.win.Update(func() { a.view.cardSync = cardSync{} })
+	if n > 0 || err == nil {
+		if serr := lib.Save(a.opts.LibraryPath); serr != nil {
+			a.opts.Log.Warn("save card library", "err", serr)
+			return serr
+		}
+		*changed = true
+	}
+	if err != nil {
+		a.opts.Log.Warn("refresh card library", "err", err, "sets", n)
+		return err
+	}
+	a.opts.Log.Info("card library refreshed", "sets", n, "cards", len(lib.Cards))
 	return nil
 }
 
@@ -357,9 +422,10 @@ func (a *app) load(ctx context.Context) (*snapshot, error) {
 	}, nil
 }
 
-// cardDB builds the card database: the catalog in the OPBounty pack the sim ships, then the
-// cached tcgcsv catalog over it, which has newer sets. Names from the logs go on top in load.
-// Without either, cards have the logs' names and no colors.
+// cardDB builds the card database: the catalog in the OPBounty pack the sim ships, the cached
+// tcgcsv catalog over it, which has newer sets, and the Limitless library over both, which has
+// everything. Names from the logs go on top in load. Without any, cards have the logs' names
+// and no colors.
 func (a *app) cardDB() *cards.DB {
 	a.cardsMu.Lock()
 	defer a.cardsMu.Unlock()
@@ -381,6 +447,14 @@ func (a *app) cardDB() *cards.DB {
 		if cat, err := cards.LoadCatalog(a.opts.CatalogPath); err == nil {
 			cat.Apply(db)
 			a.fetched = cat.Fetched
+		}
+	}
+	if a.opts.LibraryPath != "" {
+		if lib, err := cards.LoadLibrary(a.opts.LibraryPath); err == nil {
+			lib.Apply(db)
+			a.checked = lib.Checked
+		} else {
+			a.opts.Log.Warn("card library", "err", err)
 		}
 	}
 	a.cards = db

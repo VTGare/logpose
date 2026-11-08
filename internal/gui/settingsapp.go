@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,6 +48,9 @@ func (a *app) settingsInfo(ctx context.Context, set map[string]string, games, ca
 	}
 	a.cardsMu.Lock()
 	fetched := a.fetched
+	if !a.checked.IsZero() {
+		fetched = a.checked
+	}
 	a.cardsMu.Unlock()
 	info := settingsInfo{
 		SimFlag: a.opts.SimFlag,
@@ -93,6 +97,8 @@ type prefs struct {
 	startHidden bool
 	// openAtLogin is read from Windows, not the store.
 	openAtLogin bool
+	sideWidth   float32
+	panelWidth  float32
 }
 
 func prefsFrom(set map[string]string) prefs {
@@ -101,7 +107,17 @@ func prefsFrom(set map[string]string) prefs {
 		colorblind:  set[store.SettingColorblind] == "1",
 		closeQuits:  set[store.SettingCloseQuits] == "1",
 		startHidden: set[store.SettingStartHidden] == "1",
+		sideWidth:   widthFrom(set[store.SettingSidebarWidth], sideDefault, snapSide),
+		panelWidth:  widthFrom(set[store.SettingCardPanelWidth], panelDefault, snapPanel),
 	}
+}
+
+func widthFrom(s string, def float32, snap func(float32) float32) float32 {
+	w, err := strconv.ParseFloat(s, 32)
+	if err != nil {
+		return def
+	}
+	return snap(float32(w))
 }
 
 func flag(on bool) string {
@@ -214,7 +230,7 @@ func (x *appActions) RefreshCards() {
 	go func() {
 		x.note(noteCards, "Refreshing…")
 		if err := x.a.refreshCatalog(x.ctx, true); err != nil {
-			x.note(noteCards, "Couldn't reach tcgcsv.com. The cards you have stay.")
+			x.note(noteCards, "Couldn't reach the card sites. The cards you have stay.")
 			return
 		}
 		x.note(noteCards, "Up to date.")

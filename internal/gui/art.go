@@ -9,6 +9,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/egoist/mygo/ui"
@@ -53,7 +54,9 @@ type artKey struct {
 // main thread, through redraw, since views use them there.
 type artCache struct {
 	install *sim.Install
-	redraw  func(func())
+	// web is Limitless's art, tried before the sim's. Nil without a folder to keep it in.
+	web    *webArt
+	redraw func(func())
 
 	mu      sync.Mutex
 	images  map[artKey]image.Image
@@ -61,9 +64,10 @@ type artCache struct {
 	bitmaps map[artKey]*ui.Bitmap
 }
 
-func newArtCache(install *sim.Install, redraw func(func())) *artCache {
+func newArtCache(install *sim.Install, web *webArt, redraw func(func())) *artCache {
 	return &artCache{
 		install: install,
+		web:     web,
 		redraw:  redraw,
 		images:  make(map[artKey]image.Image),
 		loading: make(map[artKey]bool),
@@ -71,10 +75,10 @@ func newArtCache(install *sim.Install, redraw func(func())) *artCache {
 	}
 }
 
-// get returns the card's bitmap, or nil while it loads or when the sim has no image for it.
-// It runs on the main thread.
+// get returns the card's bitmap, or nil while it loads or when there's no image for it. code
+// can name an alternate printing, as "OP14-020_p1". It runs on the main thread.
 func (a *artCache) get(code string, kind artKind) *ui.Bitmap {
-	if a == nil || a.install == nil || code == "" {
+	if a == nil || (a.install == nil && a.web == nil) || code == "" {
 		return nil
 	}
 	k := artKey{code, kind}
@@ -100,7 +104,7 @@ func (a *artCache) get(code string, kind artKind) *ui.Bitmap {
 }
 
 func (a *artCache) load(k artKey) {
-	img, err := decode(a.path(k))
+	img, err := a.source(k)
 	switch {
 	case err != nil:
 		img = nil
@@ -121,6 +125,36 @@ func (a *artCache) load(k artKey) {
 	a.images[k] = img
 	a.mu.Unlock()
 	a.redraw(func() {})
+}
+
+// source is the card's image from Limitless, or from the sim when Limitless has none or
+// can't be reached.
+func (a *artCache) source(k artKey) (image.Image, error) {
+	if code, ok := strings.CutPrefix(k.code, simOwnPrefix); ok {
+		if a.install == nil {
+			return nil, errNoWebArt
+		}
+		return decode(a.install.CardImage(code, k.kind == artFull))
+	}
+	if path, ok := strings.CutPrefix(k.code, ownFilePrefix); ok {
+		img, err := decode(path)
+		if err == nil && k.kind == artFull {
+			img = scaleToWidth(img, webSmallWidth)
+		}
+		return img, err
+	}
+	if a.web != nil && k.code != donCode && k.code != donBackCode {
+		if img, err := a.web.image(k.code); err == nil {
+			if k.kind == artFull {
+				img = scaleToWidth(img, webSmallWidth)
+			}
+			return img, nil
+		}
+	}
+	if a.install == nil {
+		return nil, errNoWebArt
+	}
+	return decode(a.path(k))
 }
 
 // path is where the sim keeps an image. DON!! cards have no small image, so every size

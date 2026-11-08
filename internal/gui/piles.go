@@ -223,5 +223,5 @@ func cardCount(n int) string {
 	if n == 1 {
 		return "1 card"
 	}
-	return fmt.Sprintf("%d cards", n)
+	return thousands(n) + " cards"
 }
