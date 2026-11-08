@@ -63,8 +63,13 @@ func (v *view) replayPage(c *ui.Context, m stats.Match) {
 	side := min(max(rs.pageBox.W*0.2, 250), 340)
 	page.Children(func() {
 		v.replayLeft(c, sv, side, moved)
-		center := ui.Column(c).Grow(1).Basis(0).MinWidth(0).MinHeight(0).Clip().AlignItems(ui.Center).Justify(ui.Center)
-		center.Children(func() { v.playmat(c, fitMat(rs.matBox), sv) })
+		var center ui.Element
+		ui.Column(c).Grow(1).Basis(0).MinWidth(0).MinHeight(0).Gap(12).AlignItems(ui.Center).Children(func() {
+			center = ui.Column(c).Grow(1).Basis(0).MinHeight(0).AlignSelf(ui.Stretch).Clip().AlignItems(ui.Center).Justify(ui.Center)
+			center.Children(func() { v.playmat(c, fitMat(rs.matBox), sv) })
+			// The bar is as wide as the mat, so it stays under it as the window changes.
+			ui.Box(c).Width(fitMat(rs.matBox).W).Children(func() { v.controls(c, sv, rs) })
+		})
 		v.replayRight(c, sv, rs, side, moved)
 		rs.measure(c, page.Bounds(), center.Bounds())
 	})
@@ -183,7 +188,7 @@ func printout(l simlog.Line) bool {
 
 // gameLog is the sim's log up to the step, with the step's lines shaded and the last of them
 // brought into view when the step changes.
-func gameLog(c *ui.Context, sv *stepView, moved bool) {
+func (v *view) gameLog(c *ui.Context, sv *stepView, moved bool) {
 	t := c.Theme()
 	ui.Column(c).Gap(2).Padding(8).Children(func() {
 		for i, s := range sv.r.Steps[:sv.index+1] {
@@ -205,7 +210,7 @@ func gameLog(c *ui.Context, sv *stepView, moved bool) {
 					row.Background(t.Accent.Alpha(0.16)).BorderStartWidth(2).BorderColor(t.Accent)
 					text = t.Text
 				}
-				row.Children(func() { ui.RichText(c, logSpans(sv, l, 12, text)...) })
+				row.Children(func() { v.cardText(c, 12, logPieces(sv, l, text)) })
 				if cur && moved && li == last {
 					row.ScrollIntoView()
 				}
@@ -215,28 +220,6 @@ func gameLog(c *ui.Context, sv *stepView, moved bool) {
 }
 
 var cardGold = ui.Hex("#F0C05A")
-
-// logSpans is a log line with its player in their color and card names in gold.
-func logSpans(sv *stepView, l simlog.Line, size float32, text ui.Color) []ui.Span {
-	var spans []ui.Span
-	if l.Player != "" && l.Player != "You" {
-		spans = append(spans, ui.Span{Text: sv.who(l.Player) + "  ", Size: size, Weight: 700, Color: sv.color(l.Player)})
-	}
-	rest := l.Text
-	for _, code := range l.Cards {
-		name := sv.g.CardNames[code]
-		tag := name + " [" + code + "]"
-		i := strings.Index(rest, tag)
-		if i < 0 || name == "" {
-			continue
-		}
-		spans = append(spans,
-			ui.Span{Text: rest[:i], Size: size, Color: text},
-			ui.Span{Text: name, Size: size, Weight: 600, Color: cardGold})
-		rest = rest[i+len(tag):]
-	}
-	return append(spans, ui.Span{Text: replay.LineText(simlog.Line{Text: rest}), Size: size, Color: text})
-}
 
 func (v *view) replayRight(c *ui.Context, sv *stepView, rs *replayState, side float32, moved bool) {
 	t := c.Theme()
@@ -258,17 +241,16 @@ func (v *view) replayRight(c *ui.Context, sv *stepView, rs *replayState, side fl
 			})
 			ui.Text(c, phaseWord(sv.r.Steps, sv.index)).FontSize(22).FontWeight(700)
 			if s.Title != "" {
-				ui.Text(c, s.Title).FontSize(12).TextColor(t.TextMuted).Wrap()
+				v.cardText(c, 12, namePieces(s.Title, stepNames(sv, &s), t.TextMuted))
 			}
 			if s.Result != "" {
 				ui.Text(c, s.Result).FontSize(13).Bold().TextColor(cardGold).Wrap()
 			}
 		})
-		v.controls(c, sv, rs)
 		ui.Segmented(c, &rs.tab, "Actions", "Game log").Label("Show")
 		ui.Scroll(c).Grow(1).Basis(0).Children(func() {
 			if rs.tab == 1 {
-				gameLog(c, sv, moved)
+				v.gameLog(c, sv, moved)
 				return
 			}
 			v.actionList(c, sv, rs, moved)
@@ -276,8 +258,8 @@ func (v *view) replayRight(c *ui.Context, sv *stepView, rs *replayState, side fl
 	})
 }
 
-// controls are the turn and step buttons around play, the whole game as a scrubber, and the
-// restart and the speed.
+// controls are a bar under the mat: the turn and step buttons around play, the whole game as a
+// scrubber, and the restart and the speed. It stays in one place while steps change.
 func (v *view) controls(c *ui.Context, sv *stepView, rs *replayState) {
 	t := c.Theme()
 	s := sv.step
@@ -291,47 +273,44 @@ func (v *view) controls(c *ui.Context, sv *stepView, rs *replayState) {
 		b.Children(func() { ui.Icon(c, icon).Size(size*0.45, size*0.45).TextColor(col) })
 		return b
 	}
-	ui.Column(c).Gap(10).Padding(12).Radius(12).Background(t.Surface).Children(func() {
-		ui.Row(c).Justify(ui.SpaceBetween).AlignItems(ui.Center).Children(func() {
-			if round(iconPrevTurn, "Previous turn", "Previous turn (Page Up)", 34, false, s.Turn == 0).Clicked() {
+	ui.Row(c).Gap(16).AlignItems(ui.Center).Padding(8, 14).Radius(12).Background(t.Surface).Children(func() {
+		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+			if round(iconPrevTurn, "Previous turn", "Previous turn (Page Up)", 32, false, s.Turn == 0).Clicked() {
 				rs.prevTurn()
 			}
-			if round(iconPrevStep, "Previous step", "Previous step (Left)", 34, false, rs.step == 0).Clicked() {
+			if round(iconPrevStep, "Previous step", "Previous step (Left)", 32, false, rs.step == 0).Clicked() {
 				rs.jump(rs.step - 1)
 			}
 			icon, label := iconPlay, "Play"
 			if rs.playing {
 				icon, label = iconPause, "Pause"
 			}
-			if round(icon, label, "Space", 44, true, false).Clicked() {
+			if round(icon, label, "Space", 42, true, false).Clicked() {
 				v.togglePlay()
 			}
-			if round(iconNextStep, "Next step", "Next step (Right)", 34, false, rs.step == len(rs.r.Steps)-1).Clicked() {
+			if round(iconNextStep, "Next step", "Next step (Right)", 32, false, rs.step == len(rs.r.Steps)-1).Clicked() {
 				rs.jump(rs.step + 1)
 			}
-			if round(iconNextTurn, "Next turn", "Next turn (Page Down)", 34, false, s.Turn == rs.lastTurn()).Clicked() {
+			if round(iconNextTurn, "Next turn", "Next turn (Page Down)", 32, false, s.Turn == rs.lastTurn()).Clicked() {
 				rs.nextTurn()
 			}
 		})
-		v.scrubber(c, sv, rs)
-		ui.Row(c).AlignItems(ui.Center).Children(func() {
-			restart := ui.ButtonBase(c).Label("Restart this turn").Tooltip("Restart this turn").Padding(2, 4).Radius(6).
-				Children(func() {
-					ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-						ui.Icon(c, iconRestart).TextColor(t.TextMuted)
-						ui.Text(c, "Restart turn").FontSize(12).TextColor(t.TextMuted)
-					})
+		ui.Box(c).Grow(1).Basis(0).MinWidth(80).Children(func() { v.scrubber(c, sv, rs) })
+		restart := ui.ButtonBase(c).Label("Restart this turn").Tooltip("Restart this turn").Padding(4, 6).Radius(6).
+			Children(func() {
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+					ui.Icon(c, iconRestart).TextColor(t.TextMuted)
+					ui.Text(c, "Restart turn").FontSize(12).TextColor(t.TextMuted).SingleLine()
 				})
-			if restart.Clicked() {
-				rs.restartTurn()
-			}
-			ui.Spacer(c)
-			speed := rs.speed
-			ui.Segmented(c, &rs.speed, speedLabels...)
-			if rs.speed != speed {
-				v.schedule()
-			}
-		})
+			})
+		if restart.Clicked() {
+			rs.restartTurn()
+		}
+		speed := rs.speed
+		ui.Segmented(c, &rs.speed, speedLabels...)
+		if rs.speed != speed {
+			v.schedule()
+		}
 	})
 }
 
@@ -491,7 +470,7 @@ func (v *view) stepRow(c *ui.Context, sv *stepView, rs *replayState, i int, move
 			ui.Box(c.Key(j)).Children(func() { v.cardArt(c, code, 22, 31) })
 		}
 		ui.Column(c).Grow(1).Basis(0).Gap(1).Children(func() {
-			ui.Text(c, s.Title).FontSize(12).Wrap()
+			v.cardText(c, 12, namePieces(s.Title, stepNames(sv, &s), t.Text))
 			if s.Result != "" {
 				ui.Text(c, s.Result).FontSize(11).TextColor(t.TextMuted).SingleLine()
 			}

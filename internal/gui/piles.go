@@ -15,8 +15,11 @@ import (
 // trash".
 func (sv *stepView) pileName(p pileRef) string {
 	what := "deck"
-	if p.kind == pileTrash {
+	switch p.kind {
+	case pileTrash:
 		what = "trash"
+	case pileLife:
+		what = "life"
 	}
 	if p.mine {
 		return "Your " + what
@@ -38,9 +41,12 @@ func (v *view) pileView(c *ui.Context, sv *stepView, rs *replayState, width floa
 	t := c.Theme()
 	s := sv.pileSide(rs.pile)
 	var cards []replay.Card
-	if rs.pile.kind == pileDeck {
+	switch rs.pile.kind {
+	case pileDeck:
 		cards = s.Deck()
-	} else {
+	case pileLife:
+		cards = s.Life
+	default:
 		cards = s.Trash
 	}
 	ui.Column(c).Grow(1).Basis(0).Gap(10).Children(func() {
@@ -53,8 +59,12 @@ func (v *view) pileView(c *ui.Context, sv *stepView, rs *replayState, width floa
 					rs.pile = pileRef{}
 				}
 			})
-			if rs.pile.kind == pileDeck && len(cards) > 0 {
+			switch {
+			case len(cards) == 0:
+			case rs.pile.kind == pileDeck:
 				ui.Text(c, "Top first. 1 is the next draw.").FontSize(12).TextColor(faintColor(t))
+			case rs.pile.kind == pileLife:
+				ui.Text(c, "Top first. 1 is the next to be taken.").FontSize(12).TextColor(faintColor(t))
 			}
 		})
 		v.pileSwitches(c, sv, rs)
@@ -72,7 +82,7 @@ func (v *view) pileCards(c *ui.Context, rs *replayState, cards []replay.Card, wi
 	switch {
 	case len(cards) == 0:
 		ui.Text(c, "No cards.").FontSize(12).TextColor(faintColor(t))
-	case rs.pile.kind == pileDeck:
+	case rs.pile.kind == pileDeck || rs.pile.kind == pileLife:
 		v.deckGrid(c, cards, width)
 	default:
 		v.trashList(c, cards, width)
@@ -88,19 +98,15 @@ func (*view) pileSwitches(c *ui.Context, sv *stepView, rs *replayState) {
 	if rs.pile.mine {
 		whose = 0
 	}
-	kind := 0
-	if rs.pile.kind == pileTrash {
-		kind = 1
-	}
+	kinds := []pileKind{pileDeck, pileTrash, pileLife}
+	kind := slices.Index(kinds, rs.pile.kind)
 	s := sv.pileSide(rs.pile)
 	ui.Row(c).Gap(8).Wrap().Children(func() {
 		ui.Segmented(c, &whose, "You", sv.who(sv.them.Player)).Label("Whose pile")
-		ui.Segmented(c, &kind, fmt.Sprintf("Deck %d", s.DeckCount()), fmt.Sprintf("Trash %d", len(s.Trash))).Label("Pile")
+		ui.Segmented(c, &kind, fmt.Sprintf("Deck %d", s.DeckCount()), fmt.Sprintf("Trash %d", len(s.Trash)),
+			fmt.Sprintf("Life %d", len(s.Life))).Label("Pile")
 	})
-	picked := pileRef{kind: pileDeck, mine: whose == 0}
-	if kind == 1 {
-		picked.kind = pileTrash
-	}
+	picked := pileRef{kind: kinds[kind], mine: whose == 0}
 	// The pile above the switches was drawn before the change, so the frame is drawn again.
 	if picked != rs.pile {
 		rs.pile = picked
@@ -108,7 +114,8 @@ func (*view) pileSwitches(c *ui.Context, sv *stepView, rs *replayState) {
 	}
 }
 
-// deckGrid is the deck four to a row, top first and numbered, with the next draw marked.
+// deckGrid is a deck or a life pile four to a row, top first and numbered, with the next card
+// to come off marked.
 func (v *view) deckGrid(c *ui.Context, deck []replay.Card, width float32) {
 	const cols, gap = 4, 8
 	w := (width - gap*(cols-1)) / cols

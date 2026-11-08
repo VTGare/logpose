@@ -53,6 +53,7 @@ const (
 	pileNone pileKind = iota
 	pileDeck
 	pileTrash
+	pileLife
 )
 
 // loadedReplay is a game's replay as the app builds it off the main thread.

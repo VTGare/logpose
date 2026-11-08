@@ -226,6 +226,34 @@ var _ = Describe("replay", func() {
 		Expect(tt.HasText("This step")).To(BeTrue())
 	})
 
+	It("shows a life pile top first when it's clicked on the mat", func() {
+		rs := watch()
+		rs.jump(len(rs.r.Steps) - 1)
+		tt.Frame()
+		board := rs.cur().Board
+		life := len(board.Side(1).Life)
+		Expect(life).To(BeNumerically(">", 0))
+		Expect(tt.Click("Your life")).To(Succeed())
+		tt.Frame()
+		Expect(rs.pile).To(Equal(pileRef{kind: pileLife, mine: true}))
+		Expect(tt.HasText("Top first. 1 is the next to be taken.")).To(BeTrue())
+		Expect(tt.HasText(fmt.Sprintf("Life %d", life))).To(BeTrue())
+	})
+
+	It("keeps the controls in place from step to step", func() {
+		rs := watch()
+		var at []ui.Rect
+		for _, i := range []int{1, len(rs.r.Steps) / 2, len(rs.r.Steps) - 1} {
+			rs.jump(i)
+			tt.Frame()
+			r, ok := tt.Find("Next step")
+			Expect(ok).To(BeTrue())
+			at = append(at, r)
+		}
+		Expect(at[1]).To(Equal(at[0]))
+		Expect(at[2]).To(Equal(at[0]))
+	})
+
 	It("glides cards on a single step only, and not at the fastest speed", func() {
 		rs := watch()
 		rs.jump(1)

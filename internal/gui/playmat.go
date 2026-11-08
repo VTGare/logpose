@@ -189,6 +189,7 @@ func (v *view) playmat(c *ui.Context, m mat, sv *stepView) ui.Element {
 				key = goneCard(pl.card.ID)
 			}
 			box := ui.Box(c.Key(key)).Absolute().Left(pl.x).Top(pl.y).Size(m.h, m.h).Center()
+			selected := false
 			if rs := v.detail.replay; rs != nil && !pl.gone {
 				id := pl.card.ID
 				box.Cursor(ui.CursorPointer)
@@ -200,16 +201,14 @@ func (v *view) playmat(c *ui.Context, m mat, sv *stepView) ui.Element {
 						rs.selected = id
 					}
 				}
-				if rs.selected == id {
-					box.Radius(8).Border(2, c.Theme().Text)
-				}
+				selected = rs.selected == id
 			}
 			if pl.gone {
 				box.Opacity(0.35)
 			} else {
 				sv.glide(box, pl.card.ID)
 			}
-			box.Children(func() { v.boardCard(c, pl.card, m.w, notes...) })
+			box.Children(func() { v.boardCard(c, pl.card, m.w, selected, sideColor(pl.mine), notes...) })
 		}
 		if a >= 0 && t >= 0 {
 			v.attackArrow(c, k, m, cards[a], cards[t], bt, sv.me.Owner == bt.AttackerOwner)
@@ -250,7 +249,9 @@ func (v *view) piles(c *ui.Context, k func() *ui.Context, m mat, sv *stepView) {
 		mine := s == sv.me
 		tr := m.trashSlot(mine)
 		v.trash(c, m, sv, s, tr.X, tr.Y)
-		lifeStack(c, k, m, sv, s, mine)
+		if r := lifeStack(c, k, m, sv, s, mine); len(s.Life) > 0 {
+			v.pileButton(ui.Box(k()).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H), sv, pileRef{kind: pileLife, mine: mine})
+		}
 		d := m.deckSlot(mine)
 		v.deckPile(c, k, m, sv, s, d.X, d.Y)
 		dd := m.donDeckSlot(mine)
@@ -271,7 +272,7 @@ func (v *view) trash(c *ui.Context, m mat, sv *stepView, s *replay.Side, x, y fl
 	}
 	top := s.Trash[len(s.Trash)-1]
 	box := ui.Box(c.Key(cardMatch(top.ID))).Absolute().Left(x).Top(y).Size(m.w, m.h)
-	v.pileButton(c, box, sv, pileRef{kind: pileTrash, mine: s == sv.me})
+	v.pileButton(box, sv, pileRef{kind: pileTrash, mine: s == sv.me})
 	sv.glide(box, top.ID).Children(func() {
 		v.cardArt(c, top.Code, m.w, m.h)
 		pill(c, fmt.Sprintf("Trash %d", len(s.Trash)), 10).Absolute().Bottom(4).Left(4)
@@ -287,8 +288,8 @@ func cardBack(c *ui.Context, w, h float32) ui.Element {
 
 // lifeStack is the life cards face down and turned sideways, each half over the one before,
 // in the outer column. The user's grow up from the leader's row, and the opponent's down
-// from theirs, as the sim lays them.
-func lifeStack(c *ui.Context, k func() *ui.Context, m mat, sv *stepView, s *replay.Side, mine bool) {
+// from theirs, as the sim lays them. It returns the box the stack takes.
+func lifeStack(c *ui.Context, k func() *ui.Context, m mat, sv *stepView, s *replay.Side, mine bool) ui.Rect {
 	z := m.lifeZone(mine)
 	n := len(s.Life)
 	cw, ch := m.h*0.9, m.w*0.9
@@ -308,11 +309,17 @@ func lifeStack(c *ui.Context, k func() *ui.Context, m mat, sv *stepView, s *repl
 	}
 	ui.Text(k(), fmt.Sprintf("Life %d", n)).FontSize(11).FontWeight(600).TextColor(c.Theme().TextMuted).
 		Absolute().Left(z.X).Top(labelY).Width(z.W).TextAlign(ui.Center)
+	h := ch + float32(max(n-1, 0))*step
+	top := z.Y + z.H - h
+	if !mine {
+		top = z.Y
+	}
+	return ui.Rect{X: x, Y: top, W: cw, H: h}
 }
 
 func (v *view) deckPile(c *ui.Context, k func() *ui.Context, m mat, sv *stepView, s *replay.Side, x, y float32) {
 	box := ui.Box(k()).Absolute().Left(x).Top(y).Size(m.w, m.h)
-	v.pileButton(c, box, sv, pileRef{kind: pileDeck, mine: s == sv.me})
+	v.pileButton(box, sv, pileRef{kind: pileDeck, mine: s == sv.me})
 	box.Children(func() {
 		cardBack(c, m.w, m.h)
 		pill(c, fmt.Sprint(s.DeckCount()), 10).Absolute().Left(4).Bottom(4)
@@ -321,7 +328,7 @@ func (v *view) deckPile(c *ui.Context, k func() *ui.Context, m mat, sv *stepView
 
 // pileButton lets a deck or trash on the mat be clicked to show its cards in the inspector,
 // and rings the one shown.
-func (v *view) pileButton(c *ui.Context, box ui.Element, sv *stepView, p pileRef) {
+func (v *view) pileButton(box ui.Element, sv *stepView, p pileRef) {
 	rs := v.detail.replay
 	if rs == nil {
 		return
@@ -336,8 +343,21 @@ func (v *view) pileButton(c *ui.Context, box ui.Element, sv *stepView, p pileRef
 		}
 	}
 	if rs.pile == p {
-		box.Radius(6).Border(2, c.Theme().Text).Shadow(0, 0, 0, 4, youColor.Alpha(0.35))
+		selectRing(box.Radius(6), sideColor(p.mine))
 	}
+}
+
+// selectRing marks the selected card or pile in its player's color. The dark hairline keeps
+// the ring apart from bright art.
+func selectRing(el ui.Element, col ui.Color) {
+	el.Border(2, col).Shadow(0, 0, 0, 2, ui.RGBA(0, 0, 0, 0.6))
+}
+
+func sideColor(mine bool) ui.Color {
+	if mine {
+		return youColor
+	}
+	return oppColor
 }
 
 // donRow is the cost area as DON!! cards: active ones upright, rested ones turned sideways
@@ -414,7 +434,7 @@ var donPink = ui.Hex("#E8457E")
 
 // boardCard is a card on the board, turned sideways when rested. Its attached DON!! cards are
 // tucked under it, their bottom edges showing below it, with their count over the card.
-func (v *view) boardCard(c *ui.Context, card replay.Card, w float32, notes ...string) {
+func (v *view) boardCard(c *ui.Context, card replay.Card, w float32, selected bool, col ui.Color, notes ...string) {
 	h := w * 7 / 5
 	bw, bh := w, h
 	if card.Rested {
@@ -432,7 +452,10 @@ func (v *view) boardCard(c *ui.Context, card replay.Card, w float32, notes ...st
 				v.donCard(c.Key(i), w, h).Absolute().Left(-w * 0.07 * off).Top(h * 0.1 * off)
 			}
 			// Absolute elements draw over the rest, so the card is one too, to sit over its DON.
-			v.cardArt(c, card.Code, w, h, notes...).Absolute().Top(0).Left(0)
+			art := v.cardArt(c, card.Code, w, h, notes...).Absolute().Top(0).Left(0)
+			if selected {
+				selectRing(art, col)
+			}
 			if card.Don > 0 {
 				ui.Text(c, fmt.Sprintf("DON!! ×%d", card.Don)).FontSize(max(w*0.13, 10)).Bold().
 					TextColor(ui.Hex("#FFFFFF")).Padding(1, 6).Radius(6).Background(donPink).
@@ -466,19 +489,30 @@ func (v *view) cardArt(c *ui.Context, code string, w, h float32, notes ...string
 	}
 	img := ui.Image(c, art).Size(w, h).Fit(ui.Cover).Radius(4).Label(name)
 	if w < previewMin {
-		pw := previewWidth(c)
-		ui.TooltipBase(c, img, func(tip ui.Element) {
-			tip.Radius(10).Shadow(0, 6, 24, 0, ui.RGBA(0, 0, 0, 0.5)).Background(panelDark).Children(func() {
-				ui.Column(c).Gap(6).Children(func() {
-					ui.Image(c, v.largeArt(code, art)).Size(pw, pw*7/5).Fit(ui.Cover).Radius(10)
-					for i, n := range notes {
-						ui.Text(c.Key(i), n).FontSize(12).TextColor(pillText).Padding(0, 10, 4, 10).Wrap()
-					}
-				})
-			})
-		})
+		v.cardPreview(c, img, code, notes...)
 	}
 	return img
+}
+
+// cardPreview shows the card large while the pointer rests on anchor, with notes under it.
+// Without art it names the card.
+func (v *view) cardPreview(c *ui.Context, anchor ui.Element, code string, notes ...string) {
+	pw := previewWidth(c)
+	ui.TooltipBase(c, anchor, func(tip ui.Element) {
+		art := v.largeArt(code, v.art.get(code, artFull))
+		tip.Radius(10).Shadow(0, 6, 24, 0, ui.RGBA(0, 0, 0, 0.5)).Background(panelDark).Children(func() {
+			ui.Column(c).Gap(6).Children(func() {
+				if art == nil {
+					ui.Text(c, v.snap.card(code).Name).FontSize(13).TextColor(pillText).Padding(6, 10)
+				} else {
+					ui.Image(c, art).Size(pw, pw*7/5).Fit(ui.Cover).Radius(10)
+				}
+				for i, n := range notes {
+					ui.Text(c.Key(i), n).FontSize(12).TextColor(pillText).Padding(0, 10, 4, 10).Wrap()
+				}
+			})
+		})
+	})
 }
 
 // battlePair finds the placed attacker and the card the attack lands on, by the copy the step
