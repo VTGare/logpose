@@ -35,6 +35,18 @@ type GamePlayer struct {
 	HandAfter  []string
 }
 
+// Kept is the hand the player went into the game with, and sent the hand they mulliganed away.
+// The log only gives a hand after the mulligan when there was one.
+func (p GamePlayer) Kept() (kept, sent []string) {
+	if p.Mulliganed && len(p.HandAfter) > 0 {
+		return p.HandAfter, p.HandBefore
+	}
+	if len(p.HandBefore) > 0 {
+		return p.HandBefore, nil
+	}
+	return p.HandAfter, nil
+}
+
 type Game struct {
 	Fingerprint string
 	PlayedAt    time.Time

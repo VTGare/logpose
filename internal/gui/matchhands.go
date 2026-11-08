@@ -7,17 +7,6 @@ import (
 	"github.com/VTGare/logpose/internal/store"
 )
 
-// kept is the hand a player went into the game with, and sent the hand they mulliganed away.
-func kept(p store.GamePlayer) (kept, sent []string) {
-	if p.Mulliganed && len(p.HandAfter) > 0 {
-		return p.HandAfter, p.HandBefore
-	}
-	if len(p.HandBefore) > 0 {
-		return p.HandBefore, nil
-	}
-	return p.HandAfter, nil
-}
-
 func verdict(p store.GamePlayer) string {
 	if p.Mulliganed {
 		return "mulliganed"
@@ -31,7 +20,7 @@ func (v *view) handsTile(c *ui.Context, m stats.Match) ui.Element {
 	t := c.Theme()
 	side := func(key, who string, p store.GamePlayer) {
 		ui.Column(c.Key(key)).Grow(1).Basis(0).Gap(6).Children(func() {
-			hand, sent := kept(p)
+			hand, sent := p.Kept()
 			if len(hand) == 0 {
 				ui.Text(c, who).FontSize(12).Bold()
 				ui.Text(c, "The log doesn't show this hand.").FontSize(12).TextColor(t.TextMuted)

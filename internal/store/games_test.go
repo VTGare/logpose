@@ -244,3 +244,23 @@ var _ = Describe("Store", func() {
 		Expect(list).To(HaveLen(1))
 	})
 })
+
+var _ = Describe("GamePlayer", func() {
+	It("went in with the hand after the mulligan, and sent the first one away", func() {
+		p := GamePlayer{Mulliganed: true, HandBefore: []string{"A-1"}, HandAfter: []string{"B-1"}}
+		kept, sent := p.Kept()
+		Expect(kept).To(Equal([]string{"B-1"}))
+		Expect(sent).To(Equal([]string{"A-1"}))
+	})
+
+	It("went in with the first hand when they kept, since the log gives no hand after", func() {
+		kept, sent := GamePlayer{HandBefore: []string{"A-1"}}.Kept()
+		Expect(kept).To(Equal([]string{"A-1"}))
+		Expect(sent).To(BeEmpty())
+	})
+
+	It("went in with the hand after when the log shows only that one", func() {
+		kept, _ := GamePlayer{HandAfter: []string{"B-1"}}.Kept()
+		Expect(kept).To(Equal([]string{"B-1"}))
+	})
+})
