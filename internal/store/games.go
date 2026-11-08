@@ -117,7 +117,7 @@ func writeParsed(ctx context.Context, tx *sql.Tx, g *simlog.Game) error {
 		UPDATE games SET parser_version = ?, lobby_code = ?, lobby_role = ?, sim_version = ?,
 			first_player = ?, turns = ?, end_kind = ?, loser = ?, sets = ?
 		WHERE fingerprint = ?`,
-		simlog.Version, g.Lobby.Code, roleName(g.Lobby.Role), g.SimVersion, g.First, g.Turns,
+		parserVersion, g.Lobby.Code, roleName(g.Lobby.Role), g.SimVersion, g.First, g.Turns,
 		endName(g.End.Kind), g.End.Loser, strings.Join(g.Sets, ","), g.Fingerprint,
 	); err != nil {
 		return err
@@ -145,13 +145,13 @@ func writeParsed(ctx context.Context, tx *sql.Tx, g *simlog.Game) error {
 			return err
 		}
 	}
-	return nil
+	return writeFacts(ctx, tx, g)
 }
 
 // Reparse parses again every game stored by an older parser and rewrites what was parsed from
 // it. It returns how many games it parsed.
 func (s *Store) Reparse(ctx context.Context) (int, error) {
-	rows, err := s.read.QueryContext(ctx, `SELECT fingerprint FROM games WHERE parser_version < ?`, simlog.Version)
+	rows, err := s.read.QueryContext(ctx, `SELECT fingerprint FROM games WHERE parser_version < ?`, parserVersion)
 	if err != nil {
 		return 0, err
 	}
