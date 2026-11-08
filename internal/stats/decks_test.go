@@ -125,23 +125,56 @@ var _ = Describe("Suggest", func() {
 		Expect(stats.Staples(gs)).To(Equal([]string{"S-1"}))
 	})
 
-	It("groups lists a few swaps apart and names each group by its cards beyond the staples", func() {
-		wano := fifty(map[string]int{"S-1": 4, "W-1": 4, "W-2": 4})
-		tweak := fifty(map[string]int{"S-1": 4, "W-1": 4, "W-2": 2, "T-1": 2})
-		nova := fifty(map[string]int{"S-1": 4, "N-1": 4, "N-2": 4, "N-3": 4, "N-4": 4})
-		gs := []stats.DeckGame{deckGame(0, true, wano), deckGame(1, true, tweak), deckGame(2, true, nova), deckGame(3, true, wano)}
-		sugs := stats.Suggest(gs, []string{"S-1"}, nil)
+	It("counts a card as a searcher when it searched in a quarter of the games it was in", func() {
+		var gs []stats.DeckGame
+		for i := range 8 {
+			g := deckGame(i, true, map[string]int{"GARP": 4, "HIYO": 4})
+			g.Facts.Searches = []deck.Search{{Source: "GARP", Taken: "X-1"}}
+			if i == 0 {
+				g.Facts.Searches = append(g.Facts.Searches, deck.Search{Source: "HIYO", Taken: "X-1"})
+			}
+			gs = append(gs, g)
+		}
+		Expect(stats.Searchers(gs)).To(Equal([]string{"GARP"}))
+	})
+
+	It("groups games by the searchers their lists run, the biggest group first", func() {
+		searched := func(i int, list map[string]int, by ...string) stats.DeckGame {
+			g := deckGame(i, true, list)
+			for _, s := range by {
+				g.Facts.Searches = append(g.Facts.Searches, deck.Search{Source: s, Taken: "X-1"})
+			}
+			return g
+		}
+		gs := []stats.DeckGame{
+			searched(0, map[string]int{"GARP": 4, "OTAMA": 4}, "GARP", "OTAMA"),
+			searched(1, map[string]int{"GARP": 4, "KID": 4}, "GARP", "KID"),
+			searched(2, map[string]int{"GARP": 4, "OTAMA": 4, "W-1": 2}, "OTAMA"),
+			searched(3, map[string]int{"PLAIN": 4}),
+		}
+		sugs := stats.Suggest(gs, nil)
 		Expect(sugs).To(HaveLen(2))
+		Expect(sugs[0].Core).To(Equal([]string{"GARP", "OTAMA"}))
+		Expect(sugs[0].Games).To(HaveLen(2))
+		Expect(sugs[1].Core).To(Equal([]string{"GARP", "KID"}))
+	})
+
+	It("suggests one build when every list runs the same searchers", func() {
+		var gs []stats.DeckGame
+		for i := range 3 {
+			g := deckGame(i, true, map[string]int{"ATLAS": 4, "LILITH": 4, fmt.Sprintf("T-%d", i): 1})
+			g.Facts.Searches = []deck.Search{{Source: "ATLAS", Taken: "X-1"}, {Source: "LILITH", Taken: "X-1"}}
+			gs = append(gs, g)
+		}
+		sugs := stats.Suggest(gs, nil)
+		Expect(sugs).To(HaveLen(1))
 		Expect(sugs[0].Games).To(HaveLen(3))
-		Expect(sugs[0].Core).To(ContainElements("W-1", "W-2"))
-		Expect(sugs[0].Core).NotTo(ContainElement("S-1"))
-		Expect(sugs[1].Core).To(ContainElements("N-1", "N-2", "N-3", "N-4"))
 	})
 
 	It("leaves out a suggestion the user dismissed", func() {
-		nova := map[string]int{"N-1": 4}
-		sugs := stats.Suggest([]stats.DeckGame{deckGame(0, true, nova)}, nil, [][]string{{"N-1"}})
-		Expect(sugs).To(BeEmpty())
+		g := deckGame(0, true, map[string]int{"KID": 4})
+		g.Facts.Searches = []deck.Search{{Source: "KID", Taken: "X-1"}}
+		Expect(stats.Suggest([]stats.DeckGame{g}, [][]string{{"KID"}})).To(BeEmpty())
 	})
 })
 

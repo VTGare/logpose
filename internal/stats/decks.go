@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/VTGare/logpose/internal/cards"
@@ -110,10 +111,6 @@ func runsAll(list map[string]int, core []string) bool {
 // can't tell the leader's builds apart.
 const StapleShare = 0.95
 
-// suggestCopies is how many copies a game's list can be from the first list of a suggested
-// group and still join it.
-const suggestCopies = 12
-
 // Staples are the cards in at least StapleShare of the games, sorted.
 func Staples(gs []DeckGame) []string {
 	in := make(map[string]int)
@@ -132,74 +129,77 @@ func Staples(gs []DeckGame) []string {
 	return out
 }
 
-// Suggestion is a group of games that look like one build.
+// searcherShare is the share of the games a card was in that it has to have searched in to
+// count as a searcher. It keeps out a card whose effect looked at the deck once.
+const searcherShare = 0.25
+
+// Searchers are the cards that searched the deck in at least searcherShare of the games they
+// were in, sorted.
+func Searchers(gs []DeckGame) []string {
+	in := make(map[string]int)
+	searched := make(map[string]int)
+	for _, g := range gs {
+		for c := range g.Facts.List {
+			in[c]++
+		}
+		seen := make(map[string]bool)
+		for _, s := range g.Facts.Searches {
+			if !seen[s.Source] {
+				seen[s.Source] = true
+				searched[s.Source]++
+			}
+		}
+	}
+	var out []string
+	for c, n := range searched {
+		if in[c] > 0 && float64(n) >= searcherShare*float64(in[c]) {
+			out = append(out, c)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// Suggestion is a group of games whose lists run the same searchers.
 type Suggestion struct {
-	// Core is the cards in every game of the group that aren't staples, sorted.
+	// Core is the searchers, sorted.
 	Core  []string
 	Games []DeckGame
 }
 
-// Suggest groups games, oldest first, by joining each to the group whose first list is nearest
-// within suggestCopies copies. Groups with no cards beyond the staples, and the ones dismissed,
-// aren't suggested. The biggest group comes first.
-func Suggest(gs []DeckGame, staples []string, dismissed [][]string) []Suggestion {
-	type group struct {
-		first map[string]int
-		games []DeckGame
-	}
-	var groups []*group
+// Suggest groups the games by the searchers their lists run. Games without searchers and the
+// groups the user dismissed aren't suggested. The biggest group comes first.
+func Suggest(gs []DeckGame, dismissed [][]string) []Suggestion {
+	searchers := Searchers(gs)
+	byKey := make(map[string]*Suggestion)
+	var out []*Suggestion
 	for _, g := range gs {
-		var best *group
-		bestD := 0
-		for _, gr := range groups {
-			if d := copiesApart(gr.first, g.Facts.List); d <= suggestCopies && (best == nil || d < bestD) {
-				best, bestD = gr, d
-			}
-		}
-		if best == nil {
-			best = &group{first: g.Facts.List}
-			groups = append(groups, best)
-		}
-		best.games = append(best.games, g)
-	}
-	var out []Suggestion
-	for _, gr := range groups {
 		var core []string
-		for c := range gr.first {
-			if !slices.Contains(staples, c) && inAll(gr.games, c) {
+		for _, c := range searchers {
+			if g.Facts.List[c] > 0 {
 				core = append(core, c)
 			}
 		}
-		slices.Sort(core)
-		if len(core) == 0 || slices.ContainsFunc(dismissed, func(d []string) bool { return slices.Equal(d, core) }) {
+		if len(core) == 0 {
 			continue
 		}
-		out = append(out, Suggestion{Core: core, Games: gr.games})
+		key := strings.Join(core, ",")
+		s, ok := byKey[key]
+		if !ok {
+			s = &Suggestion{Core: core}
+			byKey[key] = s
+			out = append(out, s)
+		}
+		s.Games = append(s.Games, g)
 	}
-	slices.SortStableFunc(out, func(a, b Suggestion) int { return cmp.Compare(len(b.Games), len(a.Games)) })
-	return out
-}
-
-// copiesApart is how many cards were swapped between two lists. Every card out makes room for
-// one in, so the differences are counted once.
-func copiesApart(a, b map[string]int) int {
-	n := 0
-	for c, k := range a {
-		n += max(k-b[c], 0)
-	}
-	for c, k := range b {
-		n += max(k-a[c], 0)
-	}
-	return n / 2
-}
-
-func inAll(gs []DeckGame, card string) bool {
-	for _, g := range gs {
-		if g.Facts.List[card] == 0 {
-			return false
+	var kept []Suggestion
+	for _, s := range out {
+		if !slices.ContainsFunc(dismissed, func(d []string) bool { return slices.Equal(d, s.Core) }) {
+			kept = append(kept, *s)
 		}
 	}
-	return true
+	slices.SortStableFunc(kept, func(a, b Suggestion) int { return cmp.Compare(len(b.Games), len(a.Games)) })
+	return kept
 }
 
 // CardStats is how one card did in a build's games.
