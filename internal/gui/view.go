@@ -28,6 +28,12 @@ type snapshot struct {
 	Formats  []stats.FormatRange
 	Debuts   []stats.SetDebut
 	Settings settingsInfo
+	// Decks are the matches with what the local player's deck did, oldest first, keyed by
+	// fingerprint. Builds are the user's builds, and Dismissed the cores of suggestions they said
+	// aren't builds, by leader.
+	Decks     map[string]stats.DeckGame
+	Builds    []store.Build
+	Dismissed map[string][][]string
 }
 
 func (s *snapshot) card(code string) cards.Card {
@@ -40,7 +46,7 @@ func (s *snapshot) card(code string) cards.Card {
 const (
 	pageOverview = "overview"
 	pageMatches  = "matches"
-	pageLeaders  = "leaders"
+	pageDecks    = "decks"
 	pageMatchups = "matchups"
 	pageFormats  = "formats"
 	pageSettings = "settings"
@@ -125,6 +131,7 @@ type view struct {
 
 	leaderPoint int
 	leaderStats leaderCache
+	decks       decksState
 	// shownPage is the page the last frame showed, which tells a page's first frame.
 	shownPage string
 
@@ -141,9 +148,9 @@ type view struct {
 	arts      artsState
 }
 
-// openLeader shows a leader on the Leaders page.
+// openLeader shows a leader on the Decks page.
 func (v *view) openLeader(code string) {
-	v.page = pageLeaders
+	v.page = pageDecks
 	v.setDeck(code)
 }
 
@@ -255,8 +262,8 @@ func (v *view) statsPage(c *ui.Context) {
 	switch v.page {
 	case pageMatches:
 		v.matchesPage(c)
-	case pageLeaders:
-		v.leadersPage(c)
+	case pageDecks:
+		v.decksPage(c)
 	case pageMatchups:
 		v.matchupsPage(c)
 	default:
@@ -323,7 +330,7 @@ var navPages = []struct {
 	label string
 }{
 	{pageOverview, iconOverview, "Overview"},
-	{pageLeaders, iconLeaders, "Leaders"},
+	{pageDecks, iconLeaders, "Decks"},
 	{pageMatchups, iconMatchups, "Matchups"},
 	{pageMatches, iconMatches, "Matches"},
 	{pageFormats, iconFormats, "Formats"},

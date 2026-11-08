@@ -499,16 +499,23 @@ func (a *app) load(ctx context.Context) (*snapshot, error) {
 	}
 	now := time.Now()
 	ms := stats.Matches(games, me...)
+	decks, err := loadDecks(ctx, st, ms, me)
+	if err != nil {
+		return nil, err
+	}
 	return &snapshot{
-		Loaded:   true,
-		SimFound: a.install() != nil,
-		Matches:  ms,
-		Overview: stats.BuildOverview(ms, now),
-		Cards:    db,
-		Now:      now,
-		Formats:  stats.Ranges(formats),
-		Debuts:   stats.Debuts(ms, formats, splitList(set[store.SettingDismissedSets])),
-		Settings: info,
+		Decks:     decks.games,
+		Builds:    decks.builds,
+		Dismissed: decks.dismissed,
+		Loaded:    true,
+		SimFound:  a.install() != nil,
+		Matches:   ms,
+		Overview:  stats.BuildOverview(ms, now),
+		Cards:     db,
+		Now:       now,
+		Formats:   stats.Ranges(formats),
+		Debuts:    stats.Debuts(ms, formats, splitList(set[store.SettingDismissedSets])),
+		Settings:  info,
 	}, nil
 }
 
@@ -706,4 +713,34 @@ func (x *appActions) parseGame(fingerprint string) (*simlog.Game, error) {
 		return nil, fmt.Errorf("log parses to %d games", len(games))
 	}
 	return &games[0], nil
+}
+
+type loadedDecks struct {
+	games     map[string]stats.DeckGame
+	builds    []store.Build
+	dismissed map[string][][]string
+}
+
+func loadDecks(ctx context.Context, st *store.Store, ms []stats.Match, me []string) (loadedDecks, error) {
+	var d loadedDecks
+	facts, err := st.DeckFacts(ctx, me...)
+	if err != nil {
+		return d, err
+	}
+	d.games = make(map[string]stats.DeckGame)
+	for _, g := range stats.DeckGames(ms, facts) {
+		d.games[g.Fingerprint] = g
+	}
+	if d.builds, err = st.Builds(ctx); err != nil {
+		return d, err
+	}
+	ds, err := st.Dismissals(ctx)
+	if err != nil {
+		return d, err
+	}
+	d.dismissed = make(map[string][][]string)
+	for _, x := range ds {
+		d.dismissed[x.Leader] = append(d.dismissed[x.Leader], x.Core)
+	}
+	return d, nil
 }

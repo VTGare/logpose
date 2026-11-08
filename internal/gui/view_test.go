@@ -59,9 +59,9 @@ func tester(s *snapshot) (*view, *ui.Tester) {
 
 var _ = Describe("view", func() {
 	It("opens on any page -page names", func() {
-		Expect(Pages()).To(ContainElements("overview", "leaders", "matchups", "matches", "formats", "cards", "settings"))
+		Expect(Pages()).To(ContainElements("overview", "decks", "matchups", "matches", "formats", "cards", "settings"))
 		v, tt := tester(testSnapshot(10))
-		v.page = "leaders"
+		v.page = "decks"
 		tt.Frame()
 		Expect(tt.HasText("Turn order")).To(BeTrue())
 	})
@@ -99,17 +99,17 @@ var _ = Describe("view", func() {
 		}
 	})
 
-	It("shows the current deck and its turn order split on the Leaders page", func() {
+	It("shows the current deck and its turn order split on the Decks page", func() {
 		_, tt := tester(testSnapshot(10))
-		Expect(tt.Click("Leaders")).To(Succeed())
+		Expect(tt.Click("Decks")).To(Succeed())
 		for _, text := range []string{"Monkey D. Luffy", "Win rate", "50%", "5–5", "Turn order", "1st", "2nd"} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
 	})
 
-	It("shows the game under the pointer on the Leaders page's rolling chart", func() {
+	It("shows the game under the pointer on the Decks page's rolling chart", func() {
 		v, tt := tester(testSnapshot(30))
-		Expect(tt.Click("Leaders")).To(Succeed())
+		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.HasText("game 25")).To(BeFalse())
 		v.leaderPoint = 5
 		tt.Frame()
@@ -154,27 +154,26 @@ var _ = Describe("view", func() {
 		v, tt := tester(s)
 		Expect(tt.HasText("Your decks")).To(BeTrue())
 		Expect(tt.Click("Show Kaido")).To(Succeed())
-		Expect(v.page).To(Equal(pageLeaders))
+		Expect(v.page).To(Equal(pageDecks))
 		Expect(v.filter.deck).To(Equal("OP17-058"))
-		Expect(tt.HasText("Matchups")).To(BeTrue())
-		Expect(tt.HasText("Leader")).To(BeTrue())
+		Expect(tt.HasText("Results")).To(BeTrue())
 	})
 
-	It("shows the most played leader on the Leaders page by default", func() {
+	It("shows the most played leader on the Decks page by default", func() {
 		_, tt := tester(testSnapshot(10))
-		Expect(tt.Click("Leaders")).To(Succeed())
+		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.HasText("Monkey D. Luffy")).To(BeTrue())
 		Expect(tt.HasText("Win rate")).To(BeTrue())
 		Expect(tt.HasText("By day")).To(BeTrue())
 	})
 
-	It("filters the Leaders page by game type", func() {
+	It("filters the Decks page by game type", func() {
 		s := testSnapshot(10)
 		for i := range 4 {
 			s.Matches[i].Ranked = false
 		}
 		v, tt := tester(s)
-		Expect(tt.Click("Leaders")).To(Succeed())
+		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.HasText("By day")).To(BeTrue())
 		Expect(tt.HasText("All games")).To(BeTrue())
 		v.filter.gameType = int(stats.CasualGames)
@@ -188,7 +187,7 @@ var _ = Describe("view", func() {
 		s := testSnapshot(10)
 		s.Matches[0].Opp.Leader = "OP09-042"
 		v, tt := tester(s)
-		Expect(tt.Click("Leaders")).To(Succeed())
+		Expect(tt.Click("Decks")).To(Succeed())
 		for _, text := range []string{"Worst matchups", "Kaido", "4–5", "44%", "Rarely faced", "1 under 5 games"} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}

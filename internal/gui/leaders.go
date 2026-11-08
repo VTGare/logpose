@@ -11,7 +11,7 @@ import (
 	"github.com/VTGare/logpose/internal/stats"
 )
 
-// leaderCache keeps the Leaders page's stats until the scope or the leader changes.
+// leaderCache keeps the Decks page's stats until the scope or the leader changes.
 type leaderCache struct {
 	snap    *snapshot
 	filters filters
@@ -22,6 +22,7 @@ type leaderCache struct {
 	// games are the leader's games, oldest first, and days its days played, latest first.
 	games []stats.Match
 	days  []stats.Day
+	decks leaderDecks
 }
 
 // leaderData is the leader the deck filter names, or the most played one in scope, and every
@@ -49,16 +50,19 @@ func (v *view) leaderData() (stats.Leader, []stats.LeaderRecord) {
 			lc.games = append(lc.games, newest[i])
 		}
 		lc.days = stats.BuildOverview(newest, v.snap.Now).Days
+		lc.decks = v.deckData(leader, lc.games)
 	}
 	return lc.stats, all
 }
 
-func (v *view) leadersPage(c *ui.Context) {
+func (v *view) decksPage(c *ui.Context) {
 	l, all := v.leaderData()
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
 			v.leaderPicker(c, all, l.Leader)
 			v.leaderHead(c, l)
+			v.buildRow(c, v.leaderStats.decks)
+			v.pageTabs(c)
 			ui.Row(c).Gap(16).AlignItems(ui.Start).Children(func() {
 				ui.Column(c).Grow(1).Basis(0).Gap(16).Children(func() {
 					v.rollingChart(c, l.Rolling, v.leaderStats.games, &v.leaderPoint)
@@ -74,7 +78,7 @@ func (v *view) leadersPage(c *ui.Context) {
 }
 
 // leaderPicker is a tab for each leader played, with its art, set, games and rate, which opens
-// it on the Leaders page.
+// it on the Decks page.
 func (v *view) leaderPicker(c *ui.Context, all []stats.LeaderRecord, chosen string) {
 	v.deckTabs(c, all, chosen, "Show ", v.openLeader)
 }

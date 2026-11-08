@@ -33,7 +33,7 @@ var _ = Describe("turn order and result filters", func() {
 
 		v.filter.turn = stats.GoingFirst
 		Expect(v.scoped().matches).To(HaveLen(5))
-		Expect(tt.Click("Leaders")).To(Succeed())
+		Expect(tt.Click("Decks")).To(Succeed())
 		l, _ := v.leaderData()
 		Expect(l.Record.Games()).To(Equal(5))
 	})
@@ -66,9 +66,9 @@ var _ = Describe("turn order and result filters", func() {
 		Expect(tt.HasText("10 games · 5–5")).To(BeTrue())
 	})
 
-	It("sets the turn order from a half of the Leaders page's tile, and clears it from the same half", func() {
+	It("sets the turn order from a half of the Decks page's tile, and clears it from the same half", func() {
 		v, tt := tester(mixedTurns())
-		Expect(tt.Click("Leaders")).To(Succeed())
+		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.Click("Show games going second")).To(Succeed())
 		Expect(v.filter.turn).To(Equal(stats.GoingSecond))
 		tt.Frame()
