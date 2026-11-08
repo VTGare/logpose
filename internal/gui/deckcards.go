@@ -6,7 +6,6 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/stats"
-	"github.com/VTGare/logpose/internal/store"
 )
 
 // cheapCost is the highest cost that's paid by the player's first or second turn either way, so
@@ -26,12 +25,7 @@ const (
 // cards first, then the ones no longer in it.
 func (v *view) cardsTab(c *ui.Context, d leaderDecks) {
 	t := c.Theme()
-	var b store.Build
-	for _, x := range d.builds {
-		if x.ID == v.decks.build {
-			b = x
-		}
-	}
+	b, _ := d.chosen(v.decks.build)
 	gs := d.assignment.Builds[b.ID]
 	panel(c).Gap(0).Padding(8, 16, 16, 16).Children(func() {
 		if len(gs) == 0 {

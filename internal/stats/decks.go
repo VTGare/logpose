@@ -444,14 +444,11 @@ type Change struct {
 	// none.
 	Swaps map[string]int
 	Games []DeckGame
-	// Back is when the build last played this exact list, or zero when it's new.
-	Back time.Time
 }
 
 // Changes returns the lists the games went through, oldest first.
 func Changes(gs []DeckGame) []Change {
 	var out []Change
-	seen := make(map[string]time.Time)
 	for _, g := range gs {
 		list := g.Facts.List
 		if len(out) > 0 && maps.Equal(out[len(out)-1].Games[0].Facts.List, list) {
@@ -460,12 +457,8 @@ func Changes(gs []DeckGame) []Change {
 			continue
 		}
 		ch := Change{At: g.PlayedAt, Games: []DeckGame{g}}
-		key := listKey(list)
-		ch.Back = seen[key]
 		if len(out) > 0 {
 			ch.Swaps = swaps(out[len(out)-1].Games[0].Facts.List, list)
-			prev := out[len(out)-1]
-			seen[listKey(prev.Games[0].Facts.List)] = prev.Games[len(prev.Games)-1].PlayedAt
 		}
 		out = append(out, ch)
 	}
@@ -485,13 +478,4 @@ func swaps(from, to map[string]int) map[string]int {
 		}
 	}
 	return out
-}
-
-func listKey(list map[string]int) string {
-	var b []byte
-	for _, c := range slices.Sorted(maps.Keys(list)) {
-		b = append(b, c...)
-		b = append(b, byte(list[c]), ',')
-	}
-	return string(b)
 }

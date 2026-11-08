@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -17,10 +18,9 @@ const (
 	tabResults = iota
 	tabList
 	tabCards
-	tabChanges
 )
 
-var deckTabLabels = []string{"Results", "List", "Cards", "Changes"}
+var deckTabLabels = []string{"Results", "List", "Cards"}
 
 // decksState is what the Decks page shows of the leader.
 type decksState struct {
@@ -32,6 +32,8 @@ type decksState struct {
 	// saved is the name of a build just saved, chosen once the next snapshot has it.
 	saved     string
 	showSmall bool
+	// version is when the shown list of the build was first played, zero for the latest.
+	version time.Time
 }
 
 // suggestionKey tells suggestions apart by their searchers.
@@ -48,6 +50,16 @@ type leaderDecks struct {
 	suggestions []stats.Suggestion
 	// unbuilt counts the games in no build.
 	unbuilt int
+}
+
+// chosen is the build with the ID among the leader's.
+func (d leaderDecks) chosen(id int64) (store.Build, bool) {
+	for _, b := range d.builds {
+		if b.ID == id {
+			return b, true
+		}
+	}
+	return store.Build{}, false
 }
 
 func (v *view) deckData(leader string, ms []stats.Match) leaderDecks {
@@ -133,13 +145,13 @@ func (v *view) buildRow(c *ui.Context, d leaderDecks) {
 	})
 }
 
-// buildChips choose a build, which opens List on it. Without builds, one chip opens List on the
+// buildChips choose the build the tabs show. Without builds, one chip opens List on the
 // suggestions.
 func (v *view) buildChips(c *ui.Context, d leaderDecks) {
 	s := &v.decks
 	for _, b := range d.builds {
 		if buildChip(c.Key(fmt.Sprint("b", b.ID)), b.Name, buildMeta(d.assignment.Builds[b.ID]), false, s.build == b.ID) {
-			s.build, s.tab = b.ID, tabList
+			s.build, s.version = b.ID, time.Time{}
 		}
 	}
 	if len(d.builds) > 0 || len(d.suggestions) == 0 {
@@ -167,7 +179,7 @@ func (v *view) chooseBuild(d leaderDecks) {
 	if s.build == 0 && len(d.builds) > 0 {
 		s.build = d.builds[0].ID
 	}
-	if s.build == 0 && (s.tab == tabCards || s.tab == tabChanges) {
+	if s.build == 0 && s.tab == tabCards {
 		s.tab = tabResults
 	}
 }
@@ -255,18 +267,18 @@ func buildChip(c *ui.Context, name, meta string, suggested, on bool) bool {
 	return chip.Clicked()
 }
 
-// pageTabs are the page's tabs. Cards needs a chosen build, and Changes stays off.
+// pageTabs are the page's tabs. Cards needs a chosen build.
 func (v *view) pageTabs(c *ui.Context) {
 	t := c.Theme()
 	s := &v.decks
-	if s.tab == tabChanges || s.tab == tabCards && s.build == 0 {
+	if s.tab == tabCards && s.build == 0 {
 		s.tab = tabResults
 	}
 	ui.Column(c).Children(func() {
 		tabs := ui.TabsBase(c, &s.tab, len(deckTabLabels))
 		tabs.List.Gap(4).Children(func() {
 			for i, label := range deckTabLabels {
-				on := i == tabResults || i == tabList || i == tabCards && s.build != 0
+				on := i == tabResults || i == tabList || s.build != 0
 				tab := tabs.Tab(i).Column().Gap(6).Padding(7, 4, 0, 4)
 				col, bar := faintColor(t), ui.Transparent
 				switch {

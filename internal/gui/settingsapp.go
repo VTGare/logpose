@@ -111,6 +111,8 @@ type prefs struct {
 	artOff           bool
 	// artCap is the MB of large card images kept, one of artCaps.
 	artCap int
+	// deckChanges marks the cards a build's list changed.
+	deckChanges bool
 }
 
 // artCaps are the sizes in MB the large card images can be capped at.
@@ -129,6 +131,7 @@ func prefsFrom(set map[string]string) prefs {
 		panelWidth:       widthFrom(set[store.SettingCardPanelWidth], panelDefault, snapPanel),
 		artOff:           set[store.SettingArtOff] == "1",
 		artCap:           artCapFrom(set[store.SettingArtCap]),
+		deckChanges:      set[store.SettingDeckChanges] == "1",
 	}
 }
 

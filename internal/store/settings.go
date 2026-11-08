@@ -38,6 +38,8 @@ const (
 	SettingArtCap = "art_cap_mb"
 	// SettingShortcutsOffered is "1" once the user answered the offer of shortcuts.
 	SettingShortcutsOffered = "shortcuts_offered"
+	// SettingDeckChanges is "1" when a build's list marks the cards changed from the list before.
+	SettingDeckChanges = "deck_show_changes"
 )
 
 // Setting returns a setting's value, or "" when it isn't set.

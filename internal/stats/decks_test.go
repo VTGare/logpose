@@ -290,7 +290,7 @@ var _ = Describe("List", func() {
 })
 
 var _ = Describe("Changes", func() {
-	It("lists each switch with the copies swapped and marks a return to an earlier list", func() {
+	It("lists each switch with the copies swapped", func() {
 		a := map[string]int{"BRO": 2, "JIN": 2}
 		b := map[string]int{"JIN": 4}
 		gs := []stats.DeckGame{deckGame(0, true, a), deckGame(1, true, a), deckGame(2, false, b), deckGame(3, true, a)}
@@ -299,7 +299,6 @@ var _ = Describe("Changes", func() {
 		Expect(ch[0].Swaps).To(BeEmpty())
 		Expect(ch[0].Games).To(HaveLen(2))
 		Expect(ch[1].Swaps).To(Equal(map[string]int{"BRO": -2, "JIN": 2}))
-		Expect(ch[1].Back.IsZero()).To(BeTrue())
-		Expect(ch[2].Back).To(Equal(gs[1].PlayedAt))
+		Expect(ch[2].Swaps).To(Equal(map[string]int{"BRO": 2, "JIN": -2}))
 	})
 })

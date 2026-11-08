@@ -114,18 +114,15 @@ var _ = Describe("Decks page", func() {
 	It("opens on the Results tab with the leader's own stats", func() {
 		_, tt := tester(deckSnapshot())
 		Expect(tt.Click("Decks")).To(Succeed())
-		for _, text := range []string{"Results", "List", "Cards", "Changes", "Turn order"} {
+		for _, text := range []string{"Results", "List", "Cards", "Turn order"} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
 	})
 
-	It("keeps Cards shut without a build, and Changes shut", func() {
+	It("keeps Cards shut without a build", func() {
 		v, tt := tester(deckSnapshot())
 		Expect(tt.Click("Decks")).To(Succeed())
 		v.decks.tab = tabCards
-		tt.Frame()
-		Expect(v.decks.tab).To(Equal(tabResults))
-		v.decks.tab = tabChanges
 		tt.Frame()
 		Expect(v.decks.tab).To(Equal(tabResults))
 	})
@@ -169,9 +166,9 @@ var _ = Describe("Decks page", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
 		_, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
-		Expect(tt.Click("Wano/Miracle")).To(Succeed())
+		Expect(tt.Click("List")).To(Succeed())
 		tt.Frame()
-		for _, text := range []string{"Core", "Latest list", "Cost curve", "Counters", "Types", "Traits", "×4"} {
+		for _, text := range []string{"Latest list", "Cost curve", "Counters", "Types", "Traits", "×4"} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
 	})
@@ -192,5 +189,53 @@ var _ = Describe("Decks page", func() {
 		Expect(curveText(10)).To(Equal("the turn with 10 DON!!, your 6th turn going first and 5th going second."))
 		Expect(curveText(6)).To(Equal("the turn with 6 DON!!, your 4th turn going first and 3rd going second."))
 		Expect(curveText(5)).To(Equal("the turn with 5 DON!!, your 3rd turn either way."))
+	})
+
+	It("shows a build's lists in a rail, the latest first, and any earlier one with its changes", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
+		s := deckSnapshot(wano)
+		s.Cards.Name("TEC", "Tech Card")
+		g := s.Decks["4"]
+		g.Facts.List = map[string]int{"GARP": 4, "OTA": 4, "W-1": 2, "TEC": 2}
+		s.Decks["4"] = g
+		v, tt := tester(s)
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("List")).To(Succeed())
+		tt.Frame()
+		for _, text := range []string{"Latest list", "Latest", "First list", "Show changes"} {
+			Expect(tt.HasText(text)).To(BeTrue(), text)
+		}
+		Expect(tt.HasText("Core")).To(BeFalse())
+		v.decks.version = g.PlayedAt
+		tt.Frame()
+		Expect(tt.HasText("List from")).To(BeTrue())
+		named := func() int {
+			n := 0
+			for _, text := range tt.Texts() {
+				if text == "Tech Card" {
+					n++
+				}
+			}
+			return n
+		}
+		before := named()
+		Expect(v.prefs.deckChanges).To(BeFalse())
+		v.prefs.deckChanges = true
+		tt.Frame()
+		Expect(named()).To(Equal(before+1), "the rail names the card added")
+		Expect(tt.HasText("×2")).To(BeTrue())
+	})
+
+	It("keeps the tab when another build is chosen", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
+		nova := store.Build{ID: 2, Leader: "OP13-001", Name: "Supernovas", Core: []string{"KID"}}
+		v, tt := tester(deckSnapshot(wano, nova))
+		Expect(tt.Click("Decks")).To(Succeed())
+		v.decks.tab = tabCards
+		tt.Frame()
+		Expect(tt.Click("Supernovas")).To(Succeed())
+		tt.Frame()
+		Expect(v.decks.build).To(Equal(int64(2)))
+		Expect(v.decks.tab).To(Equal(tabCards))
 	})
 })
