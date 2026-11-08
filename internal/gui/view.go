@@ -313,40 +313,13 @@ var navPages = []struct {
 	{pageCards, iconCards, "Cards"},
 }
 
+// sidebar is the pages as icons, and with their names when it's wider than the rail. The icons
+// sit at the same place either way, so folding it only hides the names.
 func (v *view) sidebar(c *ui.Context) {
 	t := c.Theme()
-	if v.prefs.sideWidth <= sideRail {
-		v.rail(c)
-		return
-	}
-	ui.Column(c).Fill().Background(sidebarColor(t)).Padding(12, 8).Gap(8).Children(func() {
-		ui.Row(c).Gap(8).Padding(4, 8, 8, 8).Children(func() {
-			ui.Icon(c, iconCompass).Size(20, 20).TextColor(t.Accent)
-			ui.Text(c, "logpose").Bold().FontSize(16)
-		})
-		// mygo draws sidebar icons in the accent color, so the sidebar gets a theme whose accent
-		// is the muted text.
-		ui.Themed(c, sidebarTheme(t)).Background(ui.Transparent).Children(func() {
-			ui.Sidebar(c, &v.page, func() {
-				for _, p := range navPages {
-					ui.SidebarItem(c, p.id, p.icon, p.label)
-				}
-			}).Background(ui.Transparent).Padding(0)
-		})
-		ui.Spacer(c)
-		ui.Themed(c, sidebarTheme(t)).Background(ui.Transparent).Children(func() {
-			ui.Sidebar(c, &v.page, func() {
-				ui.SidebarItem(c, pageSettings, iconSettings, "Settings")
-			}).Background(ui.Transparent).Padding(0)
-		})
-	})
-}
-
-// rail is the folded sidebar: the pages as icons, each named in a tooltip.
-func (v *view) rail(c *ui.Context) {
-	t := c.Theme()
+	wide := v.prefs.sideWidth > sideRail
 	item := func(id string, icon *ui.SVG, label string) {
-		b := ui.ButtonBase(c.Key(id)).Label(label).Size(44, 40).Radius(8).Center().Background(ui.Transparent)
+		b := ui.ButtonBase(c.Key(id)).Label(label).Height(40).Radius(8).Background(ui.Transparent)
 		col := t.TextMuted
 		switch {
 		case v.page == id:
@@ -358,11 +331,31 @@ func (v *view) rail(c *ui.Context) {
 		if b.Clicked() {
 			v.page = id
 		}
-		b.Tooltip(label)
-		b.Children(func() { ui.Icon(c, icon).Size(18, 18).TextColor(col) })
+		if !wide {
+			b.Width(44).Center().Tooltip(label)
+			b.Children(func() { ui.Icon(c, icon).Size(18, 18).TextColor(col) })
+			return
+		}
+		b.Padding(0, 13).Children(func() {
+			ui.Row(c).Fill().Gap(12).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, icon).Size(18, 18).TextColor(col)
+				ui.Text(c, label).TextColor(col)
+			})
+		})
 	}
-	ui.Column(c).Fill().Background(sidebarColor(t)).Padding(12, 0).Gap(4).AlignItems(ui.Center).Children(func() {
-		ui.Box(c).Height(36).Center().Children(func() { ui.Icon(c, iconCompass).Size(20, 20).TextColor(t.Accent) })
+	col := ui.Column(c).Fill().Background(sidebarColor(t)).Padding(12, 0).Gap(4)
+	if wide {
+		col.Padding(12, 8)
+	} else {
+		col.AlignItems(ui.Center)
+	}
+	col.Children(func() {
+		ui.Row(c).Height(36).Gap(10).Padding(0, 12).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, iconCompass).Size(20, 20).TextColor(t.Accent)
+			if wide {
+				ui.Text(c, "logpose").Bold()
+			}
+		})
 		for _, p := range navPages {
 			item(p.id, p.icon, p.label)
 		}

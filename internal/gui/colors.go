@@ -91,14 +91,6 @@ func sidebarColor(t *ui.Theme) ui.Color {
 	return t.Surface
 }
 
-// sidebarTheme is t with the muted text as its accent, for the sidebar's icons.
-func sidebarTheme(t *ui.Theme) *ui.Theme {
-	st := *t
-	st.Accent = t.TextMuted
-	st.AccentText = t.Text
-	return &st
-}
-
 // faintColor is for the least important text, below TextMuted.
 func faintColor(t *ui.Theme) ui.Color {
 	if t.Dark {
