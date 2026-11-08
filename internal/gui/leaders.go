@@ -65,8 +65,12 @@ func (v *view) decksPage(c *ui.Context) {
 			v.chooseBuild(d)
 			v.buildRow(c, d)
 			v.pageTabs(c)
-			if v.decks.tab == tabList {
+			switch v.decks.tab {
+			case tabList:
 				v.listTab(c, d)
+				return
+			case tabCards:
+				v.cardsTab(c, d)
 				return
 			}
 			ui.Row(c).Gap(16).AlignItems(ui.Start).Children(func() {

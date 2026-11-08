@@ -119,12 +119,15 @@ var _ = Describe("Decks page", func() {
 		}
 	})
 
-	It("keeps Cards and Changes shut", func() {
+	It("keeps Cards shut without a build, and Changes shut", func() {
 		v, tt := tester(deckSnapshot())
 		Expect(tt.Click("Decks")).To(Succeed())
-		Expect(tt.Click("Cards")).To(Succeed())
+		v.decks.tab = tabCards
 		tt.Frame()
-		Expect(v.decks.tab).NotTo(Equal(tabCards))
+		Expect(v.decks.tab).To(Equal(tabResults))
+		v.decks.tab = tabChanges
+		tt.Frame()
+		Expect(v.decks.tab).To(Equal(tabResults))
 	})
 
 	It("makes a suggestion a build with the name given, its searchers as the core", func() {
@@ -171,5 +174,23 @@ var _ = Describe("Decks page", func() {
 		for _, text := range []string{"Core", "Latest list", "Cost curve", "Counters", "Types", "Traits", "×4"} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
+	})
+
+	It("shows each card of the build with its numbers", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
+		v, tt := tester(deckSnapshot(wano))
+		Expect(tt.Click("Decks")).To(Succeed())
+		v.decks.tab = tabCards
+		tt.Frame()
+		Expect(v.decks.tab).To(Equal(tabCards))
+		for _, text := range []string{"In opening hand", "In hand by its turn", "Not by its turn", "same as opening hand", "Played", "Searcher took it", "Otama", "×4", "The tick is the build's 100%", "the difference likely isn't luck"} {
+			Expect(tt.HasText(text)).To(BeTrue(), text)
+		}
+	})
+
+	It("names the turn a card can first be paid for", func() {
+		Expect(curveText(10)).To(Equal("the turn with 10 DON!!, your 6th turn going first and 5th going second."))
+		Expect(curveText(6)).To(Equal("the turn with 6 DON!!, your 4th turn going first and 3rd going second."))
+		Expect(curveText(5)).To(Equal("the turn with 5 DON!!, your 3rd turn either way."))
 	})
 })

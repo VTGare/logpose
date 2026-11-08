@@ -255,18 +255,18 @@ func buildChip(c *ui.Context, name, meta string, suggested, on bool) bool {
 	return chip.Clicked()
 }
 
-// pageTabs are the page's tabs. Cards and Changes stay off.
+// pageTabs are the page's tabs. Cards needs a chosen build, and Changes stays off.
 func (v *view) pageTabs(c *ui.Context) {
 	t := c.Theme()
 	s := &v.decks
-	if s.tab == tabCards || s.tab == tabChanges {
+	if s.tab == tabChanges || s.tab == tabCards && s.build == 0 {
 		s.tab = tabResults
 	}
 	ui.Column(c).Children(func() {
 		tabs := ui.TabsBase(c, &s.tab, len(deckTabLabels))
 		tabs.List.Gap(4).Children(func() {
 			for i, label := range deckTabLabels {
-				on := i == tabResults || i == tabList
+				on := i == tabResults || i == tabList || i == tabCards && s.build != 0
 				tab := tabs.Tab(i).Column().Gap(6).Padding(7, 4, 0, 4)
 				col, bar := faintColor(t), ui.Transparent
 				switch {
