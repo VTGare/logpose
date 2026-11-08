@@ -8,6 +8,7 @@ import (
 
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/live"
+	"github.com/VTGare/logpose/internal/shortcut"
 	"github.com/VTGare/logpose/internal/sim"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
@@ -66,6 +67,8 @@ type actions interface {
 
 	SetSetting(key, value string)
 	SetOpenAtLogin(on bool)
+	// SetShortcut adds or removes logpose's shortcut in place.
+	SetShortcut(place shortcut.Place, on bool)
 	// ChooseSimFolder asks for the sim's folder and switches to it.
 	ChooseSimFolder()
 	// FindSim forgets the chosen folder and finds the sim on its own.

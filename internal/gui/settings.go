@@ -27,6 +27,8 @@ type settingsState struct {
 	allNames bool
 	// art is nil until the card art folder is counted.
 	art *artUsage
+	// offerSkip holds the places unticked in the offer of shortcuts.
+	offerSkip [2]bool
 }
 
 func (s *settingsState) note(part, text string) {
@@ -269,6 +271,7 @@ func (v *view) startupSettings(c *ui.Context) {
 		v.prefs.openAtLogin = login
 		v.do(func(a actions) { a.SetOpenAtLogin(login) })
 	}
+	v.shortcutRows(c)
 	divider(c)
 	hidden := v.prefs.startHidden
 	if switchRow(c, "Start hidden in the tray", "Only when it starts with Windows", &hidden, !v.prefs.openAtLogin) {

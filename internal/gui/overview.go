@@ -17,6 +17,7 @@ func (v *view) overviewPage(c *ui.Context) {
 	o := v.scoped().overview
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
+			v.shortcutCard(c)
 			v.headline(c, o)
 			ui.Row(c).Gap(16).AlignItems(ui.Start).Children(func() {
 				ui.Column(c).Grow(1).Basis(0).Gap(16).Children(func() {

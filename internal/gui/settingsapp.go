@@ -100,11 +100,15 @@ type prefs struct {
 	colorblind  bool
 	closeQuits  bool
 	startHidden bool
-	// openAtLogin is read from Windows, not the store.
-	openAtLogin bool
-	sideWidth   float32
-	panelWidth  float32
-	artOff      bool
+	// openAtLogin and shortcuts are read from Windows, not the store. canShortcut is false where
+	// shortcuts can't be made.
+	openAtLogin      bool
+	shortcuts        [2]bool
+	canShortcut      bool
+	shortcutsOffered bool
+	sideWidth        float32
+	panelWidth       float32
+	artOff           bool
 	// artCap is the MB of large card images kept, one of artCaps.
 	artCap int
 }
@@ -116,14 +120,15 @@ const artCapDefault = webFullCap >> 20
 
 func prefsFrom(set map[string]string) prefs {
 	return prefs{
-		theme:       set[store.SettingTheme],
-		colorblind:  set[store.SettingColorblind] == "1",
-		closeQuits:  set[store.SettingCloseQuits] == "1",
-		startHidden: set[store.SettingStartHidden] == "1",
-		sideWidth:   widthFrom(set[store.SettingSidebarWidth], sideDefault, snapSide),
-		panelWidth:  widthFrom(set[store.SettingCardPanelWidth], panelDefault, snapPanel),
-		artOff:      set[store.SettingArtOff] == "1",
-		artCap:      artCapFrom(set[store.SettingArtCap]),
+		theme:            set[store.SettingTheme],
+		colorblind:       set[store.SettingColorblind] == "1",
+		closeQuits:       set[store.SettingCloseQuits] == "1",
+		startHidden:      set[store.SettingStartHidden] == "1",
+		shortcutsOffered: set[store.SettingShortcutsOffered] == "1",
+		sideWidth:        widthFrom(set[store.SettingSidebarWidth], sideDefault, snapSide),
+		panelWidth:       widthFrom(set[store.SettingCardPanelWidth], panelDefault, snapPanel),
+		artOff:           set[store.SettingArtOff] == "1",
+		artCap:           artCapFrom(set[store.SettingArtCap]),
 	}
 }
 

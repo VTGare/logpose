@@ -150,6 +150,7 @@ func (a *app) ready(ctx context.Context) {
 	}
 	a.view.prefs = prefsFrom(set)
 	a.view.prefs.openAtLogin = mygo.App.OpenAtLogin()
+	a.readShortcuts()
 	if a.web != nil {
 		a.web.setOff(a.view.prefs.artOff)
 		a.web.setLimit(int64(a.view.prefs.artCap) << 20)

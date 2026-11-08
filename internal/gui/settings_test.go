@@ -7,6 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/cards"
+	"github.com/VTGare/logpose/internal/shortcut"
 	"github.com/VTGare/logpose/internal/sim"
 	"github.com/VTGare/logpose/internal/store"
 
@@ -17,6 +18,10 @@ import (
 func (f *fakeActions) SetSetting(key, value string) { f.calls = append(f.calls, key+"="+value) }
 func (f *fakeActions) SetOpenAtLogin(on bool) {
 	f.calls = append(f.calls, map[bool]string{true: "login on", false: "login off"}[on])
+}
+
+func (f *fakeActions) SetShortcut(place shortcut.Place, on bool) {
+	f.calls = append(f.calls, fmt.Sprintf("shortcut %d %t", place, on))
 }
 func (f *fakeActions) ChooseSimFolder()     { f.calls = append(f.calls, "choose sim") }
 func (f *fakeActions) FindSim()             { f.calls = append(f.calls, "find sim") }

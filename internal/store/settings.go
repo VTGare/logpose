@@ -36,6 +36,8 @@ const (
 	SettingArtOff = "art_off"
 	// SettingArtCap is how many MB of large card images are kept. Empty means the default.
 	SettingArtCap = "art_cap_mb"
+	// SettingShortcutsOffered is "1" once the user answered the offer of shortcuts.
+	SettingShortcutsOffered = "shortcuts_offered"
 )
 
 // Setting returns a setting's value, or "" when it isn't set.
