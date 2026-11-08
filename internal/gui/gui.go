@@ -15,6 +15,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"github.com/VTGare/logpose/internal/arts"
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/importer"
 	"github.com/VTGare/logpose/internal/live"
@@ -35,8 +36,12 @@ type Options struct {
 	CatalogPath string
 	// LibraryPath caches every card from Limitless and Bandai's ban list. Empty means none.
 	LibraryPath string
-	// ArtDir caches card images from Limitless. Empty means only the sim's images.
+	// ArtDir caches card images from Limitless and Bandai. Empty means only the sim's images.
 	ArtDir string
+	// BandaiPath caches the printings on Bandai's card list, and GridDir the pictures compared
+	// to group them. Without both, the Art tab offers Limitless's printings alone.
+	BandaiPath string
+	GridDir    string
 	// DBPath is the database file, which Settings shows.
 	DBPath string
 	// SimFlag is true when -sim named the sim's folder.
@@ -78,6 +83,12 @@ type app struct {
 
 	// web is the only owner of the art folder. Nil without one.
 	web *webArt
+	// gallery groups each card's printings from Limitless and Bandai into arts. Nil without an
+	// art folder.
+	gallery *arts.Gallery
+	// catalogMu lets one card data refresh run at a time. stopCatalog cancels the one running.
+	catalogMu   sync.Mutex
+	stopCatalog atomic.Pointer[context.CancelFunc]
 
 	simArtMu  sync.Mutex
 	simArtObj *sim.SimArt
@@ -103,11 +114,30 @@ func Run(ctx context.Context, opts Options) error {
 		opts.Log = slog.Default()
 	}
 	a := &app{opts: opts, inst: opts.Install, web: newWebArt(opts.ArtDir)}
+	a.gallery = openGallery(opts, a.web)
 	if err := registerFonts(); err != nil {
 		opts.Log.Warn("fonts", "err", err)
 	}
 	mygo.App.WhenReady(func() { a.ready(ctx) })
 	return mygo.App.Run()
+}
+
+// bandaiPause is the wait between two pages of Bandai's card list. The first read is 61 pages.
+const bandaiPause = 2 * time.Second
+
+func openGallery(opts Options, web *webArt) *arts.Gallery {
+	if web == nil || opts.BandaiPath == "" || opts.GridDir == "" {
+		return nil
+	}
+	g, err := arts.Open(arts.Config{
+		CatalogPath: opts.BandaiPath, GridDir: opts.GridDir, Pictures: web,
+		Client: &http.Client{Timeout: 30 * time.Second}, Site: cards.BandaiSite, Pause: bandaiPause,
+	})
+	if err != nil {
+		opts.Log.Warn("bandai card list", "err", err)
+		return nil
+	}
+	return g
 }
 
 func (a *app) ready(ctx context.Context) {
@@ -235,6 +265,11 @@ func (a *app) follow(ctx context.Context) {
 		Running: sim.Running,
 		OnChange: func(s live.State) {
 			was := a.playing.Swap(s.Phase == live.Playing)
+			if !was && s.Phase == live.Playing {
+				if stop := a.stopCatalog.Load(); stop != nil {
+					(*stop)()
+				}
+			}
 			if was && s.Phase != live.Playing {
 				go func() { _ = a.refreshCatalog(ctx, false) }()
 			}
@@ -254,10 +289,25 @@ func (a *app) follow(ctx context.Context) {
 	_ = f.Run(ctx)
 }
 
+// errRefreshing is what Settings' "Check now" says while another refresh runs.
+var errRefreshing = errors.New("card data is already being checked")
+
 // refreshCatalog fetches card data from tcgcsv.com and Limitless for sets newer than the
-// cached copies, and Bandai's ban list, then shows them. It does nothing while they're fresh or
-// a game is running, unless forced. Without a network logpose keeps the cards it has.
+// cached copies, Bandai's ban list and Bandai's card list, then shows them. It does nothing
+// while they're fresh or a game is running, unless forced, and a game that starts stops it.
+// Without a network logpose keeps the cards it has.
 func (a *app) refreshCatalog(ctx context.Context, force bool) error {
+	if !a.catalogMu.TryLock() {
+		return errRefreshing
+	}
+	defer a.catalogMu.Unlock()
+	ctx, stop := context.WithCancel(ctx)
+	a.stopCatalog.Store(&stop)
+	defer func() {
+		a.stopCatalog.Store(nil)
+		stop()
+	}()
+	// Checked after the cancel is stored, so a game that starts in between still stops it.
 	if !force && a.playing.Load() {
 		return nil
 	}
@@ -270,7 +320,33 @@ func (a *app) refreshCatalog(ctx context.Context, force bool) error {
 		a.cardsMu.Unlock()
 		a.refresh(ctx)
 	}
-	return err
+	printings, berr := a.refreshBandai(ctx, force)
+	if changed || printings {
+		a.win.Update(a.view.resetArts)
+	}
+	return errors.Join(err, berr)
+}
+
+// refreshBandai reads Bandai's card list when it's stale. Its printings only offer pictures,
+// so it isn't read while art downloads are off.
+func (a *app) refreshBandai(ctx context.Context, force bool) (bool, error) {
+	if a.gallery == nil || a.web.isOff() {
+		return false, nil
+	}
+	now := time.Now()
+	if !force && !a.gallery.Stale(now) {
+		return false, nil
+	}
+	changed, err := a.gallery.Refresh(ctx, now, func(done, total int) {
+		a.win.Update(func() { a.view.artSync = artSync{done, total} })
+	})
+	a.win.Update(func() { a.view.artSync = artSync{} })
+	if err != nil {
+		a.opts.Log.Warn("refresh bandai card list", "err", err)
+		return changed, err
+	}
+	a.opts.Log.Info("bandai card list refreshed", "changed", changed)
+	return changed, nil
 }
 
 func (a *app) refreshTCGCSV(ctx context.Context, client *http.Client, force bool, changed *bool) error {

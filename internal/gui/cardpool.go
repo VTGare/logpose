@@ -24,9 +24,12 @@ type cardsState struct {
 	// costs are the costs picked in the strip, where maxCost stands for that cost and more.
 	costs []int
 	chips []cardChip
-	// selected is the card shown on the right, and print its printing.
+	// selected is the card shown on the right, and viewed the key of the picture it shows
+	// large: an art's version, or a sim: or file: key. Empty is the first art.
 	selected string
-	print    int
+	viewed   string
+	// versions is the head key of the art whose version list is open.
+	versions string
 	list     bool
 	more     bool
 	wall     ui.ListState
@@ -414,3 +417,8 @@ func (s cardSync) named(n int) []cards.SetProgress {
 }
 
 func (s cardSync) running() bool { return s.total > 0 && s.done < s.total }
+
+// artSync is a read of Bandai's card list in progress, by page. It's zero between reads.
+type artSync struct{ done, total int }
+
+func (s artSync) running() bool { return s.total > 0 && s.done < s.total }

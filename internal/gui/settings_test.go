@@ -36,6 +36,10 @@ func (f *fakeActions) SetArtDownloads(on bool) {
 func (f *fakeActions) LoadSimArt(card cards.Card) {
 	f.calls = append(f.calls, "load art "+card.Code)
 }
+
+func (f *fakeActions) LoadArts(card cards.Card, gen int) {
+	f.artLoads = append(f.artLoads, fmt.Sprint(card.Code, " ", gen))
+}
 func (f *fakeActions) ScanSimArt() { f.calls = append(f.calls, "scan art") }
 func (f *fakeActions) UseSimArt(card cards.Card, choice, _ sim.ArtChoice) {
 	f.calls = append(f.calls, "use art "+card.Code+" "+choice.Key)

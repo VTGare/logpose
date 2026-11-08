@@ -83,6 +83,8 @@ type actions interface {
 
 	// LoadSimArt reads what the sim shows for the card and shows it with view.setSimArt.
 	LoadSimArt(card cards.Card)
+	// LoadArts groups the card's pictures and shows each step with view.setArts.
+	LoadArts(card cards.Card, gen int)
 	// ScanSimArt finds the cards the sim shows other art for.
 	ScanSimArt()
 	// UseSimArt makes the sim show choice for the card. prev is what it showed, for Undo.
@@ -120,9 +122,11 @@ type view struct {
 	periodUI  periodState
 	cardsUI   cardsState
 	cardSync  cardSync
+	artSync   artSync
 	sideDrag  paneDrag
 	panelDrag paneDrag
 	simArt    simArtState
+	arts      artsState
 }
 
 // openLeader shows a leader on the Leaders page.

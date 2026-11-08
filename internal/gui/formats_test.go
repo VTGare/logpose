@@ -23,6 +23,8 @@ type fakeActions struct {
 	calls     []string
 	// usageLoads counts LoadArtUsage, which entering Settings calls on its own.
 	usageLoads int
+	// artLoads holds each LoadArts as "<code> <gen>". Showing a card calls it on its own.
+	artLoads []string
 }
 
 func (f *fakeActions) SetBookmark(fingerprint string, on bool) {

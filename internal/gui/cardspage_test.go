@@ -3,6 +3,7 @@ package gui
 import (
 	"github.com/egoist/mygo/ui"
 
+	"github.com/VTGare/logpose/internal/arts"
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/sim"
 
@@ -279,11 +280,11 @@ var _ = Describe("Cards page", func() {
 		tt.Frame()
 		Expect(tt.Click("Show Alt art")).To(Succeed())
 		tt.Frame()
-		Expect(v.cardsUI.print).To(Equal(1))
+		luffy := v.snap.card("OP01-024")
+		Expect(v.viewedKey(luffy, simArtInfo{}, arts.LimitlessArts(luffy))).To(Equal("OP01-024_p1"))
 		Expect(tt.Click("Show Sim's own")).To(Succeed())
 		tt.Frame()
-		Expect(v.cardsUI.print).To(Equal(viewSimOwn))
-		Expect(v.viewedKey(v.snap.card("OP01-024"), simArtInfo{})).To(Equal("sim:OP01-024"))
+		Expect(v.viewedKey(luffy, simArtInfo{}, arts.LimitlessArts(luffy))).To(Equal("sim:OP01-024"))
 		Expect(fa.calls).NotTo(ContainElement(HavePrefix("use art")))
 	})
 
@@ -344,18 +345,14 @@ var _ = Describe("Cards page", func() {
 		Expect(tt.HasText("Sim's own")).To(BeTrue())
 	})
 
-	It("names SP cards and new art apart from reprints of the same art", func() {
-		base := cards.Print{Key: "OP07-019", Artist: "Ryuda"}
-		card := cards.Card{Code: "OP07-019", Prints: []cards.Print{base}}
-		Expect(printName(card, base)).To(Equal("Base"))
-		Expect(printName(card, cards.Print{Key: "OP07-019_p2", Rarity: "Special Card", Artist: "Sunohara"})).To(Equal("SP"))
-		Expect(printName(card, cards.Print{Key: "OP07-019_p3", Rarity: "Leader", Artist: "DAI-XT."})).To(Equal("Alt art"))
-		Expect(printName(card, cards.Print{Key: "OP07-019_p4", Set: "Anime 25th Collection"})).To(Equal("Reprint"))
-		Expect(printName(card, cards.Print{Key: "OP07-019_p5", Artist: "Ryuda"})).To(Equal("Reprint"))
-		Expect(printName(card, cards.Print{Key: "OP07-019_p6", Kind: "aa", Rarity: "Treasure Rare"})).To(Equal("Treasure"))
-		sp := cards.Print{Key: "OP07-019_p2", Rarity: "Special Card", Set: "The Azure Sea's Seven"}
-		Expect(menuPrintName(card, sp)).To(Equal("SP, The Azure Sea's Seven"))
-		Expect(menuPrintName(card, base)).To(Equal("Base"))
+	It("names each art in the menu with its product, but the base card", func() {
+		card := cards.Card{Code: "OP07-019"}
+		base := arts.Version{Key: arts.Key{Source: arts.Limitless, Print: "OP07-019"}, Name: "Base", Product: "500 Years in the Future"}
+		sp := arts.Version{Key: arts.Key{Source: arts.Limitless, Print: "OP07-019_p2"}, Name: "SP", Product: "The Azure Sea's Seven"}
+		cup := arts.Version{Key: arts.Key{Source: arts.Bandai, Print: "OP07-019_p3"}, Name: "Treasure Cup", Product: "Treasure Cup November 2025~"}
+		Expect(menuName(card, base)).To(Equal("Base"))
+		Expect(menuName(card, sp)).To(Equal("SP, The Azure Sea's Seven"))
+		Expect(menuName(card, cup)).To(Equal("Treasure Cup, Treasure Cup November 2025~"))
 	})
 
 	It("draws keywords as on the card and traits in gold", func() {
@@ -366,5 +363,115 @@ var _ = Describe("Cards page", func() {
 		Expect(spans[2].Color).To(Equal(cardGold))
 		Expect(spans[5].Text).To(Equal("Trigger"))
 		Expect(spans[5].Background).To(Equal(kwYellow))
+	})
+
+	Describe("an art printed with several stamps", func() {
+		// regional is Urouge's base card and one Regional art stamped six ways, keyed as the
+		// test pool's Urouge.
+		regional := func(pending int) arts.CardArts {
+			stamp := func(key, short, product string) arts.Version {
+				return arts.Version{Key: arts.Key{Source: arts.Bandai, Print: key}, Name: "Regional", Short: short, Product: product}
+			}
+			return arts.CardArts{Pending: pending, Arts: []arts.Art{
+				{
+					Versions: []arts.Version{{Key: arts.Key{Source: arts.Limitless, Print: "OP14-002"}, Name: "Base", Short: "Base", Product: "The Azure Sea's Seven"}},
+					Same:     []arts.Key{{Source: arts.Bandai, Print: "OP14-002"}},
+				},
+				{Versions: []arts.Version{
+					stamp("OP14-002_p1", "Offline participant", "Offline Regional Participation Pack 2025 Vol.1"),
+					stamp("OP14-002_p3", "Offline finalist", "Offline Regional Finalist Card Set 25-26 Season 1"),
+					stamp("OP14-002_p4", "Offline champion", "Offline Regional Champion Card Set 25-26 Season 1"),
+					stamp("OP14-002_p5", "Online participant", "Online Regional Participation Pack 25-26 Season 1"),
+					stamp("OP14-002_p6", "Online finalist", "Online Regional Finalist Card Set 25-26 Season 1"),
+					stamp("OP14-002_p7", "Online champion", "Online Regional Champion Card Set 25-26 Season 1"),
+				}},
+			}}
+		}
+		open := func(cur sim.ArtChoice, ca arts.CardArts) (*view, *ui.Tester, *fakeActions) {
+			v, tt := cardsTester()
+			fa := &fakeActions{}
+			v.act = fa
+			v.setSimArt("OP14-002", simArtInfo{cur: cur})
+			v.setArts(v.arts.gen, "OP14-002", ca)
+			v.cardsUI.tab = tabArt
+			tt.Frame()
+			return v, tt, fa
+		}
+
+		It("shows once with a count, and lists each version with its product and its own dot", func() {
+			_, tt, fa := open(sim.ArtChoice{Kind: sim.ArtOwn}, regional(0))
+			Expect(tt.HasText("Art · 3")).To(BeTrue())
+			Expect(tt.HasText("Regional")).To(BeTrue())
+			Expect(tt.HasText("6")).To(BeTrue())
+			Expect(tt.HasText("Offline Regional Finalist Card Set 25-26 Season 1")).To(BeFalse())
+
+			Expect(tt.Click("Show Regional, 6 versions")).To(Succeed())
+			tt.Frame()
+			for _, text := range []string{"Regional · 6 versions", "Offline finalist", "Offline Regional Finalist Card Set 25-26 Season 1"} {
+				Expect(tt.HasText(text)).To(BeTrue(), text)
+			}
+			Expect(tt.Click("Use Offline finalist, Offline Regional Finalist Card Set 25-26 Season 1 in the sim")).To(Succeed())
+			tt.Frame()
+			Expect(fa.calls).To(ContainElement("use art OP14-002 OP14-002_p3_bd"))
+		})
+
+		It("shows a version large when its row is clicked", func() {
+			v, tt, _ := open(sim.ArtChoice{Kind: sim.ArtOwn}, regional(0))
+			Expect(tt.Click("Show Regional, 6 versions")).To(Succeed())
+			tt.Frame()
+			Expect(v.viewedKey(v.snap.card("OP14-002"), simArtInfo{}, regional(0))).To(Equal("OP14-002_p1_bd"))
+			Expect(tt.Click("Show Online champion, Online Regional Champion Card Set 25-26 Season 1")).To(Succeed())
+			tt.Frame()
+			Expect(v.viewedKey(v.snap.card("OP14-002"), simArtInfo{}, regional(0))).To(Equal("OP14-002_p7_bd"))
+		})
+
+		It("is in the sim when any version is, and names it above the tabs", func() {
+			_, tt, _ := open(sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP14-002_p5_bd"}, regional(0))
+			Expect(tt.HasText("In the sim: Regional")).To(BeTrue())
+			Expect(tt.HasText("In sim")).To(BeTrue())
+		})
+
+		It("counts Bandai's copy of a printing as that printing", func() {
+			_, tt, _ := open(sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP14-002_bd"}, regional(0))
+			Expect(tt.HasText("In the sim: the base card")).To(BeTrue())
+		})
+
+		It("offers each version in the right-click menu", func() {
+			_, tt, fa := open(sim.ArtChoice{Kind: sim.ArtOwn}, regional(0))
+			Expect(tt.RightClick("Urouge OP14-002")).To(Succeed())
+			tt.Frame()
+			Expect(tt.ChooseMenuItem("Art in the sim", "Regional · 6 versions", "Online finalist")).NotTo(Succeed())
+			Expect(tt.RightClick("Urouge OP14-002")).To(Succeed())
+			tt.Frame()
+			Expect(tt.ChooseMenuItem("Art in the sim", "Regional · 6 versions", "Online Regional Finalist Card Set 25-26 Season 1")).
+				To(Succeed())
+			tt.Frame()
+			Expect(fa.calls).To(ContainElement("use art OP14-002 OP14-002_p6_bd"))
+		})
+
+		It("says how many printings are still being compared", func() {
+			_, tt, _ := open(sim.ArtChoice{Kind: sim.ArtOwn}, regional(3))
+			Expect(tt.HasText("Checking 3 more")).To(BeTrue())
+		})
+
+		It("asks for a card's arts once, again after a reset, and drops a step from before it", func() {
+			v, tt := cardsTester()
+			fa := &fakeActions{}
+			v.act = fa
+			v.setSimArt("OP14-002", simArtInfo{cur: sim.ArtChoice{Kind: sim.ArtOwn}})
+			v.resetArts()
+			tt.Frame()
+			tt.Frame()
+			Expect(fa.artLoads).To(Equal([]string{"OP14-002 1"}))
+
+			v.resetArts()
+			v.setArts(1, "OP14-002", regional(0))
+			tt.Frame()
+			Expect(fa.artLoads).To(Equal([]string{"OP14-002 1", "OP14-002 2"}))
+			Expect(tt.HasText("Art · 2")).To(BeTrue())
+			v.setArts(2, "OP14-002", regional(0))
+			tt.Frame()
+			Expect(tt.HasText("Art · 3")).To(BeTrue())
+		})
 	})
 })

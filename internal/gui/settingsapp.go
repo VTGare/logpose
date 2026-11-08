@@ -2,6 +2,7 @@ package gui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -251,7 +252,12 @@ func (x *appActions) ImportAgain() {
 func (x *appActions) RefreshCards() {
 	go func() {
 		x.note(noteCards, "Refreshing…")
-		if err := x.a.refreshCatalog(x.ctx, true); err != nil {
+		err := x.a.refreshCatalog(x.ctx, true)
+		switch {
+		case errors.Is(err, errRefreshing):
+			x.note(noteCards, "Card data is already being checked.")
+			return
+		case err != nil:
 			x.note(noteCards, "Couldn't reach the card sites. The cards you have stay.")
 			return
 		}
@@ -328,15 +334,21 @@ func (x *appActions) SetArtCap(mb int) {
 	}()
 }
 
+// SetArtDownloads also groups every card again, since pictures that couldn't be read while
+// downloads were off can be now. Turning them on reads Bandai's card list if it is stale.
 func (x *appActions) SetArtDownloads(on bool) {
 	web := x.a.web
 	if web != nil {
 		web.setOff(!on)
 		x.a.view.art = newArtCache(x.a.install(), web, x.a.win.Update)
 	}
+	x.a.view.resetArts()
 	go func() {
 		if err := x.a.opts.Store.SetSetting(x.ctx, store.SettingArtOff, flag(!on)); err != nil {
 			x.a.opts.Log.Error("save art downloads", "err", err)
+		}
+		if on {
+			_ = x.a.refreshCatalog(x.ctx, false)
 		}
 	}()
 }

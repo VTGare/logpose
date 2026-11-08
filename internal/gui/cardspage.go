@@ -7,6 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"github.com/VTGare/logpose/internal/arts"
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/sim"
 	"github.com/VTGare/logpose/internal/store"
@@ -341,6 +342,8 @@ func (v *view) chipRow(c *ui.Context, count int) {
 		ui.Spacer(c)
 		if sync := v.cardSync; sync.running() {
 			ui.Text(c, fmt.Sprintf("Updating · %d of %d sets", sync.done, sync.total)).FontSize(13).TextColor(t.Accent)
+		} else if sync := v.artSync; sync.running() {
+			ui.Text(c, fmt.Sprintf("Reading Bandai's card list · %d of %d", sync.done, sync.total)).FontSize(13).TextColor(t.Accent)
 		}
 		ui.Text(c, cardCount(count)).FontSize(13).TextColor(t.TextMuted)
 		view := 0
@@ -455,7 +458,7 @@ func (v *view) cardTile(c *ui.Context, card cards.Card, w float32) {
 		box := ui.ButtonBase(c).Label(card.Name+" "+card.Code).Size(w, h).Radius(6).Background(ui.Transparent).
 			Padding(0).FocusRing(false)
 		if box.Clicked() {
-			s.selected, s.print = card.Code, 0
+			s.selected, s.viewed, s.versions = card.Code, "", ""
 		}
 		box.ContextMenu(v.cardMenu(card))
 		// Hover and keyboard focus lift the card. It has a printed border of its own, so a ring
@@ -537,7 +540,7 @@ func (v *view) cardRows(c *ui.Context, shown []cards.Card) {
 			row.Background(t.Accent.Alpha(0.12))
 		}
 		if row.Clicked() {
-			s.selected, s.print = card.Code, 0
+			s.selected, s.viewed, s.versions = card.Code, "", ""
 		}
 		row.ContextMenu(v.cardMenu(card))
 		row.Children(func() {
@@ -582,7 +585,8 @@ func counterShort(n int) string {
 func (v *view) cardDetail(c *ui.Context, card cards.Card) {
 	t := c.Theme()
 	info, loaded := v.simArtFor(card)
-	key := v.viewedKey(card, info)
+	ca, _ := v.artsFor(card)
+	key := v.viewedKey(card, info, ca)
 	if v.prefs.panelWidth <= panelStrip {
 		v.panelStrip(c)
 		return
@@ -606,12 +610,12 @@ func (v *view) cardDetail(c *ui.Context, card cards.Card) {
 						ui.Text(c, card.Rarity).FontSize(13).TextColor(t.TextMuted)
 					}
 					legalityBadge(c, card)
-					v.simArtLine(c, card, info, loaded)
+					v.simArtLine(c, ca, info, loaded)
 					ui.Box(c).Height(4)
 					cardStats(c, card)
 				})
 			})
-			v.detailTabs(c, card, info, loaded)
+			v.detailTabs(c, key, ca, info, loaded)
 			if v.cardsUI.tab == tabArt {
 				v.artChoices(c, card, info, loaded)
 				return
@@ -627,16 +631,17 @@ const (
 	tabArt
 )
 
-// detailTabs switches the panel between the card's text and its art.
-func (v *view) detailTabs(c *ui.Context, card cards.Card, info simArtInfo, loaded bool) {
+// detailTabs switches the panel between the card's text and its art. key is the picture shown
+// large, which the buttons save and copy.
+func (v *view) detailTabs(c *ui.Context, key string, ca arts.CardArts, info simArtInfo, loaded bool) {
 	t := c.Theme()
-	labels := []string{"Card", fmt.Sprintf("Art · %d", artCount(card, info, loaded))}
+	labels := []string{"Card", fmt.Sprintf("Art · %d", artCount(ca, info, loaded))}
 	ui.Column(c).Children(func() {
 		ui.Row(c).AlignItems(ui.End).Gap(6).Children(func() {
 			v.tabList(c, labels)
 			ui.Spacer(c)
 			ui.Box(c).Padding(0, 0, 6, 0).Children(func() {
-				ui.Row(c).Gap(6).Children(func() { v.artButtons(c, v.viewedKey(card, info)) })
+				ui.Row(c).Gap(6).Children(func() { v.artButtons(c, key) })
 			})
 		})
 		ui.Box(c).Height(1).Background(t.Border)
@@ -667,8 +672,8 @@ func (v *view) tabList(c *ui.Context, labels []string) {
 }
 
 // artCount is how many pictures the Art tab offers.
-func artCount(card cards.Card, info simArtInfo, loaded bool) int {
-	n := len(printsOf(card))
+func artCount(ca arts.CardArts, info simArtInfo, loaded bool) int {
+	n := len(ca.Arts)
 	if info.ownFile != "" {
 		n++
 	}
@@ -679,16 +684,17 @@ func artCount(card cards.Card, info simArtInfo, loaded bool) int {
 }
 
 // simArtLine names the art the sim shows when it isn't the sim's own. A click opens the Art tab.
-func (v *view) simArtLine(c *ui.Context, card cards.Card, info simArtInfo, loaded bool) {
+func (v *view) simArtLine(c *ui.Context, ca arts.CardArts, info simArtInfo, loaded bool) {
 	if !loaded || info.noSim || info.cur.Kind == sim.ArtOwn {
 		return
 	}
 	name := "your own file"
 	if info.cur.Kind == sim.ArtPrint {
-		name = "the base card"
-		for _, p := range printsOf(card) {
-			if p.Key == info.cur.Key && p.Key != card.Code {
-				name = printName(card, p)
+		name = "other art"
+		if art, _, ok := ca.Find(info.cur.Key); ok {
+			name = art.Name()
+			if art.Name() == "Base" {
+				name = "the base card"
 			}
 		}
 	}
@@ -815,54 +821,6 @@ func tags(c *ui.Context, values []string) {
 			ui.Text(c.Key(i), v).FontSize(12).Padding(3, 9).Radius(11).Background(t.Surface).TextColor(t.Text)
 		}
 	})
-}
-
-// printName names a printing under its picture, from Limitless's kind and rarity. Bandai
-// prints SP cards and new art for older cards in later sets, so a printing without a kind is a
-// reprint only when its artist is the base card's.
-func printName(card cards.Card, p cards.Print) string {
-	switch p.Kind {
-	case "aa":
-		if p.Rarity == "Treasure Rare" {
-			return "Treasure"
-		}
-		return "Alt art"
-	case "manga":
-		return "Manga"
-	case "fa":
-		return "Full art"
-	case "wanted":
-		return "Wanted"
-	case "jr":
-		return "Pirate foil"
-	case "tf":
-		return "Textured"
-	case "panda":
-		return "Panda"
-	case "":
-	default:
-		return p.Rarity
-	}
-	switch {
-	case p.Key == card.Code || !strings.Contains(p.Key, "_"):
-		return "Base"
-	case p.Rarity == "Special Card":
-		return "SP"
-	case p.Rarity == "Treasure Rare":
-		return "Treasure"
-	case p.Artist != "" && p.Artist != baseArtist(card):
-		return "Alt art"
-	}
-	return "Reprint"
-}
-
-func baseArtist(card cards.Card) string {
-	for _, p := range card.Prints {
-		if p.Key == card.Code {
-			return p.Artist
-		}
-	}
-	return ""
 }
 
 // Keyword colors follow the cards: blue for timings, pink for Once Per Turn, red for Counter,
