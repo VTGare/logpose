@@ -175,6 +175,7 @@ func (v *view) build(c *ui.Context) {
 	v.replayKeys(c)
 	v.applyLook(c)
 	v.showToast(c)
+	toasts(c)
 	open := v.detail.fingerprint != ""
 	shown := v.page
 	if open {

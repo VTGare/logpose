@@ -270,6 +270,23 @@ var _ = Describe("Cards page", func() {
 		Expect(fa.calls).To(ContainElement("use art OP01-024 "))
 	})
 
+	It("closes the message after a change without undoing it", func() {
+		v, tt := cardsTester()
+		fa := &fakeActions{}
+		v.act = fa
+		v.cardsUI.selected = "OP01-024"
+		luffy := v.snap.card("OP01-024")
+		alt := sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024_p1"}
+		prev := sim.ArtChoice{Kind: sim.ArtOwn}
+		v.simArtDone(luffy, alt, simArtInfo{cur: alt}, &prev, nil)
+		tt.Frame()
+		Expect(tt.HasText("The sim now shows Monkey D. Luffy's Alt art.")).To(BeTrue())
+		Expect(tt.Click("Close")).To(Succeed())
+		tt.Frame()
+		Expect(tt.HasText("The sim now shows Monkey D. Luffy's Alt art.")).To(BeFalse())
+		Expect(fa.calls).NotTo(ContainElement("use art OP01-024 "))
+	})
+
 	It("shows the picture a click picks without changing the sim", func() {
 		v, tt := cardsTester()
 		fa := &fakeActions{}
