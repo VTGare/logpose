@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 
@@ -431,7 +432,7 @@ func (v *view) cardWall(c *ui.Context, shown []cards.Card) {
 	if width <= 0 {
 		width = 600
 	}
-	cols := max(2, int((width+tileGap)/(tileMin+tileGap)))
+	cols := max(2, int((width+tileGap)/(tileWidthMin(c)+tileGap)))
 	tile := (width - tileGap*float32(cols-1)) / float32(cols)
 	rows := (len(shown) + cols - 1) / cols
 	wall := ui.List(c, &s.wall, rows, func(r int) {
@@ -448,6 +449,20 @@ func (v *view) cardWall(c *ui.Context, shown []cards.Card) {
 }
 
 const captionH = 20
+
+// tileWidthMin is the narrowest a tile gets: tileMin, or the widest caption when the font
+// makes that wider. Its parts don't shrink, so a narrower tile pushes them into the next one.
+func tileWidthMin(c *ui.Context) float32 {
+	code, _ := c.MeasureText(0, ui.Span{Text: "PRB02-000", Size: 12, Weight: 500})
+	var tag float32
+	for _, l := range []cards.Legality{cards.Banned, cards.Restricted, cards.Rotated, cards.Unreleased} {
+		name, _ := legalityTag(l)
+		w, _ := c.MeasureText(0, ui.Span{Text: name, Size: 11.5})
+		tag = max(tag, w)
+	}
+	// The sim icon is 12 wide, and the row has a 6 gap between each of its four parts.
+	return max(tileMin, float32(math.Ceil(float64(code+12+3*6+tag))))
+}
 
 func (v *view) cardTile(c *ui.Context, card cards.Card, w float32) {
 	s := &v.cardsUI
