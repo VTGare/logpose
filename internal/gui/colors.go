@@ -69,8 +69,10 @@ func graphite() *ui.Theme {
 }
 
 var (
-	panelDark  = ui.Hex("#1A1A1D")
-	faintDark  = ui.Hex("#6C6C75")
+	panelDark = ui.Hex("#1A1A1D")
+	// faintDark keeps 4.5:1 contrast on the page, the panels and the controls, so small text
+	// stays readable.
+	faintDark  = ui.Hex("#8A8A94")
 	panelShade = ui.RGBA(0, 0, 0, 0.30)
 )
 
