@@ -41,11 +41,14 @@ var _ = Describe("webArt", func() {
 		hold    chan struct{}
 	)
 
+	var body []byte
 	BeforeEach(func() {
 		dir = GinkgoT().TempDir()
-		var buf bytes.Buffer
-		Expect(png.Encode(&buf, solid(600, 838, color.RGBA{200, 40, 40, 255}))).To(Succeed())
-		body := buf.Bytes()
+		if body == nil {
+			var buf bytes.Buffer
+			Expect(png.Encode(&buf, solid(600, 838, color.RGBA{200, 40, 40, 255}))).To(Succeed())
+			body = buf.Bytes()
+		}
 		size = int64(len(body))
 		hits.Store(0)
 		paths = make(chan string, 100)

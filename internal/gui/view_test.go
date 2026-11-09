@@ -51,7 +51,12 @@ func testSnapshot(n int) *snapshot {
 func tester(s *snapshot) (*view, *ui.Tester) {
 	v := newView(nil)
 	v.snap = s
-	tt := ui.NewTester(v.build, 1180, 780)
+	// A Tester's clock stands still. A transition would never end, and every settle would run
+	// all 20 frames mygo allows. DisableAnimations shows each frame's changes at once.
+	tt := ui.NewTester(func(c *ui.Context) {
+		c.DisableAnimations()
+		v.build(c)
+	}, 1180, 780)
 	// The specs check what pages show, and frames of motion only slow them down.
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true, TextScale: 1})
 	return v, tt
@@ -264,7 +269,6 @@ var _ = Describe("sidebar", func() {
 			}
 			for x := from; (step > 0 && x < to) || (step < 0 && x > to); x += step {
 				tt.Move(x, 400)
-				tt.Frame()
 			}
 			tt.Release(to, 400)
 			tt.Frame()
