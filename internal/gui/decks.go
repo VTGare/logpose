@@ -40,7 +40,7 @@ type decksState struct {
 	// renaming shows the rename bar under the build row for the chosen build.
 	renaming bool
 	rename   string
-	// editOnOpen opens the core editor on the chosen build once the page has one.
+	// editOnOpen opens the core editor on the chosen build, or the first, once the page has one.
 	editOnOpen bool
 }
 
@@ -71,7 +71,9 @@ func suggestionKey(s stats.Suggestion) string { return strings.Join(s.Core, ",")
 // leaderDecks are the leader's games in scope with what the deck did, how they split into the
 // user's builds, and the suggested builds among the rest.
 type leaderDecks struct {
-	leader      string
+	leader string
+	// matches are the leader's games in scope, oldest first, and games those with deck facts.
+	matches     []stats.Match
 	games       []stats.DeckGame
 	staples     []string
 	builds      []store.Build
@@ -130,7 +132,7 @@ func (d leaderDecks) chosen(id int64) (store.Build, bool) {
 }
 
 func (v *view) deckData(leader string, ms []stats.Match) leaderDecks {
-	d := leaderDecks{leader: leader}
+	d := leaderDecks{leader: leader, matches: ms}
 	for _, m := range ms {
 		if g, ok := v.snap.Decks[m.Fingerprint]; ok {
 			d.games = append(d.games, g)
@@ -192,8 +194,8 @@ func (v *view) suggestions(leader string) []stats.Suggestion {
 // minSuggested is the fewest games a suggested build is shown for. Smaller groups fold away.
 const minSuggested = 3
 
-// buildRow is the leader's builds, a chip for a new one, and how many games are in no build
-// with a link to the suggestions. Without builds, the suggestions get a chip of their own.
+// buildRow chooses the scope: Overall, the leader's builds and No build, then a chip for a new
+// build and a link to the suggestions. Without builds, the suggestions get a chip of their own.
 func (v *view) buildRow(c *ui.Context, d leaderDecks) {
 	t := c.Theme()
 	s := &v.decks
@@ -207,9 +209,7 @@ func (v *view) buildRow(c *ui.Context, d leaderDecks) {
 				ui.Text(c, "No builds yet · "+games(len(d.games))).FontSize(12).TextColor(faintColor(t)).SingleLine()
 				return
 			}
-			ui.Text(c, games(d.unbuilt)+" in no build").FontSize(12).TextColor(faintColor(t)).SingleLine()
 			if len(d.suggestions) > 0 {
-				ui.Text(c, "·").FontSize(12).TextColor(faintColor(t))
 				if linkButton(c, fmt.Sprintf("%d suggested", shownSuggestions(d))) {
 					s.suggesting, s.tab, s.edit = true, tabList, nil
 				}
@@ -221,12 +221,26 @@ func (v *view) buildRow(c *ui.Context, d leaderDecks) {
 	}
 }
 
-// buildChips choose the build the tabs show. Each has its actions on right-click, and the
-// chosen one on its ⋯ too. Without builds, one chip opens List on the suggestions.
+// buildChips choose the scope the tabs show. Each build has its actions on right-click, and
+// the chosen one on its ⋯ too. Without builds, one chip opens List on the suggestions.
 func (v *view) buildChips(c *ui.Context, d leaderDecks) {
+	t := c.Theme()
 	s := &v.decks
+	if len(d.builds) > 0 {
+		overall := deckScope{}
+		if buildChip(c.Key("overall"), "Overall", scopeMeta(d.matches), false, s.scope == overall) {
+			s.scope, s.suggesting = overall, false
+		}
+		ui.Box(c).Size(1, 34).Background(t.Border).Margin(0, 4)
+	}
 	for _, b := range d.builds {
 		v.savedBuildChip(c.Key(fmt.Sprint("b", b.ID)), d, b)
+	}
+	none := deckScope{kind: scopeNoBuild}
+	if len(d.builds) > 0 && (d.unbuilt > 0 || s.scope == none) {
+		if buildChip(c.Key("none"), "No build", scopeMeta(d.scopedMatches(none, d.matches)), false, s.scope == none) {
+			s.scope, s.suggesting = none, false
+		}
 	}
 	if len(d.builds) == 0 && len(d.suggestions) > 0 {
 		if buildChip(c.Key("suggested"), fmt.Sprintf("%d suggested", shownSuggestions(d)), "Builds to make", true,
@@ -246,7 +260,7 @@ func (v *view) savedBuildChip(c *ui.Context, d leaderDecks, b store.Build) {
 	menu := func(m *ui.Menu) { v.buildMenu(m, d, b) }
 	group := ui.Row(c).AlignItems(ui.Stretch).Radius(10).Clip().Border(1, t.Border.Alpha(0.6))
 	if on {
-		group.Background(t.Surface).Border(1, t.Accent)
+		group.Background(t.Accent.Alpha(0.12)).Border(1, t.Accent)
 	}
 	group.Children(func() {
 		chip := ui.ButtonBase(c).Label(b.Name).Column().Gap(1).Padding(7, 12).Background(ui.Transparent).
@@ -258,8 +272,11 @@ func (v *view) savedBuildChip(c *ui.Context, d leaderDecks, b store.Build) {
 			s.scope, s.version, s.suggesting = buildScope(b.ID), time.Time{}, false
 		}
 		chip.Children(func() {
-			ui.Text(c, b.Name).FontSize(13).FontWeight(600).SingleLine()
-			ui.Text(c, buildMeta(d.assignment.Builds[b.ID])).FontSize(12).TextColor(faintColor(t)).SingleLine()
+			ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
+				v.coreThumbs(c, b.Core)
+				ui.Text(c, b.Name).FontSize(13).FontWeight(600).SingleLine()
+			})
+			ui.Text(c, scopeMeta(d.scopedMatches(buildScope(b.ID), d.matches))).FontSize(12).TextColor(faintColor(t)).SingleLine()
 		})
 		if !on {
 			return
@@ -353,10 +370,14 @@ func (v *view) chooseBuild(d leaderDecks) {
 	if _, ok := d.chosen(s.scope.build); s.scope.kind == scopeBuild && !ok {
 		s.scope = deckScope{}
 	}
-	if s.scope.kind != scopeBuild && len(d.builds) > 0 {
-		s.scope = buildScope(d.builds[0].ID)
+	if len(d.builds) == 0 {
+		s.scope = deckScope{}
 	}
-	if b, ok := d.chosen(s.scope.build); ok && s.scope.kind == scopeBuild && s.editOnOpen {
+	if s.editOnOpen && len(d.builds) > 0 {
+		if s.scope.kind != scopeBuild {
+			s.scope = buildScope(d.builds[0].ID)
+		}
+		b, _ := d.chosen(s.scope.build)
 		s.editOnOpen = false
 		v.startEdit(b)
 	}
@@ -385,6 +406,32 @@ func smallSuggestions(d leaderDecks) int {
 		}
 	}
 	return n
+}
+
+// coreThumbs are small overlapping art of the first core cards.
+func (v *view) coreThumbs(c *ui.Context, core []string) {
+	const w, h, step, most = 12, 17, 8, 3
+	n := min(len(core), most)
+	if n == 0 {
+		return
+	}
+	ui.Box(c).Size(w+float32(n-1)*step, h).Children(func() {
+		for i, code := range core[:n] {
+			v.cardArt(c.Key(code), code, w, h).Absolute().Left(float32(i) * step).Top(0)
+		}
+	})
+}
+
+func scopeMeta(ms []stats.Match) string {
+	var r stats.Record
+	for _, m := range ms {
+		r.Add(m.Result)
+	}
+	meta := games(len(ms)) + " · " + record(r)
+	if rate, ok := r.Rate(); ok {
+		meta += " · " + pct(rate)
+	}
+	return meta
 }
 
 func buildMeta(gs []stats.DeckGame) string {
@@ -434,7 +481,7 @@ func buildChip(c *ui.Context, name, meta string, suggested, on bool) bool {
 	nameCol := t.Text
 	switch {
 	case on:
-		chip.Background(t.Surface).Border(1, t.Accent)
+		chip.Background(t.Accent.Alpha(0.12)).Border(1, t.Accent)
 	case chip.Hovered():
 		chip.Background(t.SurfaceHover)
 	}

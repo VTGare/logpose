@@ -44,11 +44,11 @@ func deckSnapshot(builds ...store.Build) *snapshot {
 }
 
 var _ = Describe("Decks page", func() {
-	It("shows the leader's builds with their record, and the suggestions only as a link", func() {
+	It("shows Overall, the builds and No build with their records, and the suggestions only as a link", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
 		_, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
-		for _, text := range []string{"Wano/Miracle", "5 games · 5–0 · 100%", "5 games in no build"} {
+		for _, text := range []string{"Overall", "10 games · 5–5 · 50%", "Wano/Miracle", "5 games · 5–0 · 100%", "No build", "5 games · 0–5 · 0%"} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
 		Expect(tt.HasText("Builds to make")).To(BeFalse())
@@ -155,10 +155,12 @@ var _ = Describe("Decks page", func() {
 		Expect(f.dismissals[0].Leader).To(Equal("OP13-001"))
 	})
 
-	It("opens List on the first build", func() {
+	It("opens on Overall, with a build's list a click away", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
-		_, tt := tester(deckSnapshot(wano))
+		v, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(v.decks.scope).To(Equal(deckScope{}))
+		Expect(tt.Click("Wano/Miracle")).To(Succeed())
 		Expect(tt.Click("List")).To(Succeed())
 		tt.Frame()
 		Expect(tt.HasText("Latest list")).To(BeTrue())
@@ -168,6 +170,7 @@ var _ = Describe("Decks page", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
 		_, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("Wano/Miracle")).To(Succeed())
 		Expect(tt.Click("List")).To(Succeed())
 		tt.Frame()
 		for _, text := range []string{"Latest list", "Cost curve", "Counters", "Types", "Traits", "×4"} {
@@ -179,6 +182,7 @@ var _ = Describe("Decks page", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
 		v, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("Wano/Miracle")).To(Succeed())
 		v.decks.tab = tabCards
 		tt.Frame()
 		Expect(v.decks.tab).To(Equal(tabCards))
@@ -202,6 +206,7 @@ var _ = Describe("Decks page", func() {
 		s.Decks["4"] = g
 		v, tt := tester(s)
 		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("Wano/Miracle")).To(Succeed())
 		Expect(tt.Click("List")).To(Succeed())
 		tt.Frame()
 		for _, text := range []string{"Latest list", "Latest", "First list", "Show changes"} {
@@ -260,6 +265,19 @@ var _ = Describe("Decks page", func() {
 		Expect(d.scopedGames(deckScope{kind: scopeNoBuild})).To(HaveLen(5))
 	})
 
+	It("chooses No build from its chip, and drops Overall and No build without builds", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
+		v, tt := tester(deckSnapshot(wano))
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("No build")).To(Succeed())
+		Expect(v.decks.scope).To(Equal(deckScope{kind: scopeNoBuild}))
+
+		_, tt = tester(deckSnapshot())
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Texts()).NotTo(ContainElement("Overall"))
+		Expect(tt.Texts()).NotTo(ContainElement("No build"))
+	})
+
 	It("counts a game without deck facts in No build", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
 		s := deckSnapshot(wano)
@@ -276,6 +294,7 @@ var _ = Describe("Decks page", func() {
 		nova := store.Build{ID: 2, Leader: "OP13-001", Name: "Supernovas", Core: []string{"KID"}}
 		v, tt := tester(deckSnapshot(wano, nova))
 		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("Wano/Miracle")).To(Succeed())
 		v.decks.tab = tabCards
 		tt.Frame()
 		Expect(tt.Click("Supernovas")).To(Succeed())
@@ -352,6 +371,7 @@ var _ = Describe("Decks page", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
 		v, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("Wano/Miracle")).To(Succeed())
 		Expect(tt.Click("1 suggested")).To(Succeed())
 		tt.Frame()
 		Expect(tt.HasText("Back to Wano/Miracle")).To(BeTrue())
