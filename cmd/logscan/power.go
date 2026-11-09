@@ -10,19 +10,21 @@ import (
 	"github.com/VTGare/logpose/internal/sim"
 )
 
-// printedPower loads card data as the app does: the sim's OPBounty pack, then a cached
-// catalog over it. It returns nil without a sim folder.
-func printedPower(simDir, catalog string) (func(string) int, error) {
-	if simDir == "" {
+// printedPower loads card data as the app does: the sim's OPBounty pack, a cached catalog over
+// it, and the cached Limitless library over both. It returns nil when given none of them.
+func printedPower(simDir, catalog, library string) (func(string) int, error) {
+	if simDir == "" && catalog == "" && library == "" {
 		return nil, nil
 	}
-	install, err := sim.Open(simDir)
-	if err != nil {
-		return nil, err
-	}
-	db, err := cards.LoadPack(install.OPBountyPack())
-	if err != nil {
-		return nil, err
+	db := cards.NewDB()
+	if simDir != "" {
+		install, err := sim.Open(simDir)
+		if err != nil {
+			return nil, err
+		}
+		if db, err = cards.LoadPack(install.OPBountyPack()); err != nil {
+			return nil, err
+		}
 	}
 	if catalog != "" {
 		cat, err := cards.LoadCatalog(catalog)
@@ -30,6 +32,13 @@ func printedPower(simDir, catalog string) (func(string) int, error) {
 			return nil, err
 		}
 		cat.Apply(db)
+	}
+	if library != "" {
+		lib, err := cards.LoadLibrary(library)
+		if err != nil {
+			return nil, err
+		}
+		lib.Apply(db)
 	}
 	return func(code string) int { return db.Card(code).Power }, nil
 }

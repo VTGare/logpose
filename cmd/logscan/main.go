@@ -31,6 +31,7 @@ func main() {
 	replays := flag.Bool("replay", false, "rebuild every game's board and report where it disagrees with the log")
 	simDir := flag.String("sim", "", "the sim's folder, whose card data gives printed power for -replay")
 	catalog := flag.String("catalog", "", "a cached tcgcsv card catalog, for printed power newer sets lack in the sim's data")
+	library := flag.String("library", "", "the app's library.json of Limitless cards, whose printed power wins over the rest")
 	durations := flag.String("durations", "", "phrase=duration overrides for -replay, separated by ';', as \"Buff X N=next\"")
 	steps := flag.String("steps", "", "print the replay steps of the games in one log file")
 	flag.Parse()
@@ -53,7 +54,7 @@ func main() {
 		os.Exit(2)
 	}
 	if *replays {
-		power, err := printedPower(*simDir, *catalog)
+		power, err := printedPower(*simDir, *catalog, *library)
 		if err == nil {
 			err = setDurations(*durations)
 		}
