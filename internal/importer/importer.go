@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/VTGare/logpose/internal/sim"
 	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/store"
 )
@@ -17,6 +18,10 @@ type Result struct {
 	Files int
 	Games int
 	New   int
+	// Updated counts stored games replaced by a copy that reaches the game's end, such as the .log
+	// the sim saves when a game it wrote to a .partial.log ends. Copies of a game still in
+	// progress replace the stored one without counting, so the app doesn't rebuild every pass.
+	Updated int
 	// Reparsed counts stored games parsed again because the parser changed.
 	Reparsed int
 }
@@ -25,6 +30,7 @@ func (r *Result) add(o Result) {
 	r.Files += o.Files
 	r.Games += o.Games
 	r.New += o.New
+	r.Updated += o.Updated
 	r.Reparsed += o.Reparsed
 }
 
@@ -48,7 +54,7 @@ func Dir(ctx context.Context, st *store.Store, dir string) (Result, error) {
 }
 
 func File(ctx context.Context, st *store.Store, path string) (Result, error) {
-	f, err := os.Open(path)
+	f, err := sim.OpenShared(path)
 	if err != nil {
 		return Result{}, err
 	}
@@ -62,12 +68,17 @@ func File(ctx context.Context, st *store.Store, path string) (Result, error) {
 	}
 	r := Result{Files: 1, Games: len(games)}
 	for i := range games {
-		created, err := st.SaveGame(ctx, &games[i], store.Source{File: filepath.Base(path), Index: i, PlayedAt: played})
+		saved, err := st.SaveGame(ctx, &games[i], store.Source{File: filepath.Base(path), Index: i, PlayedAt: played})
 		if err != nil {
 			return r, err
 		}
-		if created {
+		switch saved {
+		case store.Added:
 			r.New++
+		case store.Replaced:
+			if games[i].Closed {
+				r.Updated++
+			}
 		}
 	}
 	return r, nil

@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"time"
+
+	"github.com/VTGare/logpose/internal/sim"
 )
 
 // Follower reads Player.log as the sim writes it. It opens the file for each read and closes it
@@ -66,7 +68,7 @@ func (f *Follower) poll() {
 }
 
 func (f *Follower) read() {
-	file, err := open(f.Path)
+	file, err := sim.OpenShared(f.Path)
 	if err != nil {
 		f.restart(nil)
 		return

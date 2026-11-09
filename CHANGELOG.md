@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- A game's result shows as soon as it ends. Before, it stayed Unknown until logpose restarted.
+- The sim can always save a finished game while logpose is reading it.
+
 ## 0.1.1
 
 Fixes for logs from the sim's latest update.

@@ -3,8 +3,10 @@ package importer_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -135,6 +137,43 @@ var _ = Describe("Watcher", func() {
 
 		cancel()
 		Eventually(done).Should(Receive(BeNil()))
+	})
+
+	It("reports a game in progress, then the copy the sim saves when it ends, and nothing between", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		DeferCleanup(cancel)
+		st, err := store.Open(ctx, filepath.Join(GinkgoT().TempDir(), "logpose.db"))
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() { Expect(st.Close()).To(Succeed()) })
+		dir := GinkgoT().TempDir()
+		data, err := os.ReadFile(filepath.Join("testdata", "2026-11-05T15.37.33.log"))
+		Expect(err).NotTo(HaveOccurred())
+		// The game needs more moves than go into a fingerprint, so a growing log keeps its own.
+		moves := func(from, to int) []byte {
+			var b []byte
+			for seq := from; seq < to; seq++ {
+				b = fmt.Appendf(b, "RZ1|%d|1|Don|5|0|9|0|1|1|0|0|0\n", seq)
+			}
+			return b
+		}
+		started := append(slices.Clone(data), moves(100, 170)...)
+		partial := filepath.Join(dir, "2026-11-05T15.37.33.partial.log")
+		Expect(os.WriteFile(partial, started, 0o600)).To(Succeed())
+
+		results := make(chan importer.Result, 4)
+		w := &importer.Watcher{Dir: dir, Store: st, Interval: 20 * time.Millisecond, OnImport: func(r importer.Result) { results <- r }}
+		go func() { _ = w.Run(ctx) }()
+		Eventually(results).Should(Receive(HaveField("New", 1)))
+
+		grown := append(started, moves(170, 180)...)
+		Expect(os.WriteFile(partial, grown, 0o600)).To(Succeed())
+		Consistently(results, 150*time.Millisecond).ShouldNot(Receive())
+		Expect(st.Games(ctx)).To(HaveLen(1))
+
+		ended := append(grown, "RZ1|END|999|1|opponent_concede|ab12\n"...)
+		Expect(os.WriteFile(filepath.Join(dir, "2026-11-05T15.37.33.log"), ended, 0o600)).To(Succeed())
+		Expect(os.Remove(partial)).To(Succeed())
+		Eventually(results).Should(Receive(And(HaveField("New", 0), HaveField("Updated", 1))))
 	})
 
 	It("parses stored games again on its first pass when the parser changed", func() {

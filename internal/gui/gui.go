@@ -441,7 +441,7 @@ func (a *app) watch(ctx context.Context) {
 		Dir:   in.Logs(),
 		Store: a.opts.Store,
 		OnImport: func(r importer.Result) {
-			a.opts.Log.Info("imported logs", "files", r.Files, "games", r.Games, "new", r.New, "reparsed", r.Reparsed)
+			a.opts.Log.Info("imported logs", "files", r.Files, "games", r.Games, "new", r.New, "updated", r.Updated, "reparsed", r.Reparsed)
 			a.refresh(ctx)
 		},
 		OnError: func(err error) { a.opts.Log.Warn("import", "err", err) },

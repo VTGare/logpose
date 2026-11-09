@@ -62,12 +62,12 @@ var _ = Describe("Store", func() {
 
 	It("saves a game once", func() {
 		g := fixture()[0]
-		created, err := st.SaveGame(ctx, &g, src)
+		saved, err := st.SaveGame(ctx, &g, src)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(created).To(BeTrue())
-		created, err = st.SaveGame(ctx, &g, src)
+		Expect(saved).To(Equal(Added))
+		saved, err = st.SaveGame(ctx, &g, src)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(created).To(BeFalse())
+		Expect(saved).To(Equal(Kept))
 	})
 
 	It("returns the log text it was given", func() {
@@ -109,9 +109,9 @@ var _ = Describe("Store", func() {
 		early.Text = "partial\n"
 		_, err := st.SaveGame(ctx, &early, src)
 		Expect(err).NotTo(HaveOccurred())
-		created, err := st.SaveGame(ctx, &full, src)
+		saved, err := st.SaveGame(ctx, &full, src)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(created).To(BeFalse())
+		Expect(saved).To(Equal(Replaced))
 		Expect(st.GameLog(ctx, full.Fingerprint)).To(Equal(full.Text))
 	})
 

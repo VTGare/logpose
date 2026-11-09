@@ -76,16 +76,27 @@ func (g Game) Player(id string) (GamePlayer, bool) {
 	return GamePlayer{}, false
 }
 
+// Saved is what SaveGame did with a game.
+type Saved int
+
+const (
+	Kept Saved = iota
+	Added
+	// Replaced means the stored copy was saved before the game ended.
+	Replaced
+)
+
 // SaveGame stores a parsed game with its log text. A game already stored keeps its copy, unless
 // the new one has more moves, or as many and the sim's END line the stored one lacks. The sim
-// writes a game to a .partial.log while it runs, and a concession at the end adds no move. It reports whether the game is new.
-func (s *Store) SaveGame(ctx context.Context, g *simlog.Game, src Source) (bool, error) {
+// writes a game to a .partial.log while it runs, and a concession at the end adds no move.
+func (s *Store) SaveGame(ctx context.Context, g *simlog.Game, src Source) (Saved, error) {
 	log, err := compress(g.Text)
 	if err != nil {
-		return false, err
+		return Kept, err
 	}
-	created := false
+	var saved Saved
 	err = s.inTx(ctx, func(tx *sql.Tx) error {
+		saved = Replaced
 		var (
 			moves  int
 			stored []byte
@@ -93,13 +104,15 @@ func (s *Store) SaveGame(ctx context.Context, g *simlog.Game, src Source) (bool,
 		err := tx.QueryRowContext(ctx, `SELECT moves, log FROM games WHERE fingerprint = ?`, g.Fingerprint).Scan(&moves, &stored)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
-			created = true
+			saved = Added
 		case err != nil:
 			return err
 		case moves > len(g.Moves):
+			saved = Kept
 			return nil
 		case moves == len(g.Moves):
 			if !g.Closed {
+				saved = Kept
 				return nil
 			}
 			text, err := decompress(stored)
@@ -107,6 +120,7 @@ func (s *Store) SaveGame(ctx context.Context, g *simlog.Game, src Source) (bool,
 				return err
 			}
 			if simlog.Closed(text) {
+				saved = Kept
 				return nil
 			}
 		}
@@ -122,7 +136,10 @@ func (s *Store) SaveGame(ctx context.Context, g *simlog.Game, src Source) (bool,
 		}
 		return writeParsed(ctx, tx, g)
 	})
-	return created, err
+	if err != nil {
+		return Kept, err
+	}
+	return saved, nil
 }
 
 // writeParsed rewrites everything parsed from a game's log.

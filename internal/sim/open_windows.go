@@ -1,13 +1,13 @@
-package live
+package sim
 
 import (
 	"os"
 	"syscall"
 )
 
-// open shares the file for deletion as well, so the sim can still rename Player.log while
-// logpose reads it.
-func open(path string) (*os.File, error) {
+// OpenShared opens a file the sim writes for reading. It shares the file for deletion as well,
+// so the sim can still rename Player.log or a .partial.log while logpose reads it.
+func OpenShared(path string) (*os.File, error) {
 	p, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
 		return nil, err

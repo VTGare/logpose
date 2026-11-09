@@ -16,14 +16,13 @@ type fileState struct {
 }
 
 // Watcher imports the sim's logs as they're saved. It polls the folder rather than subscribing
-// to changes: it holds about a hundred small files, and the sim writes each one once, when a
-// game ends.
+// to changes, since it holds about a hundred small files.
 type Watcher struct {
 	Dir      string
 	Store    *store.Store
 	Interval time.Duration
-	// OnImport is called after each pass that stored a new game, and after the first pass
-	// whatever it found. It runs on the watcher's goroutine.
+	// OnImport is called after each pass that stored a new game or a later copy of one, and
+	// after the first pass whatever it found. It runs on the watcher's goroutine.
 	OnImport func(Result)
 	// OnError is called with errors that don't stop the watcher, such as a log it couldn't read.
 	OnError func(error)
@@ -46,7 +45,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if (first || r.New > 0) && w.OnImport != nil {
+		if (first || r.New > 0 || r.Updated > 0) && w.OnImport != nil {
 			w.OnImport(r)
 		}
 		first = false
