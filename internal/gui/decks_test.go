@@ -310,6 +310,30 @@ var _ = Describe("Decks page", func() {
 		Expect(v.leaderStats.turnOrder.First.Losses + v.leaderStats.turnOrder.Second.Losses).To(Equal(0))
 	})
 
+	It("compares the builds and No build under Overall, and a row click chooses one", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
+		v, tt := tester(deckSnapshot(wano))
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.HasText("Builds of Monkey D. Luffy")).To(BeTrue())
+		rows := v.leaderStats.decks.scopeRows()
+		Expect(rows).To(HaveLen(2))
+		Expect(rows[0].name).To(Equal("Wano/Miracle"))
+		Expect(rows[0].stats.Record).To(Equal(stats.Record{Wins: 5}))
+		Expect(rows[1].name).To(Equal("No build"))
+		Expect(rows[1].stats.Record).To(Equal(stats.Record{Losses: 5}))
+
+		Expect(tt.Click("Show No build")).To(Succeed())
+		tt.Frame()
+		Expect(v.decks.scope).To(Equal(deckScope{kind: scopeNoBuild}))
+		Expect(tt.HasText("Builds of Monkey D. Luffy")).To(BeFalse())
+	})
+
+	It("leaves the builds table out for a leader without builds", func() {
+		_, tt := tester(deckSnapshot())
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.HasText("Builds of")).To(BeFalse())
+	})
+
 	It("counts a game without deck facts in No build", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
 		s := deckSnapshot(wano)

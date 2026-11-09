@@ -51,18 +51,18 @@ func (v *view) leaderData() (stats.Leader, []stats.LeaderRecord) {
 				anyTurn = append(anyTurn, m)
 			}
 		}
-		lc.decks = v.deckData(leader, oldestFirst(newest), anyTurn)
+		lc.decks = v.deckData(leader, reversed(newest), anyTurn)
 		newest = lc.decks.scopedMatches(scope, newest)
 		lc.stats = stats.ForLeader(newest, leader)
 		lc.turnOrder = stats.ForLeader(lc.decks.scopedMatches(scope, anyTurn), leader).TurnOrder
-		lc.games = oldestFirst(newest)
+		lc.games = reversed(newest)
 		lc.days = stats.BuildOverview(newest, v.snap.Now).Days
 	}
 	return lc.stats, all
 }
 
-func oldestFirst(newest []stats.Match) []stats.Match {
-	out := slices.Clone(newest)
+func reversed(ms []stats.Match) []stats.Match {
+	out := slices.Clone(ms)
 	slices.Reverse(out)
 	return out
 }
@@ -90,6 +90,9 @@ func (v *view) decksPage(c *ui.Context) {
 			case tabCards:
 				v.cardsTab(c, d)
 				return
+			}
+			if v.decks.scope.kind == scopeOverall && len(d.builds) > 0 {
+				v.buildsTable(c, d)
 			}
 			ui.Row(c).Gap(16).AlignItems(ui.Start).Children(func() {
 				ui.Column(c).Grow(1).Basis(0).Gap(16).Children(func() {
