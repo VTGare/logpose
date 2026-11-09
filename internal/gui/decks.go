@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"slices"
 	"strings"
 	"time"
@@ -49,6 +50,11 @@ type decksState struct {
 	// of them rather than the latest few.
 	handsCard string
 	allHands  bool
+	// tester is the Hands tab's practice deal, and hideNumbers keeps the cards' records hidden
+	// until the hand is kept or sent back.
+	tester      handTest
+	hideNumbers bool
+	rng         *rand.Rand
 }
 
 type scopeKind int

@@ -1,6 +1,8 @@
 package gui
 
 import (
+	"math/rand/v2"
+
 	"github.com/egoist/mygo/ui"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -95,5 +97,45 @@ var _ = Describe("Hands tab", func() {
 		apart := stats.KeepSplit{Kept: stats.Record{Wins: 5}, Mulliganed: stats.Record{Wins: 2, Losses: 3}}
 		Expect(keepFinding(stats.Mulligans{First: apart, Second: even})).
 			To(Equal("Going first, hands you kept won 100% and mulligans won 40%. Going second it made little difference."))
+	})
+
+	It("deals a practice hand from the latest list and plays it out turn by turn", func() {
+		v, tt := handsTester()
+		v.decks.rng = rand.New(rand.NewPCG(1, 2))
+		Expect(tt.Click("New hand")).To(Succeed())
+		tt.Frame()
+		Expect(tt.HasText("Try a hand")).To(BeTrue())
+		Expect(tt.HasText("of which the logs name 12 cards")).To(BeTrue())
+		Expect(v.decks.tester.hand).To(HaveLen(5))
+		Expect(tt.HasText("Before your first turn")).To(BeTrue())
+
+		Expect(tt.Click("Mulligan")).To(Succeed())
+		tt.Frame()
+		Expect(tt.Texts()).To(ContainElement("Sent back"))
+		Expect(tt.HasText("This hand has to be kept")).To(BeTrue())
+
+		Expect(tt.Texts()).NotTo(ContainElement("Next turn"))
+		Expect(tt.Click("Keep")).To(Succeed())
+		tt.Frame()
+		Expect(tt.HasText("Your turn 1 · 1 DON!!")).To(BeTrue())
+		Expect(tt.Texts()).To(ContainElement("Next turn"))
+		Expect(v.decks.tester.hand).To(HaveLen(5))
+		tt.Key(0, ui.KeyT)
+		tt.Frame()
+		Expect(tt.HasText("Your turn 2 · 3 DON!!")).To(BeTrue())
+		Expect(v.decks.tester.hand).To(HaveLen(6))
+	})
+
+	It("hides the cards' records until the hand is kept or sent back", func() {
+		v, tt := handsTester()
+		v.decks.rng = rand.New(rand.NewPCG(1, 2))
+		Expect(tt.Texts()).To(ContainElement("Kept"))
+		Expect(tt.Click("Hide numbers until I choose")).To(Succeed())
+		tt.Frame()
+		Expect(tt.HasText("Choose first")).To(BeTrue())
+		tt.Key(0, ui.KeyM)
+		tt.Frame()
+		Expect(v.decks.tester.mulliganed).To(BeTrue())
+		Expect(tt.HasText("Choose first")).To(BeFalse())
 	})
 })

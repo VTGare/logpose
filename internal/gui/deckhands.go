@@ -46,6 +46,7 @@ func (v *view) handsTab(c *ui.Context, d leaderDecks) {
 	avg := float64(all.Wins) / float64(all.Games())
 	keepTile(c, mu, avg)
 	v.dealtPanel(c, mu.Cards, avg)
+	v.handTester(c, d, mu.Cards)
 }
 
 // keepTile compares kept and mulliganed hands going first, going second and in all games.
