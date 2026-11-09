@@ -1,5 +1,8 @@
-# Design notes stay local
+# Design notes, agent instructions and the OPBounty research tools stay local
 /docs/
+/AGENTS.md
+/CLAUDE.md
+/research/
 
 # Build and task output
 /out/
