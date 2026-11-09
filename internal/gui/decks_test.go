@@ -228,6 +228,49 @@ var _ = Describe("Decks page", func() {
 		Expect(tt.HasText("×2")).To(BeTrue())
 	})
 
+	It("counts every game for Overall, one build's for a build, and the rest for No build", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
+		v, tt := tester(deckSnapshot(wano))
+		Expect(tt.Click("Decks")).To(Succeed())
+		d := v.leaderStats.decks
+		count := func(sc deckScope) (games, matches int) {
+			return len(d.scopedGames(sc)), len(d.scopedMatches(sc, v.leaderStats.games))
+		}
+		games, matches := count(deckScope{})
+		Expect([]int{games, matches}).To(Equal([]int{10, 10}))
+		games, matches = count(buildScope(1))
+		Expect([]int{games, matches}).To(Equal([]int{5, 5}))
+		for _, g := range d.scopedGames(buildScope(1)) {
+			Expect(g.Result).To(Equal(stats.Win))
+		}
+		games, matches = count(deckScope{kind: scopeNoBuild})
+		Expect([]int{games, matches}).To(Equal([]int{5, 5}))
+		Expect(d.unbuilt).To(Equal(5))
+	})
+
+	It("counts a game that fits two builds only for Overall", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano", Core: []string{"W-1"}}
+		otama := store.Build{ID: 2, Leader: "OP13-001", Name: "Otama", Core: []string{"OTA"}}
+		v, tt := tester(deckSnapshot(wano, otama))
+		Expect(tt.Click("Decks")).To(Succeed())
+		d := v.leaderStats.decks
+		Expect(d.scopedGames(deckScope{})).To(HaveLen(10))
+		Expect(d.scopedGames(buildScope(1))).To(BeEmpty())
+		Expect(d.scopedGames(buildScope(2))).To(BeEmpty())
+		Expect(d.scopedGames(deckScope{kind: scopeNoBuild})).To(HaveLen(5))
+	})
+
+	It("counts a game without deck facts in No build", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
+		s := deckSnapshot(wano)
+		delete(s.Decks, "1")
+		v, tt := tester(s)
+		Expect(tt.Click("Decks")).To(Succeed())
+		d := v.leaderStats.decks
+		Expect(d.scopedGames(deckScope{kind: scopeNoBuild})).To(HaveLen(4))
+		Expect(d.scopedMatches(deckScope{kind: scopeNoBuild}, v.leaderStats.games)).To(HaveLen(5))
+	})
+
 	It("keeps the tab when another build is chosen", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
 		nova := store.Build{ID: 2, Leader: "OP13-001", Name: "Supernovas", Core: []string{"KID"}}
@@ -237,7 +280,7 @@ var _ = Describe("Decks page", func() {
 		tt.Frame()
 		Expect(tt.Click("Supernovas")).To(Succeed())
 		tt.Frame()
-		Expect(v.decks.build).To(Equal(int64(2)))
+		Expect(v.decks.scope).To(Equal(buildScope(2)))
 		Expect(v.decks.tab).To(Equal(tabCards))
 	})
 

@@ -27,7 +27,7 @@ const (
 // listTab is the chosen build's lists, or the suggested builds when none is chosen or they were
 // asked for.
 func (v *view) listTab(c *ui.Context, d leaderDecks) {
-	if b, ok := d.chosen(v.decks.build); ok && !v.decks.suggesting {
+	if b, ok := d.chosen(v.decks.scope.build); ok && v.decks.scope.kind == scopeBuild && !v.decks.suggesting {
 		v.buildList(c, d, b)
 		return
 	}
@@ -242,7 +242,7 @@ func (v *view) suggestionsPanel(c *ui.Context, d leaderDecks) {
 	t := c.Theme()
 	s := &v.decks
 	panel(c).Gap(12).Padding(16).Children(func() {
-		if b, ok := d.chosen(s.build); ok && linkButton(c, "Back to "+b.Name) {
+		if b, ok := d.chosen(s.scope.build); ok && s.scope.kind == scopeBuild && linkButton(c, "Back to "+b.Name) {
 			s.suggesting = false
 		}
 		if len(d.suggestions) == 0 {

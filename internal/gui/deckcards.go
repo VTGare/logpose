@@ -25,7 +25,7 @@ const (
 // cards first, then the ones no longer in it.
 func (v *view) cardsTab(c *ui.Context, d leaderDecks) {
 	t := c.Theme()
-	b, _ := d.chosen(v.decks.build)
+	b, _ := d.chosen(v.decks.scope.build)
 	gs := d.assignment.Builds[b.ID]
 	panel(c).Gap(0).Padding(8, 16, 16, 16).Children(func() {
 		if len(gs) == 0 {

@@ -24,9 +24,8 @@ var deckTabLabels = []string{"Results", "List", "Cards"}
 
 // decksState is what the Decks page shows of the leader.
 type decksState struct {
-	tab int
-	// build is the chosen build's ID, 0 for none. List then shows the suggestions.
-	build int64
+	tab   int
+	scope deckScope
 	// naming is the core key of the suggestion being made a build, and name the name typed.
 	naming, name string
 	// saved is the name of a build just saved, chosen once the next snapshot has it.
@@ -45,6 +44,27 @@ type decksState struct {
 	editOnOpen bool
 }
 
+type scopeKind int
+
+const (
+	scopeOverall scopeKind = iota
+	scopeNoBuild
+	scopeBuild
+)
+
+// deckScope is which of the leader's games the Decks page counts: all of them, the ones in no
+// build, or one build's.
+type deckScope struct {
+	kind scopeKind
+	// build is the build's ID when kind is scopeBuild.
+	build int64
+}
+
+func buildScope(id int64) deckScope { return deckScope{kind: scopeBuild, build: id} }
+
+// conflicted stands in for a build in leaderDecks.buildOf when a game fits two.
+const conflicted = -1
+
 // suggestionKey tells suggestions apart by their searchers.
 func suggestionKey(s stats.Suggestion) string { return strings.Join(s.Core, ",") }
 
@@ -57,8 +77,46 @@ type leaderDecks struct {
 	builds      []store.Build
 	assignment  stats.Assignment
 	suggestions []stats.Suggestion
-	// unbuilt counts the games in no build.
+	// buildOf is the build of each game in one, or conflicted for a game that fits two. A game
+	// in no build isn't in it.
+	buildOf map[string]int64
+	// unbuilt counts the games in no build, those without deck facts too.
 	unbuilt int
+}
+
+// counts reports whether the scope counts the game. A game that fits two builds counts only
+// for Overall.
+func (d leaderDecks) counts(sc deckScope, fingerprint string) bool {
+	id, built := d.buildOf[fingerprint]
+	switch sc.kind {
+	case scopeBuild:
+		return built && id == sc.build
+	case scopeNoBuild:
+		return !built
+	}
+	return true
+}
+
+// scopedGames are the games with deck facts the scope counts, oldest first.
+func (d leaderDecks) scopedGames(sc deckScope) []stats.DeckGame {
+	var out []stats.DeckGame
+	for _, g := range d.games {
+		if d.counts(sc, g.Fingerprint) {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+// scopedMatches are the matches the scope counts, in their order.
+func (d leaderDecks) scopedMatches(sc deckScope, ms []stats.Match) []stats.Match {
+	var out []stats.Match
+	for _, m := range ms {
+		if d.counts(sc, m.Fingerprint) {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // chosen is the build with the ID among the leader's.
@@ -85,20 +143,16 @@ func (v *view) deckData(leader string, ms []stats.Match) leaderDecks {
 	}
 	d.staples = stats.Staples(d.games)
 	d.assignment = stats.Assign(d.games, d.builds)
-	built := make(map[string]bool)
-	for _, gs := range d.assignment.Builds {
+	d.buildOf = make(map[string]int64)
+	for id, gs := range d.assignment.Builds {
 		for _, g := range gs {
-			built[g.Fingerprint] = true
+			d.buildOf[g.Fingerprint] = id
 		}
 	}
 	for _, g := range d.assignment.Conflicts {
-		built[g.Fingerprint] = true
+		d.buildOf[g.Fingerprint] = conflicted
 	}
-	for _, g := range d.games {
-		if !built[g.Fingerprint] {
-			d.unbuilt++
-		}
-	}
+	d.unbuilt = len(d.scopedMatches(deckScope{kind: scopeNoBuild}, ms))
 	d.suggestions = v.suggestions(leader)
 	return d
 }
@@ -162,7 +216,7 @@ func (v *view) buildRow(c *ui.Context, d leaderDecks) {
 			}
 		})
 	})
-	if b, ok := d.chosen(s.build); ok {
+	if b, ok := d.chosen(s.scope.build); ok && s.scope.kind == scopeBuild {
 		v.renameBar(c, b)
 	}
 }
@@ -188,7 +242,7 @@ func (v *view) buildChips(c *ui.Context, d leaderDecks) {
 func (v *view) savedBuildChip(c *ui.Context, d leaderDecks, b store.Build) {
 	t := c.Theme()
 	s := &v.decks
-	on := s.build == b.ID
+	on := s.scope == buildScope(b.ID)
 	menu := func(m *ui.Menu) { v.buildMenu(m, d, b) }
 	group := ui.Row(c).AlignItems(ui.Stretch).Radius(10).Clip().Border(1, t.Border.Alpha(0.6))
 	if on {
@@ -201,7 +255,7 @@ func (v *view) savedBuildChip(c *ui.Context, d leaderDecks, b store.Build) {
 			chip.Background(t.SurfaceHover)
 		}
 		if chip.Clicked() {
-			s.build, s.version, s.suggesting = b.ID, time.Time{}, false
+			s.scope, s.version, s.suggesting = buildScope(b.ID), time.Time{}, false
 		}
 		chip.Children(func() {
 			ui.Text(c, b.Name).FontSize(13).FontWeight(600).SingleLine()
@@ -234,11 +288,11 @@ func (v *view) buildMenu(m *ui.Menu, d leaderDecks, b store.Build) {
 	m.Item(v.coreText(b)).Disabled(true)
 	m.Separator()
 	if m.Item("Edit core").Chosen() {
-		s.build = b.ID
+		s.scope = buildScope(b.ID)
 		v.startEdit(b)
 	}
 	if m.Item("Rename").Chosen() {
-		s.build, s.renaming, s.rename = b.ID, true, b.Name
+		s.scope, s.renaming, s.rename = buildScope(b.ID), true, b.Name
 	}
 	m.Separator()
 	if m.Item("Delete build").Chosen() {
@@ -272,7 +326,7 @@ const buildUndoTime = 10 * time.Second
 func (v *view) deleteBuild(d leaderDecks, b store.Build) {
 	n := len(d.assignment.Builds[b.ID])
 	v.do(func(a actions) { a.DeleteBuild(b.ID) })
-	v.decks.build, v.decks.renaming = 0, false
+	v.decks.scope, v.decks.renaming = deckScope{}, false
 	v.toast = &ui.Toast{
 		ID: "build-deleted", Timeout: buildUndoTime, Title: "Deleted " + b.Name + ".",
 		Description: "Its " + games(n) + " went back to no build.", Action: "Undo",
@@ -292,24 +346,24 @@ func (v *view) chooseBuild(d leaderDecks) {
 	if s.saved != "" {
 		for _, b := range d.builds {
 			if b.Name == s.saved {
-				s.build, s.saved, s.tab, s.suggesting = b.ID, "", tabList, false
+				s.scope, s.saved, s.tab, s.suggesting = buildScope(b.ID), "", tabList, false
 			}
 		}
 	}
-	if !slices.ContainsFunc(d.builds, func(b store.Build) bool { return b.ID == s.build }) {
-		s.build = 0
+	if _, ok := d.chosen(s.scope.build); s.scope.kind == scopeBuild && !ok {
+		s.scope = deckScope{}
 	}
-	if s.build == 0 && len(d.builds) > 0 {
-		s.build = d.builds[0].ID
+	if s.scope.kind != scopeBuild && len(d.builds) > 0 {
+		s.scope = buildScope(d.builds[0].ID)
 	}
-	if b, ok := d.chosen(s.build); ok && s.editOnOpen {
+	if b, ok := d.chosen(s.scope.build); ok && s.scope.kind == scopeBuild && s.editOnOpen {
 		s.editOnOpen = false
 		v.startEdit(b)
 	}
 	if s.edit != nil {
 		s.tab = tabList
 	}
-	if s.build == 0 && s.tab == tabCards {
+	if s.scope.kind != scopeBuild && s.tab == tabCards {
 		s.tab = tabResults
 	}
 }
@@ -401,14 +455,14 @@ func buildChip(c *ui.Context, name, meta string, suggested, on bool) bool {
 func (v *view) pageTabs(c *ui.Context) {
 	t := c.Theme()
 	s := &v.decks
-	if s.tab == tabCards && s.build == 0 {
+	if s.tab == tabCards && s.scope.kind != scopeBuild {
 		s.tab = tabResults
 	}
 	ui.Column(c).Children(func() {
 		tabs := ui.TabsBase(c, &s.tab, len(deckTabLabels))
 		tabs.List.Gap(4).Children(func() {
 			for i, label := range deckTabLabels {
-				on := i == tabResults || i == tabList || s.build != 0
+				on := i == tabResults || i == tabList || s.scope.kind == scopeBuild
 				tab := tabs.Tab(i).Column().Gap(6).Padding(7, 4, 0, 4)
 				col, bar := faintColor(t), ui.Transparent
 				switch {
