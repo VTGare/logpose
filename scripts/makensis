@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+# Runs the Windows NSIS compiler from WSL for mygo build, which needs a makensis on PATH to make
+# the installer. The script mygo writes names files by Linux paths, which makensis.exe can't
+# open, so they are rewritten as Windows paths first.
+import os
+import re
+import subprocess
+import sys
+
+
+def nsis():
+    # mygo keeps the NSIS it downloads on Windows in %LOCALAPPDATA%\mygo, so that's where it's looked for.
+    if exe := os.environ.get("NSIS_EXE"):
+        return exe
+    local = subprocess.run(["cmd.exe", "/c", "echo %LOCALAPPDATA%"], check=True, capture_output=True, text=True,
+                           cwd="/mnt/c").stdout.strip()
+    unix = subprocess.run(["wslpath", "-u", local], check=True, capture_output=True, text=True).stdout.strip()
+    return os.path.join(unix, "mygo", "nsis-3.13", "makensis.exe")
+
+
+def winpath(p):
+    head, tail = os.path.split(p)
+    if not os.path.exists(p) and os.path.isdir(head):
+        return winpath(head) + "\\" + tail
+    return subprocess.run(["wslpath", "-w", p], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def rewrite(m):
+    # NSIS writes a literal $ as $$, and the paths come from mygo's own build folders.
+    return '"' + winpath(m.group(1).replace("$$", "$")).replace("$", "$$") + '"'
+
+
+args = []
+for a in sys.argv[1:]:
+    if a.endswith(".nsi") and os.path.isfile(a):
+        with open(a, encoding="utf-8-sig") as f:
+            script = re.sub(r'"(/[^"]+)"', rewrite, f.read())
+        out = a[: -len(".nsi")] + ".win.nsi"
+        with open(out, "w", encoding="utf-8-sig") as f:
+            f.write(script)
+        a = winpath(out)
+    args.append(a)
+sys.exit(subprocess.run([nsis(), *args]).returncode)

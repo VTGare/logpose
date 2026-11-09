@@ -116,6 +116,10 @@ type prefs struct {
 	// folded is the tiles collapsed, by ID.
 	folded map[string]bool
 	tables map[string]*tableLayout
+	// installed is true when logpose runs from its installer's folder, which has its shortcuts.
+	installed bool
+	// updateManual waits for the user to download an update.
+	updateManual bool
 }
 
 // artCaps are the sizes in MB the large card images can be capped at.
@@ -137,6 +141,7 @@ func prefsFrom(set map[string]string) prefs {
 		deckChanges:      set[store.SettingDeckChanges] == "1",
 		folded:           foldedFrom(set[store.SettingFolded]),
 		tables:           tablesFrom(set[store.SettingTables]),
+		updateManual:     set[store.SettingUpdateManual] == "1",
 	}
 }
 

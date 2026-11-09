@@ -1,0 +1,14 @@
+{
+  "name": "logpose",
+  "identifier": "com.vtgare.logpose",
+  "version": "0.1.0",
+  "copyright": "© 2026 VTGare",
+  "icon": "cmd/logpose/icon.png",
+  "main": "./cmd/logpose",
+  "out": "out/dist",
+  "updates": {
+    "publicKey": "kyCUGF//du6JHMHY+9qR4tiR/lfATFJaPzoOOwiyyNU=",
+    "github": "VTGare/logpose",
+    "privateKey": "~/.config/mygo/update-keys/mygo-update.key"
+  }
+}

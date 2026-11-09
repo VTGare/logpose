@@ -23,6 +23,9 @@ func (f *fakeActions) SetOpenAtLogin(on bool) {
 func (f *fakeActions) SetShortcut(place shortcut.Place, on bool) {
 	f.calls = append(f.calls, fmt.Sprintf("shortcut %d %t", place, on))
 }
+func (f *fakeActions) CheckUpdate()         { f.calls = append(f.calls, "check update") }
+func (f *fakeActions) InstallUpdate()       { f.calls = append(f.calls, "install update") }
+func (f *fakeActions) RestartToUpdate()     { f.calls = append(f.calls, "restart to update") }
 func (f *fakeActions) ChooseSimFolder()     { f.calls = append(f.calls, "choose sim") }
 func (f *fakeActions) FindSim()             { f.calls = append(f.calls, "find sim") }
 func (f *fakeActions) OpenPath(path string) { f.calls = append(f.calls, "open "+path) }

@@ -15,7 +15,7 @@ var shortcutNames = [...]string{shortcut.StartMenu: "Start menu", shortcut.Deskt
 // shortcutCard offers shortcuts once, on the Overview, until it's answered or both exist.
 func (v *view) shortcutCard(c *ui.Context) {
 	p := &v.prefs
-	if !p.canShortcut || p.shortcutsOffered || p.shortcuts[shortcut.StartMenu] && p.shortcuts[shortcut.Desktop] {
+	if !p.canShortcut || p.installed || p.shortcutsOffered || p.shortcuts[shortcut.StartMenu] && p.shortcuts[shortcut.Desktop] {
 		return
 	}
 	t := c.Theme()

@@ -86,6 +86,9 @@ func (v *view) open(id string) {
 // actions are the changes the view asks the app for. The app makes them off the main thread
 // and sends a new snapshot.
 type actions interface {
+	CheckUpdate()
+	InstallUpdate()
+	RestartToUpdate()
 	AddFormat(name string, start time.Time)
 	UpdateFormat(f store.Format)
 	DeleteFormat(id int64)
@@ -141,6 +144,9 @@ type view struct {
 	act  actions
 	// toast is a message for the next frame to show.
 	toast *ui.Toast
+	upd   updateState
+	// updNotes shows the next version's release notes.
+	updNotes bool
 	// formats is the Formats page's state.
 	formats formatsState
 	// live is the game in the sim right now, which the log follower updates on its own.
@@ -412,6 +418,7 @@ func (v *view) sidebar(c *ui.Context) {
 			item(p.id, p.icon, p.label)
 		}
 		ui.Spacer(c)
+		v.updateBox(c, wide)
 		item(pageSettings, iconSettings, "Settings")
 	})
 }

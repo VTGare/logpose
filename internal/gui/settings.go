@@ -69,6 +69,8 @@ func (v *view) settingsPage(c *ui.Context) {
 					v.lookSettings(c)
 					ui.Box(c).Height(14)
 					v.startupSettings(c)
+					ui.Box(c).Height(14)
+					v.updateSettings(c)
 				})
 			})
 		})

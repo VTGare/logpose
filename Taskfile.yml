@@ -18,7 +18,15 @@ tasks:
     desc: Build the Windows binary into out/bin/
     cmds:
       - mkdir -p out/bin
-      - GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H=windowsgui" -o out/bin/{{.BINARY_NAME}}.exe ./cmd/logpose
+      # mygo build links in the icon, the version and the update feed, which a plain go build leaves out.
+      - go tool mygo build -platform windows/amd64 -skip-installer
+      - cp out/dist/windows-amd64/{{.BINARY_NAME}}.exe out/bin/{{.BINARY_NAME}}.exe
+
+  release:
+    desc: Build the installer and the signed update files into out/dist/ (needs the update key)
+    cmds:
+      # makensis here runs the Windows NSIS from WSL, since Arch has no package for it.
+      - PATH="$PWD/scripts:$PATH" go tool mygo build -platform windows/amd64
 
   test:
     desc: Run the specs (extra go test args after --, e.g. task test -- ./internal/godot/...)

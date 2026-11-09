@@ -44,6 +44,13 @@ const (
 	SettingFolded = "folded_tiles"
 	// SettingTables is the JSON of each table's sort, column order and widths, by table ID.
 	SettingTables = "tables"
+	// SettingUpdateManual is "1" when updates aren't downloaded until the user asks. Empty means
+	// they download by themselves.
+	SettingUpdateManual = "update_manual"
+	// SettingUpdateChecked is when logpose last asked for a newer version, in Unix ms.
+	SettingUpdateChecked = "update_checked"
+	// SettingLastVersion is the version of logpose that ran last.
+	SettingLastVersion = "last_version"
 )
 
 // Setting returns a setting's value, or "" when it isn't set.

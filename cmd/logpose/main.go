@@ -20,8 +20,6 @@ import (
 	"github.com/VTGare/logpose/internal/store"
 )
 
-var version = "dev"
-
 const usage = `usage: logpose [-db <file>] [-sim <folder>]   open the app
        logpose <command> [flags]
 
@@ -49,7 +47,7 @@ func main() {
 	case "games":
 		err = runGames(ctx, os.Args[2:])
 	case "version":
-		fmt.Println("logpose", version)
+		fmt.Println("logpose", gui.Version())
 	default:
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
