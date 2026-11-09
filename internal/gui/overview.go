@@ -464,10 +464,10 @@ func rateOrTooFew(r stats.Record) string {
 // rollingChart is the rolling win rate on an axis that fits it, with 50% marked, over every game
 // as a win or loss square, grouped by day. games are oldest first, and sel is the point under
 // the pointer.
-func (*view) rollingChart(c *ui.Context, tag string, pts []stats.Point, games []stats.Match, sel *int) {
+func (v *view) rollingChart(c *ui.Context, tag string, pts []stats.Point, games []stats.Match, sel *int) {
 	t := c.Theme()
 	label := fmt.Sprintf("Win rate, last %d games", stats.RollingWindow)
-	tagTile(c, label, tag, "", func() {
+	v.foldTile(c, "decks.rolling", foldHead{label: label, tag: tag}, func() {
 		if len(pts) < 2 || len(games) == 0 {
 			ui.Text(c, fmt.Sprintf("Shows up after %d games.", stats.RollingWindow+1)).TextColor(t.TextMuted)
 			return

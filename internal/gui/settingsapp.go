@@ -113,6 +113,9 @@ type prefs struct {
 	artCap int
 	// deckChanges marks the cards a build's list changed.
 	deckChanges bool
+	// folded is the tiles collapsed, by ID.
+	folded map[string]bool
+	tables map[string]*tableLayout
 }
 
 // artCaps are the sizes in MB the large card images can be capped at.
@@ -132,6 +135,8 @@ func prefsFrom(set map[string]string) prefs {
 		artOff:           set[store.SettingArtOff] == "1",
 		artCap:           artCapFrom(set[store.SettingArtCap]),
 		deckChanges:      set[store.SettingDeckChanges] == "1",
+		folded:           foldedFrom(set[store.SettingFolded]),
+		tables:           tablesFrom(set[store.SettingTables]),
 	}
 }
 

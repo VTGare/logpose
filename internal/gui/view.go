@@ -170,8 +170,10 @@ type view struct {
 	artSync   artSync
 	sideDrag  paneDrag
 	panelDrag paneDrag
-	simArt    simArtState
-	arts      artsState
+	// tableSaves counts the table layout changes, so only the last of a drag is stored.
+	tableSaves int
+	simArt     simArtState
+	arts       artsState
 }
 
 // openLeader shows a leader on the Decks page.

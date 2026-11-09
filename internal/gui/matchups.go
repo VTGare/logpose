@@ -1,7 +1,9 @@
 package gui
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 
 	"github.com/egoist/mygo/ui"
 
@@ -61,10 +63,35 @@ func (v *view) matchupsPage(c *ui.Context) {
 			if v.matchups.pick != "" {
 				open = v.matchups.pick
 			}
+			tv := v.matchupTable(len(list))
+			rows := slices.Clone(list)
+			turns := v.matchups.turns
+			name := func(mu stats.Matchup) string { return v.snap.card(mu.Leader).Name + " " + mu.Leader }
+			rate := func(r stats.Record) float64 {
+				x, _ := r.Rate()
+				return x
+			}
+			share := func(r stats.Record) float64 { return winShare(r) }
+			sortRows(rows, tv.sort, tv.desc, map[string]func(a, b stats.Matchup) int{
+				"leader": func(a, b stats.Matchup) int { return cmp.Compare(name(a), name(b)) },
+				"games":  func(a, b stats.Matchup) int { return cmp.Compare(a.Record.Games(), b.Record.Games()) },
+				"rate":   func(a, b stats.Matchup) int { return cmp.Compare(rate(a.Record), rate(b.Record)) },
+				"first": func(a, b stats.Matchup) int {
+					return cmp.Compare(share(turns[a.Leader].First), share(turns[b.Leader].First))
+				},
+				"second": func(a, b stats.Matchup) int {
+					return cmp.Compare(share(turns[a.Leader].Second), share(turns[b.Leader].Second))
+				},
+				"last": func(a, b stats.Matchup) int { return a.Games[0].PlayedAt.Compare(b.Games[0].PlayedAt) },
+			}, map[string]func(stats.Matchup) bool{
+				"rate":   func(mu stats.Matchup) bool { return mu.Record.Games() < stats.MinGames },
+				"first":  func(mu stats.Matchup) bool { return turns[mu.Leader].First.Games() == 0 },
+				"second": func(mu stats.Matchup) bool { return turns[mu.Leader].Second.Games() == 0 },
+			}, func(a, b stats.Matchup) int { return cmp.Compare(b.Record.Games(), a.Record.Games()) })
 			panel(c).Padding(4, 0, 8, 0).Children(func() {
-				v.matchupHeader(c, len(list))
-				for _, mu := range list {
-					v.matchupRow(c.Key(mu.Leader), deck, mu, mu.Leader == open)
+				v.tableHeader(c, tv, 16)
+				for _, mu := range rows {
+					v.matchupRow(c.Key(mu.Leader), tv, deck, mu, mu.Leader == open)
 				}
 			})
 		})
@@ -78,7 +105,7 @@ func leadersFaced(n int) string {
 	return fmt.Sprintf("%d leaders faced", n)
 }
 
-// Matchup table columns, in DIPs. The leader's name takes the rest.
+// Matchup table columns, in DIPs.
 const (
 	muArtW   = 40
 	muGamesW = 56
@@ -87,38 +114,29 @@ const (
 	muTurnW  = 52
 	muSqW    = 200
 	muLastW  = 84
+	muGap    = 12
 )
 
-func (*view) matchupHeader(c *ui.Context, n int) {
-	t := c.Theme()
-	head := func(label string, w float32, end bool) {
-		el := ui.Text(c, label).FontSize(12).TextColor(t.TextMuted).Width(w)
-		if end {
-			el.TextAlign(ui.End)
-		}
-	}
-	ui.Row(c).Gap(12).Padding(10, 16).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(t.Border.Alpha(0.6)).Children(func() {
-		ui.Box(c).Width(muArtW)
-		ui.Text(c, leadersFaced(n)).FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
-		head("Games", muGamesW, true)
-		head("Win rate", muRateW, true)
-		head("", muBarW, false)
-		head("1st", muTurnW, true)
-		head("2nd", muTurnW, true)
-		head("Games, oldest first", muSqW, false)
-		head("Last faced", muLastW, true)
-	})
+func (v *view) matchupTable(n int) tableView {
+	return v.arrangeTable("matchups", muGap, []tableCol{
+		{id: "leader", title: leadersFaced(n), asc: true},
+		{id: "games", title: "Games", width: muGamesW, end: true},
+		{id: "rate", title: "Win rate", width: muRateW + muGap + muBarW, tip: "Rates show from 5 games."},
+		{id: "first", title: "1st", width: muTurnW, end: true, tip: "Going first."},
+		{id: "second", title: "2nd", width: muTurnW, end: true, tip: "Going second."},
+		{id: "squares", title: "Games, oldest first", width: muSqW, noSort: true},
+		{id: "last", title: "Last faced", width: muLastW, end: true},
+	}, "games", true)
 }
 
 // matchupRow is one opposing leader's line, and under it, when it's open, its turn order, how
 // its games went and its latest games. Clicking the line opens it or closes it.
-func (v *view) matchupRow(c *ui.Context, deck string, mu stats.Matchup, open bool) {
+func (v *view) matchupRow(c *ui.Context, tv tableView, deck string, mu stats.Matchup, open bool) {
 	t := c.Theme()
-	few := mu.Record.Games() < stats.MinGames
 	name := v.snap.card(mu.Leader).Name
 	turns := v.matchups.turns[mu.Leader]
 	ui.Column(c).Transition(slide).Children(func() {
-		line := ui.Row(c).Gap(12).Padding(6, 16).AlignItems(ui.Center).Cursor(ui.CursorPointer).
+		line := ui.Row(c).Gap(tv.gap).Padding(6, 16).AlignItems(ui.Center).Cursor(ui.CursorPointer).
 			Label("Show the matchup vs " + name + " " + setOf(mu.Leader))
 		if open {
 			line.Background(t.Surface).BorderStartWidth(3).BorderColor(t.Accent)
@@ -133,43 +151,64 @@ func (v *view) matchupRow(c *ui.Context, deck string, mu stats.Matchup, open boo
 			}
 		}
 		line.Children(func() {
-			v.artStrip(c, mu.Leader, muArtW, 28)
-			ui.Row(c).Gap(6).Grow(1).Basis(0).AlignItems(ui.End).Children(func() {
-				nameText := ui.Text(c, name).FontWeight(500).SingleLine()
-				if open {
-					nameText.FontWeight(600)
-				}
-				ui.Text(c, setOf(mu.Leader)).FontSize(11).TextColor(faintColor(t))
-			})
-			ui.Text(c, fmt.Sprint(mu.Record.Games())).Width(muGamesW).TextAlign(ui.End)
-			if rate, ok := mu.Record.Rate(); ok {
-				ui.Text(c, pct(rate)).Bold().Width(muRateW).TextAlign(ui.End)
-			} else {
-				ui.Text(c, "–").TextColor(faintColor(t)).Width(muRateW).TextAlign(ui.End)
+			for _, col := range tv.cols {
+				tv.cell(c, col, func() { v.matchupCell(c, col.id, mu, turns, open) })
 			}
-			ui.Box(c).Width(muBarW).Opacity(map[bool]float32{true: 0.35, false: 1}[few]).Children(func() {
-				splitBar(c, winShare(mu.Record))
-			})
-			turnText := func(r stats.Record) {
-				s := "–"
-				if r.Games() > 0 {
-					s = record(r)
-				}
-				ui.Text(c, s).TextColor(t.TextMuted).Width(muTurnW).TextAlign(ui.End)
-			}
-			turnText(turns.First)
-			turnText(turns.Second)
-			ui.Row(c).Width(muSqW).Gap(2).Wrap().Children(func() {
-				for i := len(mu.Games) - 1; i >= 0; i-- {
-					ui.Box(c.Key(i)).Size(9, 9).Radius(2).Background(resultColor(mu.Games[i].Result))
-				}
-			})
-			ui.Text(c, ago(v.snap.Now, mu.Games[0].PlayedAt)).FontSize(12).TextColor(faintColor(t)).Width(muLastW).TextAlign(ui.End)
 		})
 		if open {
 			v.matchupOpen(c, deck, mu, turns)
 		}
 	})
+}
+
+// matchupCell is one column of a matchup's line.
+func (v *view) matchupCell(c *ui.Context, id string, mu stats.Matchup, turns stats.TurnOrder, open bool) {
+	t := c.Theme()
+	switch id {
+	case "leader":
+		ui.Row(c).Gap(12).AlignItems(ui.Center).MinWidth(0).Children(func() {
+			v.artStrip(c, mu.Leader, muArtW, 28)
+			ui.Row(c).Gap(6).AlignItems(ui.End).MinWidth(0).Children(func() {
+				nameText := ui.Text(c, v.snap.card(mu.Leader).Name).FontWeight(500).SingleLine().Tooltip(v.snap.card(mu.Leader).Name)
+				if open {
+					nameText.FontWeight(600)
+				}
+				ui.Text(c, setOf(mu.Leader)).FontSize(11).TextColor(faintColor(t))
+			})
+		})
+	case "games":
+		ui.Text(c, fmt.Sprint(mu.Record.Games()))
+	case "rate":
+		ui.Row(c).Gap(muGap).AlignItems(ui.Center).Grow(1).MinWidth(0).Children(func() {
+			if rate, ok := mu.Record.Rate(); ok {
+				ui.Text(c, pct(rate)).Bold().Width(muRateW).TextAlign(ui.End)
+			} else {
+				ui.Text(c, "–").TextColor(faintColor(t)).Width(muRateW).TextAlign(ui.End)
+			}
+			few := mu.Record.Games() < stats.MinGames
+			ui.Box(c).Grow(1).Basis(0).Opacity(map[bool]float32{true: 0.35, false: 1}[few]).Children(func() {
+				splitBar(c, winShare(mu.Record))
+			})
+		})
+	case "first", "second":
+		r := turns.First
+		if id == "second" {
+			r = turns.Second
+		}
+		s := "–"
+		if r.Games() > 0 {
+			s = record(r)
+		}
+		ui.Text(c, s).TextColor(t.TextMuted)
+	case "squares":
+		ui.Row(c).Gap(2).Wrap().Grow(1).Children(func() {
+			for i := len(mu.Games) - 1; i >= 0; i-- {
+				ui.Box(c.Key(i)).Size(9, 9).Radius(2).Background(resultColor(mu.Games[i].Result))
+			}
+		})
+	case "last":
+		ui.Text(c, ago(v.snap.Now, mu.Games[0].PlayedAt)).FontSize(12).TextColor(faintColor(t)).SingleLine()
+	}
 }
 
 // matchupOpen is the open row's detail: turn order, how the games went and the latest games.

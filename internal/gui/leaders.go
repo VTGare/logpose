@@ -106,7 +106,11 @@ func (v *view) decksPage(c *ui.Context) {
 					v.leaderDays(c, tag)
 				})
 				ui.Column(c).Width(320).Gap(16).Children(func() {
-					turnOrderTile(c, v.scopeName(d), v.leaderStats.turnOrder, v.filter.turn, v.setTurn)
+					o := v.leaderStats.turnOrder
+					sum := fmt.Sprintf("1st %s · 2nd %s", rateOrTooFew(o.First), rateOrTooFew(o.Second))
+					v.foldTile(c, "decks.turns", foldHead{label: "Turn order", tag: v.scopeName(d), summary: sum}, func() {
+						turnRows(c, o, v.filter.turn, v.setTurn)
+					})
 					v.matchupLists(c, v.scopeName(d), l)
 				})
 			})
@@ -216,7 +220,11 @@ func (v *view) leaderHead(c *ui.Context, l stats.Leader, d leaderDecks) {
 // leaderDays is the leader's latest days played, like the Overview's.
 func (v *view) leaderDays(c *ui.Context, tag string) {
 	days := v.leaderStats.days
-	tagTile(c, "By day", tag, "", func() {
+	sum := ""
+	if len(days) > 0 {
+		sum = fmt.Sprintf("Latest %s, %s", days[0].Date.Format("Jan 2"), record(days[0].Record))
+	}
+	v.foldTile(c, "decks.days", foldHead{label: "By day", tag: tag, summary: sum}, func() {
 		for i, d := range days[:min(len(days), 5)] {
 			v.dayRow(c.Key(i), d)
 		}
@@ -242,18 +250,18 @@ func (v *view) matchupLists(c *ui.Context, tag string, l stats.Leader) {
 		}
 	}
 	slices.Reverse(worst)
-	list := func(title string, mus []stats.LeaderRecord) {
+	list := func(id, title string, mus []stats.LeaderRecord) {
 		if len(mus) == 0 {
 			return
 		}
-		tagTile(c, title, tag, "", func() {
+		v.foldTile(c, id, foldHead{label: title, tag: tag}, func() {
 			for i, mu := range mus[:min(len(mus), 3)] {
 				v.matchupLine(c.Key(i), mu)
 			}
 		})
 	}
-	list("Best matchups", best)
-	list("Worst matchups", worst)
+	list("decks.best", "Best matchups", best)
+	list("decks.worst", "Worst matchups", worst)
 	if len(best)+len(worst)+len(even) == 0 {
 		tagTile(c, "Matchups", tag, "", func() {
 			ui.Text(c, fmt.Sprintf("No leader faced %d or more times yet.", stats.MinGames)).FontSize(13).TextColor(t.TextMuted)

@@ -15,6 +15,18 @@ func pct(rate float64) string { return fmt.Sprintf("%.0f%%", math.Round(rate*100
 // record is written "4–7", with an en dash.
 func record(r stats.Record) string { return fmt.Sprintf("%d–%d", r.Wins, r.Losses) }
 
+// rateRecord is a rate with its record, as "76% (28–9)", or "few" for the rate below MinGames.
+func rateRecord(r stats.Record) string {
+	if r.Games() == 0 {
+		return "–"
+	}
+	rate := "few"
+	if x, ok := r.Rate(); ok {
+		rate = pct(x)
+	}
+	return fmt.Sprintf("%s (%s)", rate, record(r))
+}
+
 func games(n int) string {
 	if n == 1 {
 		return "1 game"
@@ -71,12 +83,6 @@ func splitBar(c *ui.Context, won float64) {
 		p.Fill(ui.Rect{X: r.X, Y: r.Y, W: w, H: r.H}, winColor, 0)
 		p.Fill(ui.Rect{X: r.X + w, Y: r.Y, W: r.W*full - w, H: r.H}, lossColor.Alpha(0.75), 0)
 	})
-}
-
-// turnOrderTile is both turn orders as rows. Clicking a row calls pick with its turn order, and
-// the row chosen is tinted.
-func turnOrderTile(c *ui.Context, tag string, o stats.TurnOrder, chosen stats.TurnOrderFilter, pick func(stats.TurnOrderFilter)) ui.Element {
-	return tagTile(c, "Turn order", tag, "", func() { turnRows(c, o, chosen, pick) })
 }
 
 // turnRows is a row for going first and one for going second, each with a filled or hollow mark,

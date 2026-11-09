@@ -34,7 +34,8 @@ func (v *view) handsTile(c *ui.Context, m stats.Match) ui.Element {
 			}
 		})
 	}
-	return tile(c, "Opening hands", func() {
+	sum := "You " + verdict(m.Me) + " · " + m.Opp.Name + " " + verdict(m.Opp)
+	return v.foldTile(c, "match.hands", foldHead{label: "Opening hands", summary: sum}, func() {
 		ui.Row(c).Gap(24).AlignItems(ui.Start).Children(func() {
 			side("me", "You", m.Me)
 			side("opp", m.Opp.Name, m.Opp)

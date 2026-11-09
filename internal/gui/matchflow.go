@@ -20,14 +20,17 @@ type flowSeries struct {
 	marks   simlog.MarkKind
 }
 
-// flowAxisWidth is the width of the left axis on the chart and on the strip under it, so their
-// turns line up.
-const flowAxisWidth = 44
+// flowAxisWidth fits most sim names. Longer ones end in an ellipsis and show in full on hover.
+const flowAxisWidth = 96
 
 // flowTile shows life, hand or board by turn, picked by tabs, as pips laid out like the table.
 func (v *view) flowTile(c *ui.Context, m stats.Match) ui.Element {
 	t := c.Theme()
-	return tile(c, "Turn by turn", func() {
+	sum := ""
+	if l := v.detail.timeline; l != nil && len(l.Me) > 0 && len(l.Opp) == len(l.Me) {
+		sum = fmt.Sprintf("Life at the end: you %d, %s %d", l.Me[len(l.Me)-1], m.Opp.Name, l.Opp[len(l.Opp)-1])
+	}
+	return v.foldTile(c, "match.flow", foldHead{label: "Turn by turn", summary: sum}, func() {
 		l := v.detail.timeline
 		switch {
 		case l == nil:
@@ -251,7 +254,7 @@ func (v *view) pips(c *ui.Context, m stats.Match, l *matchTimeline, r flowSeries
 		if tick.Label == "You" {
 			col = youColor
 		}
-		ui.Text(c, tick.Label).NoWrap().Width(flowAxisWidth).TextAlign(ui.End).FontWeight(600).TextColor(col)
+		ui.Text(c, tick.Label).SingleLine().Width(flowAxisWidth).TextAlign(ui.End).FontWeight(600).TextColor(col).Tooltip(tick.Label)
 	}
 	chart.Plot(c.Key(r.label), chart.Axes{Left: ticks, Label: label}, func(area ui.Element) {
 		area.Label(r.label + " by turn").Draw(func(p *ui.Painter, rect ui.Rect) { pp.draw(p, rect, *sel) })

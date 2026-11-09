@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"cmp"
 	"fmt"
 
 	"github.com/egoist/mygo/ui"
@@ -46,35 +47,60 @@ func (d leaderDecks) scopeRows() []scopeRow {
 func (v *view) buildsTable(c *ui.Context, d leaderDecks) {
 	t := c.Theme()
 	rows := d.scopeRows()
-	panel(c).Gap(0).Padding(12, 16, 14, 16).Children(func() {
-		ui.Row(c).Gap(10).AlignItems(ui.End).Padding(0, 0, 6, 0).Children(func() {
-			ui.Text(c, "Builds of "+v.snap.card(d.leader).Name).FontSize(13).FontWeight(600)
-			ui.Text(c, "Click a row to see only its games. With about 30 games each, gaps under 10 points are likely luck.").
-				FontSize(12).TextColor(t.TextMuted).Wrap()
-		})
-		head := func(label string, w float32) {
-			flexCell(ui.Text(c, label).FontSize(12).TextColor(t.TextMuted).SingleLine(), w)
+	tv := v.arrangeTable("decks.builds", tableGap, []tableCol{
+		{id: "build", title: "Build", asc: true},
+		{id: "games", title: "Games", width: gamesColW},
+		{id: "rate", title: "Win rate", width: rateColTW},
+		{id: "first", title: "Going first", width: turnColW},
+		{id: "second", title: "Going second", width: turnColW},
+		{id: "last", title: "Last 20", width: lastColW, tip: "The win rate of the latest 20 games."},
+		{id: "played", title: "Played", width: playedColTW},
+	}, "", false)
+	rate := func(r stats.Record) float64 {
+		x, _ := r.Rate()
+		return x
+	}
+	last := func(l stats.Leader) float64 {
+		if len(l.Rolling) == 0 {
+			return -1
 		}
-		ui.Row(c).Gap(tableGap).Padding(8, 8).Children(func() {
-			head("Build", 0)
-			head("Games", gamesColW)
-			head("Win rate", rateColTW)
-			head("Going first", turnColW)
-			head("Going second", turnColW)
-			head("Last 20", lastColW)
-			head("Played", playedColTW)
+		return l.Rolling[len(l.Rolling)-1].Rate
+	}
+	few := func(r stats.Record) bool { return r.Games() < stats.MinGames }
+	sortRows(rows, tv.sort, tv.desc, map[string]func(a, b scopeRow) int{
+		"build": func(a, b scopeRow) int { return cmp.Compare(a.name, b.name) },
+		"games": func(a, b scopeRow) int { return cmp.Compare(a.stats.Record.Games(), b.stats.Record.Games()) },
+		"rate":  func(a, b scopeRow) int { return cmp.Compare(rate(a.stats.Record), rate(b.stats.Record)) },
+		"first": func(a, b scopeRow) int {
+			return cmp.Compare(rate(a.stats.TurnOrder.First), rate(b.stats.TurnOrder.First))
+		},
+		"second": func(a, b scopeRow) int {
+			return cmp.Compare(rate(a.stats.TurnOrder.Second), rate(b.stats.TurnOrder.Second))
+		},
+		"last":   func(a, b scopeRow) int { return cmp.Compare(last(a.stats), last(b.stats)) },
+		"played": func(a, b scopeRow) int { return a.stats.Last.Compare(b.stats.Last) },
+	}, map[string]func(scopeRow) bool{
+		"rate":   func(r scopeRow) bool { return few(r.stats.Record) },
+		"first":  func(r scopeRow) bool { return few(r.stats.TurnOrder.First) },
+		"second": func(r scopeRow) bool { return few(r.stats.TurnOrder.Second) },
+		"last":   func(r scopeRow) bool { return len(r.stats.Rolling) == 0 },
+	}, nil)
+	v.foldTile(c, "decks.builds", foldHead{label: "Builds of " + v.snap.card(d.leader).Name}, func() {
+		ui.Text(c, "Click a row to see only its games. With about 30 games each, gaps under 10 points are likely luck.").
+			FontSize(12).TextColor(t.TextMuted).Wrap()
+		ui.Column(c).Children(func() {
+			v.tableHeader(c, tv, 8)
+			for _, r := range rows {
+				v.scopeTableRow(c.Key(r.name), tv, r)
+			}
 		})
-		ui.Box(c).Height(1).Background(t.Border.Alpha(0.6))
-		for _, r := range rows {
-			v.scopeTableRow(c.Key(r.name), r)
-		}
 	})
 }
 
-func (v *view) scopeTableRow(c *ui.Context, r scopeRow) {
+func (v *view) scopeTableRow(c *ui.Context, tv tableView, r scopeRow) {
 	t := c.Theme()
 	l := r.stats
-	row := ui.ButtonBase(c).Label("Show "+r.name).Row().Gap(tableGap).Padding(9, 8).AlignItems(ui.Center).
+	row := ui.ButtonBase(c).Label("Show "+r.name).Row().Gap(tv.gap).Padding(9, 8).AlignItems(ui.Center).
 		Background(ui.Transparent).Radius(6)
 	if row.Hovered() {
 		row.Background(t.SurfaceHover)
@@ -82,47 +108,51 @@ func (v *view) scopeTableRow(c *ui.Context, r scopeRow) {
 	if row.Clicked() {
 		v.decks.scope, v.decks.suggesting = r.scope, false
 	}
-	rate := func(rec stats.Record, w float32) {
-		ui.Row(c).Width(w).Gap(5).AlignItems(ui.End).Children(func() {
-			ui.Text(c, rateOrTooFew(rec)).FontSize(13).FontWeight(600)
-			ui.Text(c, record(rec)).FontSize(12).TextColor(faintColor(t))
+	rate := func(rec stats.Record) {
+		ui.Row(c).Gap(5).AlignItems(ui.End).Children(func() {
+			ui.Text(c, rateOrTooFew(rec)).FontSize(13).FontWeight(600).SingleLine()
+			ui.Text(c, record(rec)).FontSize(12).TextColor(faintColor(t)).SingleLine()
 		})
 	}
-	cell := func(text string, w float32, muted bool) {
+	text := func(s string, muted bool) {
 		col := t.Text
 		if muted {
 			col = faintColor(t)
 		}
-		flexCell(ui.Text(c, text).FontSize(13).TextColor(col).SingleLine(), w)
+		ui.Text(c, s).FontSize(13).TextColor(col).SingleLine()
 	}
 	row.Children(func() {
-		ui.Row(c).Grow(1).Basis(0).MinWidth(0).Gap(8).AlignItems(ui.Center).Children(func() {
-			v.coreThumbs(c, r.core)
-			ui.Text(c, r.name).FontSize(13).FontWeight(600).SingleLine()
-		})
-		cell(fmt.Sprint(l.Record.Games()), gamesColW, false)
-		rate(l.Record, rateColTW)
-		rate(l.TurnOrder.First, turnColW)
-		rate(l.TurnOrder.Second, turnColW)
-		last := "–"
-		if len(l.Rolling) > 0 {
-			last = pct(l.Rolling[len(l.Rolling)-1].Rate)
+		for _, col := range tv.cols {
+			tv.cell(c, col, func() {
+				switch col.id {
+				case "build":
+					ui.Row(c).MinWidth(0).Gap(8).AlignItems(ui.Center).Children(func() {
+						v.coreThumbs(c, r.core)
+						ui.Text(c, r.name).FontSize(13).FontWeight(600).SingleLine().Tooltip(r.name)
+					})
+				case "games":
+					text(fmt.Sprint(l.Record.Games()), false)
+				case "rate":
+					rate(l.Record)
+				case "first":
+					rate(l.TurnOrder.First)
+				case "second":
+					rate(l.TurnOrder.Second)
+				case "last":
+					s := "–"
+					if len(l.Rolling) > 0 {
+						s = pct(l.Rolling[len(l.Rolling)-1].Rate)
+					}
+					text(s, s == "–")
+				case "played":
+					s := "–"
+					if !l.First.IsZero() {
+						s = l.First.Format("Jan 2") + " – " + l.Last.Format("Jan 2")
+					}
+					text(s, true)
+				}
+			})
 		}
-		cell(last, lastColW, last == "–")
-		played := "–"
-		if !l.First.IsZero() {
-			played = l.First.Format("Jan 2") + " – " + l.Last.Format("Jan 2")
-		}
-		cell(played, playedColTW, true)
 	})
 	ui.Box(c).Height(1).Background(t.Border.Alpha(0.3))
-}
-
-// flexCell sets a table cell's width, or shares out the row's spare width when w is 0.
-func flexCell(el ui.Element, w float32) {
-	if w > 0 {
-		el.Width(w)
-		return
-	}
-	el.Grow(1).Basis(0).MinWidth(0)
 }

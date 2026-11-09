@@ -140,7 +140,7 @@ func (v *view) handTester(c *ui.Context, d leaderDecks, dealt []stats.DealtCard)
 	if n < stats.DeckSize {
 		note = fmt.Sprintf("From the latest list, of which the logs name %d cards. Mulligan once, then draw turn by turn.", n)
 	}
-	titledTile(c, "Try a hand", "", func() {
+	v.foldTile(c, "hands.try", foldHead{label: "Try a hand"}, func() {
 		ui.Text(c, note).FontSize(12).TextColor(t.TextMuted)
 		v.testerControls(c, list)
 		if len(h.sent) > 0 {

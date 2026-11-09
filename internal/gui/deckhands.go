@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"slices"
@@ -44,15 +45,16 @@ func (v *view) handsTab(c *ui.Context, d leaderDecks) {
 		return
 	}
 	avg := float64(all.Wins) / float64(all.Games())
-	keepTile(c, mu, avg)
+	v.keepTile(c, mu, avg)
 	v.dealtPanel(c, mu.Cards, avg)
 	v.handTester(c, d, mu.Cards)
 }
 
 // keepTile compares kept and mulliganed hands going first, going second and in all games.
-func keepTile(c *ui.Context, mu stats.Mulligans, avg float64) {
+func (v *view) keepTile(c *ui.Context, mu stats.Mulligans, avg float64) {
 	t := c.Theme()
-	tile(c, "Keep or mulligan", func() {
+	sum := fmt.Sprintf("Kept %s · mulliganed %s", rateRecord(mu.All.Kept), rateRecord(mu.All.Mulliganed))
+	v.foldTile(c, "hands.keep", foldHead{label: "Keep or mulligan", summary: sum}, func() {
 		ui.Text(c, keepFinding(mu)).FontSize(14).Wrap()
 		ui.Row(c).Gap(12).Padding(6, 0, 0, 0).Children(func() {
 			ui.Box(c).Width(keepLabelW)
@@ -139,29 +141,44 @@ func keepFinding(mu stats.Mulligans) string {
 // dealt in.
 func (v *view) dealtPanel(c *ui.Context, cs []stats.DealtCard, avg float64) {
 	t := c.Theme()
-	panel(c).Gap(0).Padding(14, 16, 12, 16).Children(func() {
-		ui.Row(c).Gap(8).AlignItems(ui.End).Wrap().Children(func() {
-			ui.Text(c, "Cards in your first five").FontSize(13).FontWeight(600)
-			ui.Text(c, "Each row counts the games the card was in the five you were dealt. Click a row to see those hands.").
-				FontSize(12).TextColor(t.TextMuted)
+	tv := v.arrangeTable("hands.dealt", 12, []tableCol{
+		{id: "card", title: "Card", asc: true},
+		{id: "dealt", title: "Dealt", width: dealtColW},
+		{id: "kept", title: "Kept that hand", width: keptColW},
+		{id: "wonKept", title: "Won, kept", width: rateColW, tip: "Win rate when you kept a hand with it."},
+		{id: "wonSent", title: "Won, sent back", width: rateColW, tip: "Win rate when you sent back a hand with it."},
+	}, "dealt", true)
+	tv.trail = chevronColW
+	rows := slices.Clone(cs)
+	rate := func(r stats.Record) float64 {
+		x, _ := r.Rate()
+		return x
+	}
+	sortRows(rows, tv.sort, tv.desc, map[string]func(a, b stats.DealtCard) int{
+		"card":  func(a, b stats.DealtCard) int { return cmp.Compare(v.snap.card(a.Card).Name, v.snap.card(b.Card).Name) },
+		"dealt": func(a, b stats.DealtCard) int { return cmp.Compare(a.Dealt(), b.Dealt()) },
+		"kept": func(a, b stats.DealtCard) int {
+			return cmp.Compare(float64(a.Kept.Games())/float64(a.Dealt()), float64(b.Kept.Games())/float64(b.Dealt()))
+		},
+		"wonKept": func(a, b stats.DealtCard) int { return cmp.Compare(rate(a.Kept), rate(b.Kept)) },
+		"wonSent": func(a, b stats.DealtCard) int { return cmp.Compare(rate(a.SentBack), rate(b.SentBack)) },
+	}, map[string]func(stats.DealtCard) bool{
+		"wonKept": func(d stats.DealtCard) bool { return d.Kept.Games() < stats.MinGames },
+		"wonSent": func(d stats.DealtCard) bool { return d.SentBack.Games() < stats.MinGames },
+	}, func(a, b stats.DealtCard) int { return cmp.Compare(b.Dealt(), a.Dealt()) })
+	v.foldTile(c, "hands.dealt", foldHead{label: "Cards in your first five"}, func() {
+		ui.Text(c, "Each row counts the games the card was in the five you were dealt. Click a row to see those hands.").
+			FontSize(12).TextColor(t.TextMuted).Wrap()
+		ui.Column(c).Children(func() {
+			v.tableHeader(c, tv, 8)
+			for _, d := range rows {
+				v.dealtRow(c.Key(d.Card), tv, d, avg)
+			}
 		})
-		head := func(label string) ui.Element { return ui.Text(c, label).FontSize(12).TextColor(t.TextMuted) }
-		ui.Row(c).Gap(12).Padding(14, 8, 8, 8).AlignItems(ui.End).Children(func() {
-			head("Card").Grow(1).Basis(0)
-			head("Dealt").Width(dealtColW)
-			head("Kept that hand").Width(keptColW)
-			head("Won, kept").Width(rateColW)
-			head("Won, sent back").Width(rateColW)
-			ui.Box(c).Width(chevronColW)
-		})
-		ui.Box(c).Height(1).Background(t.Border.Alpha(0.6))
-		for _, d := range cs {
-			v.dealtRow(c.Key(d.Card), d, avg)
-		}
 	})
 }
 
-func (v *view) dealtRow(c *ui.Context, d stats.DealtCard, avg float64) {
+func (v *view) dealtRow(c *ui.Context, tv tableView, d stats.DealtCard, avg float64) {
 	t := c.Theme()
 	s := &v.decks
 	card := v.snap.card(d.Card)
@@ -170,7 +187,7 @@ func (v *view) dealtRow(c *ui.Context, d stats.DealtCard, avg float64) {
 	if open {
 		verb = "Hide"
 	}
-	row := ui.ButtonBase(c).Row().Gap(12).Padding(6, 8).AlignItems(ui.Center).Radius(6).
+	row := ui.ButtonBase(c).Row().Gap(tv.gap).Padding(6, 8).AlignItems(ui.Center).Radius(6).
 		Label(verb + " the hands dealt " + card.Name).Transition(ui.ElementTransition{Duration: hoverTime, Colors: true})
 	switch {
 	case open:
@@ -187,29 +204,10 @@ func (v *view) dealtRow(c *ui.Context, d stats.DealtCard, avg float64) {
 			s.handsCard, s.allHands = d.Card, false
 		}
 	}
-	dealt := d.Dealt()
 	row.Children(func() {
-		ui.Row(c).Grow(1).Basis(0).Gap(10).AlignItems(ui.Center).MinWidth(0).Children(func() {
-			v.cardArt(c, d.Card, 30, 42)
-			ui.Column(c).Gap(1).MinWidth(0).Children(func() {
-				ui.Text(c, card.Name).FontSize(13).FontWeight(600).SingleLine()
-				meta := d.Card
-				if card.Cost >= 0 && card.Type != "Leader" {
-					meta += fmt.Sprintf(" · cost %d", card.Cost)
-				}
-				ui.Text(c, meta).FontSize(11).TextColor(faintColor(t)).SingleLine()
-			})
-		})
-		ui.Text(c, fmt.Sprint(dealt)).FontSize(13).Width(dealtColW)
-		ui.Row(c).Width(keptColW).Gap(8).AlignItems(ui.Center).Children(func() {
-			share := float32(d.Kept.Games()) / float32(dealt)
-			ui.Box(c).Size(keptBarW, 6).Radius(3).Background(t.Surface).Children(func() {
-				ui.Box(c).Size(max(share*keptBarW, 2), 6).Radius(3).Background(t.Accent)
-			})
-			ui.Text(c, fmt.Sprintf("%d of %d", d.Kept.Games(), dealt)).FontSize(12).SingleLine()
-		})
-		rateCell(c.Key("kept"), d.Kept, avg)
-		rateCell(c.Key("sent"), d.SentBack, avg)
+		for _, col := range tv.cols {
+			tv.cell(c, col, func() { v.dealtCell(c, col, d, avg) })
+		}
 		icon := iconChevron
 		if open {
 			icon = iconChevronUp
@@ -220,6 +218,42 @@ func (v *view) dealtRow(c *ui.Context, d stats.DealtCard, avg float64) {
 		v.dealtHands(c.Key("hands"), d.Card)
 	}
 	ui.Box(c).Height(1).Background(t.Border.Alpha(0.3))
+}
+
+func (v *view) dealtCell(c *ui.Context, col tableCol, d stats.DealtCard, avg float64) {
+	t := c.Theme()
+	dealt := d.Dealt()
+	switch col.id {
+	case "card":
+		card := v.snap.card(d.Card)
+		ui.Row(c).Gap(10).AlignItems(ui.Center).MinWidth(0).Children(func() {
+			v.cardArt(c, d.Card, 30, 42)
+			ui.Column(c).Gap(1).MinWidth(0).Children(func() {
+				ui.Text(c, card.Name).FontSize(13).FontWeight(600).SingleLine().Tooltip(card.Name)
+				meta := d.Card
+				if card.Cost >= 0 && card.Type != "Leader" {
+					meta += fmt.Sprintf(" · cost %d", card.Cost)
+				}
+				ui.Text(c, meta).FontSize(11).TextColor(faintColor(t)).SingleLine()
+			})
+		})
+	case "dealt":
+		ui.Text(c, fmt.Sprint(dealt)).FontSize(13)
+	case "kept":
+		share := float32(d.Kept.Games()) / float32(dealt)
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Grow(1).Basis(0).MinWidth(0).Children(func() {
+			track, fill := t.Surface, t.Accent
+			ui.Box(c).Height(6).Grow(1).Basis(0).MinWidth(20).Draw(func(p *ui.Painter, rc ui.Rect) {
+				p.Fill(rc, track, 3)
+				p.Fill(ui.Rect{X: rc.X, Y: rc.Y, W: max(share*rc.W, 2), H: rc.H}, fill, 3)
+			})
+			ui.Text(c, fmt.Sprintf("%d of %d", d.Kept.Games(), dealt)).FontSize(12).SingleLine()
+		})
+	case "wonKept":
+		rateIn(c.Key("kept"), d.Kept, avg)
+	case "wonSent":
+		rateIn(c.Key("sent"), d.SentBack, avg)
+	}
 }
 
 // dealtHands are the games the card was dealt in, newest first, each with the five sent back

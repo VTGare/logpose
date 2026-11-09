@@ -17,7 +17,7 @@ func (v *view) timeline(c *ui.Context, m stats.Match) {
 
 func (v *view) momentsTile(c *ui.Context, m stats.Match) ui.Element {
 	t := c.Theme()
-	return tile(c, "Key moments", func() {
+	return v.foldTile(c, "match.moments", foldHead{label: "Key moments"}, func() {
 		l := v.detail.timeline
 		switch {
 		case l == nil:

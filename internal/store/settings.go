@@ -40,6 +40,10 @@ const (
 	SettingShortcutsOffered = "shortcuts_offered"
 	// SettingDeckChanges is "1" when a build's list marks the cards changed from the list before.
 	SettingDeckChanges = "deck_show_changes"
+	// SettingFolded is the IDs of the tiles the user collapsed, comma separated.
+	SettingFolded = "folded_tiles"
+	// SettingTables is the JSON of each table's sort, column order and widths, by table ID.
+	SettingTables = "tables"
 )
 
 // Setting returns a setting's value, or "" when it isn't set.
