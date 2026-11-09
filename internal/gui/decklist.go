@@ -24,9 +24,14 @@ const (
 	statColumnW = 200
 )
 
-// listTab is the chosen build's latest list, or the suggested builds when none is chosen.
+// listTab is the core being edited, or the chosen build's lists, or the suggested builds when
+// none is chosen or they were asked for.
 func (v *view) listTab(c *ui.Context, d leaderDecks) {
-	if b, ok := d.chosen(v.decks.build); ok {
+	if v.decks.edit != nil {
+		v.coreEditor(c, d)
+		return
+	}
+	if b, ok := d.chosen(v.decks.build); ok && !v.decks.suggesting {
 		v.buildList(c, d, b)
 		return
 	}
@@ -238,6 +243,9 @@ func (v *view) suggestionsPanel(c *ui.Context, d leaderDecks) {
 	t := c.Theme()
 	s := &v.decks
 	panel(c).Gap(12).Padding(16).Children(func() {
+		if b, ok := d.chosen(s.build); ok && linkButton(c, "Back to "+b.Name) {
+			s.suggesting = false
+		}
 		if len(d.suggestions) == 0 {
 			ui.Text(c, "No suggested builds for "+v.snap.card(d.leader).Name).FontWeight(600)
 			ui.Text(c, "Suggestions group your games by the searchers their lists run.").

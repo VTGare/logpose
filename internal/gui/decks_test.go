@@ -238,4 +238,77 @@ var _ = Describe("Decks page", func() {
 		Expect(v.decks.build).To(Equal(int64(2)))
 		Expect(v.decks.tab).To(Equal(tabCards))
 	})
+
+	It("makes a new build from the cards clicked and the name typed", func() {
+		v, tt := tester(deckSnapshot())
+		f := &fakeActions{}
+		v.act = f
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("New build")).To(Succeed())
+		tt.Frame()
+		Expect(v.decks.edit).NotTo(BeNil())
+		Expect(tt.HasText("New Monkey D. Luffy build")).To(BeTrue())
+		v.decks.edit.toggle("OTA")
+		v.decks.edit.name = "Wano"
+		tt.Frame()
+		Expect(tt.HasText("0 games → 5 games")).To(BeTrue())
+		Expect(tt.Click("Save")).To(Succeed())
+		Expect(f.builds).To(Equal([]store.Build{{Leader: "OP13-001", Name: "Wano", Core: []string{"OTA"}}}))
+		Expect(v.decks.edit).To(BeNil())
+	})
+
+	It("won't save a build without a name or a core card", func() {
+		v, tt := tester(deckSnapshot())
+		f := &fakeActions{}
+		v.act = f
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("New build")).To(Succeed())
+		tt.Frame()
+		v.decks.edit.name = "Wano"
+		tt.Frame()
+		Expect(tt.Click("Save")).To(Succeed())
+		Expect(f.builds).To(BeEmpty())
+	})
+
+	It("edits, renames and deletes the chosen build from the build menu", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
+		v, tt := tester(deckSnapshot(wano))
+		f := &fakeActions{}
+		v.act = f
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("Builds")).To(Succeed())
+		Expect(tt.Click("Edit core")).To(Succeed())
+		tt.Frame()
+		Expect(tt.HasText("Editing Wano/Miracle's core")).To(BeTrue())
+		Expect(v.decks.edit.core).To(Equal([]string{"OTA"}))
+		Expect(tt.Click("Cancel")).To(Succeed())
+		tt.Frame()
+
+		Expect(tt.Click("Builds")).To(Succeed())
+		Expect(tt.Click("Rename")).To(Succeed())
+		tt.Frame()
+		v.decks.rename = "Miracle"
+		Expect(tt.Click("Save")).To(Succeed())
+		Expect(f.builds).To(Equal([]store.Build{{ID: 1, Leader: "OP13-001", Name: "Miracle", Core: []string{"OTA"}}}))
+
+		Expect(tt.Click("Builds")).To(Succeed())
+		Expect(tt.Click("Delete build")).To(Succeed())
+		tt.Frame()
+		Expect(tt.HasText("Delete Wano/Miracle? Its 5 games go back to no build.")).To(BeTrue())
+		Expect(tt.Click("Delete")).To(Succeed())
+		Expect(f.deleted).To(Equal([]int64{1}))
+	})
+
+	It("opens the suggestions from the build menu, with a way back", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
+		v, tt := tester(deckSnapshot(wano))
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("Builds")).To(Succeed())
+		Expect(tt.Click("Suggested builds · 1")).To(Succeed())
+		tt.Frame()
+		Expect(tt.HasText("Suggested builds · 1")).To(BeTrue())
+		Expect(tt.Click("Back to Wano/Miracle")).To(Succeed())
+		tt.Frame()
+		Expect(v.decks.suggesting).To(BeFalse())
+	})
 })

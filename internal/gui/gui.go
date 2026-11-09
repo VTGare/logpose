@@ -671,6 +671,10 @@ func (x *appActions) SaveBuild(b store.Build) {
 	})
 }
 
+func (x *appActions) DeleteBuild(id int64) {
+	x.run("delete build", func(ctx context.Context, st *store.Store) error { return st.DeleteBuild(ctx, id) })
+}
+
 func (x *appActions) DismissSuggestion(d store.Dismissal) {
 	x.run("dismiss build suggestion", func(ctx context.Context, st *store.Store) error { return st.DismissSuggestion(ctx, d) })
 }

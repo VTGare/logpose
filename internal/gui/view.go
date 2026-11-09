@@ -54,7 +54,8 @@ const (
 	pageCards    = "cards"
 )
 
-// Pages are the ids of every page, which -page takes. A Decks tab is "decks/" and its name.
+// Pages are the ids of every page, which -page takes. A Decks tab is "decks/" and its name, and
+// "decks/edit" opens the core editor on the first build.
 func Pages() []string {
 	ids := []string{pageSettings}
 	for _, p := range navPages {
@@ -63,13 +64,14 @@ func Pages() []string {
 	for _, tab := range deckTabLabels[1:] {
 		ids = append(ids, pageDecks+"/"+strings.ToLower(tab))
 	}
-	return ids
+	return append(ids, pageDecks+"/edit")
 }
 
 // open shows a page from Pages.
 func (v *view) open(id string) {
 	page, tab, _ := strings.Cut(id, "/")
 	v.page = page
+	v.decks.editOnOpen = tab == "edit"
 	for i, label := range deckTabLabels {
 		if strings.ToLower(label) == tab {
 			v.decks.tab = i
@@ -91,6 +93,7 @@ type actions interface {
 	SetGameNote(fingerprint, note string)
 	SetBookmark(fingerprint string, on bool)
 	SaveBuild(b store.Build)
+	DeleteBuild(id int64)
 	DismissSuggestion(d store.Dismissal)
 	// OpenReplay builds a match's replay from its log and shows it with view.setReplay.
 	OpenReplay(fingerprint string)

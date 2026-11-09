@@ -26,10 +26,13 @@ type fakeActions struct {
 	// artLoads holds each LoadArts as "<code> <gen>". Showing a card calls it on its own.
 	artLoads   []string
 	builds     []store.Build
+	deleted    []int64
 	dismissals []store.Dismissal
 }
 
 func (f *fakeActions) SaveBuild(b store.Build) { f.builds = append(f.builds, b) }
+
+func (f *fakeActions) DeleteBuild(id int64) { f.deleted = append(f.deleted, id) }
 
 func (f *fakeActions) DismissSuggestion(d store.Dismissal) { f.dismissals = append(f.dismissals, d) }
 
