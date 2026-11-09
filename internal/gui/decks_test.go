@@ -121,12 +121,58 @@ var _ = Describe("Decks page", func() {
 		}
 	})
 
-	It("keeps Cards shut without a build", func() {
+	It("shows every game's cards on Cards for a leader without builds", func() {
 		v, tt := tester(deckSnapshot())
 		Expect(tt.Click("Decks")).To(Succeed())
 		v.decks.tab = tabCards
 		tt.Frame()
-		Expect(v.decks.tab).To(Equal(tabResults))
+		Expect(v.decks.tab).To(Equal(tabCards))
+		Expect(tt.HasText("Kid & Killer")).To(BeTrue())
+		Expect(tt.HasText("Otama")).To(BeTrue())
+	})
+
+	It("counts the chosen scope's games on Cards", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
+		v, tt := tester(deckSnapshot(wano))
+		Expect(tt.Click("Decks")).To(Succeed())
+		v.decks.tab = tabCards
+		tt.Frame()
+		Expect(tt.HasText("Kid & Killer")).To(BeTrue())
+		Expect(tt.HasText("Otama")).To(BeTrue())
+
+		Expect(tt.Click("No build")).To(Succeed())
+		tt.Frame()
+		Expect(v.decks.tab).To(Equal(tabCards))
+		Expect(tt.HasText("Kid & Killer")).To(BeTrue())
+		Expect(tt.HasText("Otama")).To(BeFalse())
+	})
+
+	It("shows every list under Overall, and the suggestions under No build", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
+		v, tt := tester(deckSnapshot(wano))
+		Expect(tt.Click("Decks")).To(Succeed())
+		v.decks.tab = tabList
+		tt.Frame()
+		Expect(tt.HasText("Latest list")).To(BeTrue())
+		Expect(tt.HasText("Show changes")).To(BeTrue())
+
+		Expect(tt.Click("No build")).To(Succeed())
+		tt.Frame()
+		Expect(tt.HasText("Latest list")).To(BeFalse())
+		Expect(tt.HasText("Suggested builds")).To(BeTrue())
+		Expect(tt.HasText("Back to")).To(BeFalse())
+	})
+
+	It("goes back to Overall from the suggestions", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
+		v, tt := tester(deckSnapshot(wano))
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("1 suggested")).To(Succeed())
+		tt.Frame()
+		Expect(tt.Click("Back to Overall")).To(Succeed())
+		tt.Frame()
+		Expect(v.decks.suggesting).To(BeFalse())
+		Expect(tt.HasText("Latest list")).To(BeTrue())
 	})
 
 	It("makes a suggestion a build with the name given, its searchers as the core", func() {

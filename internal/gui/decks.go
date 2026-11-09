@@ -414,9 +414,6 @@ func (v *view) chooseBuild(d leaderDecks) {
 	if s.edit != nil {
 		s.tab = tabList
 	}
-	if s.scope.kind != scopeBuild && s.tab == tabCards {
-		s.tab = tabResults
-	}
 }
 
 // shownSuggestions counts the suggestions of minSuggested games or more, or every one when all
@@ -528,27 +525,21 @@ func buildChip(c *ui.Context, name, meta string, suggested, on bool) bool {
 	return chip.Clicked()
 }
 
-// pageTabs are the page's tabs. Cards needs a chosen build.
+// pageTabs are the page's tabs.
 func (v *view) pageTabs(c *ui.Context) {
 	t := c.Theme()
 	s := &v.decks
-	if s.tab == tabCards && s.scope.kind != scopeBuild {
-		s.tab = tabResults
-	}
 	ui.Column(c).Children(func() {
 		tabs := ui.TabsBase(c, &s.tab, len(deckTabLabels))
 		tabs.List.Gap(4).Children(func() {
 			for i, label := range deckTabLabels {
-				on := i == tabResults || i == tabList || s.scope.kind == scopeBuild
 				tab := tabs.Tab(i).Column().Gap(6).Padding(7, 4, 0, 4)
-				col, bar := faintColor(t), ui.Transparent
+				col, bar := t.TextMuted, ui.Transparent
 				switch {
 				case i == s.tab:
 					col, bar = t.Text, t.Accent
-				case on && tab.Hovered():
+				case tab.Hovered():
 					col = t.Text
-				case on:
-					col = t.TextMuted
 				}
 				tab.Children(func() {
 					ui.Text(c, label).FontSize(13).TextColor(col).Padding(0, 8)

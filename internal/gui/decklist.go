@@ -24,22 +24,23 @@ const (
 	statColumnW = 200
 )
 
-// listTab is the chosen build's lists, or the suggested builds when none is chosen or they were
-// asked for.
+// listTab is the lists of the chosen build, or of every game under Overall. The games in no
+// build, and a leader without builds, get the suggested builds, as does asking for them.
 func (v *view) listTab(c *ui.Context, d leaderDecks) {
-	if b, ok := d.chosen(v.decks.scope.build); ok && v.decks.scope.kind == scopeBuild && !v.decks.suggesting {
-		v.buildList(c, d, b)
+	s := v.decks
+	if s.suggesting || s.scope.kind == scopeNoBuild || len(d.builds) == 0 {
+		v.suggestionsPanel(c, d)
 		return
 	}
-	v.suggestionsPanel(c, d)
+	v.scopeList(c, d, d.scopedGames(s.scope), v.scopeName(d))
 }
 
-func (v *view) buildList(c *ui.Context, d leaderDecks, b store.Build) {
+// scopeList is the lists the games ran, the latest first in a rail, and the chosen one in full.
+func (v *view) scopeList(c *ui.Context, d leaderDecks, gs []stats.DeckGame, name string) {
 	t := c.Theme()
-	gs := d.assignment.Builds[b.ID]
 	if len(gs) == 0 {
 		panel(c).Padding(16).Children(func() {
-			ui.Text(c, "No games of "+b.Name+" match these filters.").TextColor(t.TextMuted)
+			ui.Text(c, "No games of "+name+" match these filters.").TextColor(t.TextMuted)
 		})
 		return
 	}
@@ -242,7 +243,7 @@ func (v *view) suggestionsPanel(c *ui.Context, d leaderDecks) {
 	t := c.Theme()
 	s := &v.decks
 	panel(c).Gap(12).Padding(16).Children(func() {
-		if b, ok := d.chosen(s.scope.build); ok && s.scope.kind == scopeBuild && linkButton(c, "Back to "+b.Name) {
+		if s.suggesting && s.scope.kind != scopeNoBuild && len(d.builds) > 0 && linkButton(c, "Back to "+v.scopeName(d)) {
 			s.suggesting = false
 		}
 		if len(d.suggestions) == 0 {

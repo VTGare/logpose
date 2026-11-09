@@ -21,15 +21,18 @@ const (
 	rangeBarW  = 92
 )
 
-// cardsTab is how each card of the chosen build did in its games in scope: the latest list's
-// cards first, then the ones no longer in it.
+// cardsTab is how each card did in the games the scope counts: the latest list's cards first,
+// then the ones no longer in it.
 func (v *view) cardsTab(c *ui.Context, d leaderDecks) {
 	t := c.Theme()
-	b, _ := d.chosen(v.decks.scope.build)
-	gs := d.assignment.Builds[b.ID]
+	gs := d.scopedGames(v.decks.scope)
+	name := v.scopeName(d)
+	if name == "" {
+		name = v.snap.card(d.leader).Name
+	}
 	panel(c).Gap(0).Padding(8, 16, 16, 16).Children(func() {
 		if len(gs) == 0 {
-			ui.Text(c, "No games of "+b.Name+" match these filters.").TextColor(t.TextMuted).Padding(8, 0)
+			ui.Text(c, "No games of "+name+" match these filters.").TextColor(t.TextMuted).Padding(8, 0)
 			return
 		}
 		var all stats.Record
