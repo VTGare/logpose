@@ -160,7 +160,8 @@ func (v *view) cardSplit(c *ui.Context, list, panel func()) {
 	if split.Changed() {
 		v.dragPane(&v.prefs.panelWidth, &v.panelDrag, shown-size, snapPanel, store.SettingCardPanelWidth)
 	}
-	if b := split.Bounds(); b.W != s.splitBox.W {
+	// Bounds is empty on the frame the page comes back, so the old width is kept until then.
+	if b := split.Bounds(); b.W > 0 && b.W != s.splitBox.W {
 		s.splitBox = b
 		c.Invalidate()
 	}
@@ -442,7 +443,7 @@ func (v *view) cardWall(c *ui.Context, shown []cards.Card) {
 			}
 		})
 	}).Grow(1).Basis(0).MinWidth(0)
-	if b := wall.Bounds(); b.W != s.wallBox.W {
+	if b := wall.Bounds(); b.W > 0 && b.W != s.wallBox.W {
 		s.wallBox = b
 		c.Invalidate()
 	}

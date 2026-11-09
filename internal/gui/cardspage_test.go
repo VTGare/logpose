@@ -201,6 +201,18 @@ var _ = Describe("Cards page", func() {
 		Expect(tt.HasText("Updating · 1 of 3 sets")).To(BeTrue())
 	})
 
+	It("keeps the wall's width when the page is opened again", func() {
+		v, tt := cardsTester()
+		wall, split := v.cardsUI.wallBox, v.cardsUI.splitBox
+		Expect(wall.W).To(BeNumerically(">", 0))
+		v.page = pageFormats
+		tt.Frame()
+		v.page = pageCards
+		tt.Frame()
+		Expect(v.cardsUI.wallBox).To(Equal(wall))
+		Expect(v.cardsUI.splitBox).To(Equal(split))
+	})
+
 	It("picks a cost from the curve", func() {
 		v, tt := cardsTester()
 		Expect(tt.Click("Cost 2, 1 card")).To(Succeed())
