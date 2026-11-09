@@ -38,9 +38,9 @@ type decksState struct {
 	suggesting bool
 	// edit is the core being edited, nil when none is.
 	edit *buildEdit
-	// renaming and deleting show their bar under the build row for the chosen build.
-	renaming, deleting bool
-	rename             string
+	// renaming shows the rename bar under the build row for the chosen build.
+	renaming bool
+	rename   string
 	// editOnOpen opens the core editor on the chosen build once the page has one.
 	editOnOpen bool
 }
@@ -138,80 +138,111 @@ func (v *view) suggestions(leader string) []stats.Suggestion {
 // minSuggested is the fewest games a suggested build is shown for. Smaller groups fold away.
 const minSuggested = 3
 
-// buildRow is the leader's builds, or one chip for the suggestions, and how many games are in no build.
+// buildRow is the leader's builds, a chip for a new one, and how many games are in no build
+// with a link to the suggestions. Without builds, the suggestions get a chip of their own.
 func (v *view) buildRow(c *ui.Context, d leaderDecks) {
 	t := c.Theme()
+	s := &v.decks
 	ui.Row(c).Gap(16).AlignItems(ui.Center).Children(func() {
 		ui.Row(c).Grow(1).Basis(0).Gap(8).AlignItems(ui.Center).Wrap().Children(func() { v.buildChips(c, d) })
 		if len(d.games) == 0 {
 			return
 		}
-		note := games(d.unbuilt) + " in no build"
-		if len(d.builds) == 0 {
-			note = "No builds yet · " + games(len(d.games))
-		}
-		ui.Text(c, note).FontSize(12).TextColor(faintColor(t)).SingleLine()
+		ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+			if len(d.builds) == 0 {
+				ui.Text(c, "No builds yet · "+games(len(d.games))).FontSize(12).TextColor(faintColor(t)).SingleLine()
+				return
+			}
+			ui.Text(c, games(d.unbuilt)+" in no build").FontSize(12).TextColor(faintColor(t)).SingleLine()
+			if len(d.suggestions) > 0 {
+				ui.Text(c, "·").FontSize(12).TextColor(faintColor(t))
+				if linkButton(c, fmt.Sprintf("%d suggested", shownSuggestions(d))) {
+					s.suggesting, s.tab, s.edit = true, tabList, nil
+				}
+			}
+		})
 	})
-	if b, ok := d.chosen(v.decks.build); ok {
+	if b, ok := d.chosen(s.build); ok {
 		v.renameBar(c, b)
-		v.deleteBar(c, d, b)
 	}
 }
 
-// buildChips choose the build the tabs show, then "Builds" opens the build menu. Without
-// builds, one chip opens List on the suggestions, next to "New build".
+// buildChips choose the build the tabs show. Each has its actions on right-click, and the
+// chosen one on its ⋯ too. Without builds, one chip opens List on the suggestions.
 func (v *view) buildChips(c *ui.Context, d leaderDecks) {
 	s := &v.decks
 	for _, b := range d.builds {
-		if buildChip(c.Key(fmt.Sprint("b", b.ID)), b.Name, buildMeta(d.assignment.Builds[b.ID]), false, s.build == b.ID) {
-			s.build, s.version, s.suggesting = b.ID, time.Time{}, false
-		}
+		v.savedBuildChip(c.Key(fmt.Sprint("b", b.ID)), d, b)
 	}
-	if len(d.builds) > 0 {
-		filterPill(c.Key("menu"), "Builds", false).PopoverMenuButton(func(m *ui.Menu) { v.buildMenu(m, d) })
-		return
-	}
-	if len(d.suggestions) > 0 {
+	if len(d.builds) == 0 && len(d.suggestions) > 0 {
 		if buildChip(c.Key("suggested"), fmt.Sprintf("%d suggested", shownSuggestions(d)), "Builds to make", true,
 			s.tab == tabList && s.edit == nil) {
 			s.tab, s.edit = tabList, nil
 		}
 	}
-	if len(d.games) > 0 && ui.Button(c.Key("new"), "New build").Clicked() {
+	if len(d.games) > 0 && buildChip(c.Key("new"), "New build", "Pick its core", true, false) {
 		v.startEdit(store.Build{Leader: d.leader})
 	}
 }
 
-// buildMenu shows the chosen build's core and what can be done to it, then a new build and the
-// suggestions.
-func (v *view) buildMenu(m *ui.Menu, d leaderDecks) {
+func (v *view) savedBuildChip(c *ui.Context, d leaderDecks, b store.Build) {
+	t := c.Theme()
 	s := &v.decks
-	if b, ok := d.chosen(s.build); ok {
-		var names []string
-		for _, code := range b.Core {
-			names = append(names, v.snap.card(code).Name)
-		}
-		m.Item("Core: " + strings.Join(names, ", ")).Disabled(true)
-		if m.Item("Edit core").Chosen() {
-			v.startEdit(b)
-		}
-		if m.Item("Rename").Chosen() {
-			s.renaming, s.deleting, s.rename = true, false, b.Name
-		}
-		if m.Item("Delete build").Chosen() {
-			s.deleting, s.renaming = true, false
-		}
-		m.Separator()
+	on := s.build == b.ID
+	menu := func(m *ui.Menu) { v.buildMenu(m, d, b) }
+	group := ui.Row(c).AlignItems(ui.Stretch).Radius(10).Clip().Border(1, t.Border.Alpha(0.6))
+	if on {
+		group.Background(t.Surface).Border(1, t.Accent)
 	}
-	if m.Item("New build").Chosen() {
-		v.startEdit(store.Build{Leader: d.leader})
+	group.Children(func() {
+		chip := ui.ButtonBase(c).Label(b.Name).Column().Gap(1).Padding(7, 12).Background(ui.Transparent).
+			AlignItems(ui.Start).Tooltip(v.coreText(b)).PopoverMenu(menu)
+		if !on && chip.Hovered() {
+			chip.Background(t.SurfaceHover)
+		}
+		if chip.Clicked() {
+			s.build, s.version, s.suggesting = b.ID, time.Time{}, false
+		}
+		chip.Children(func() {
+			ui.Text(c, b.Name).FontSize(13).FontWeight(600).SingleLine()
+			ui.Text(c, buildMeta(d.assignment.Builds[b.ID])).FontSize(12).TextColor(faintColor(t)).SingleLine()
+		})
+		if !on {
+			return
+		}
+		ui.Box(c).Width(1).Background(t.Border.Alpha(0.6))
+		more := ui.ButtonBase(c).Label(b.Name+" actions").Padding(0, 9).Background(ui.Transparent).Center().
+			TextColor(t.TextMuted).PopoverMenuButton(menu)
+		if more.Hovered() {
+			more.Background(t.SurfaceHover).TextColor(t.Text)
+		}
+		more.Children(func() { ui.Icon(c, iconMore).FontSize(16) })
+	})
+}
+
+func (v *view) coreText(b store.Build) string {
+	var names []string
+	for _, code := range b.Core {
+		names = append(names, v.snap.card(code).Name)
 	}
-	label := "Suggested builds"
-	if n := shownSuggestions(d); n > 0 {
-		label = fmt.Sprintf("Suggested builds · %d", n)
+	return "Core: " + strings.Join(names, ", ")
+}
+
+// buildMenu shows a build's core and what can be done to it.
+func (v *view) buildMenu(m *ui.Menu, d leaderDecks, b store.Build) {
+	s := &v.decks
+	m.Item(v.coreText(b)).Disabled(true)
+	m.Separator()
+	if m.Item("Edit core").Chosen() {
+		s.build = b.ID
+		v.startEdit(b)
 	}
-	if m.Item(label).Disabled(len(d.suggestions) == 0).Chosen() {
-		s.suggesting, s.tab, s.edit = true, tabList, nil
+	if m.Item("Rename").Chosen() {
+		s.build, s.renaming, s.rename = b.ID, true, b.Name
+	}
+	m.Separator()
+	if m.Item("Delete build").Chosen() {
+		v.deleteBuild(d, b)
 	}
 }
 
@@ -234,24 +265,24 @@ func (v *view) renameBar(c *ui.Context, b store.Build) {
 	})
 }
 
-func (v *view) deleteBar(c *ui.Context, d leaderDecks, b store.Build) {
-	t := c.Theme()
-	s := &v.decks
-	if !s.deleting {
-		return
+// buildUndoTime is how long the message after a delete shows, with its Undo.
+const buildUndoTime = 10 * time.Second
+
+// deleteBuild deletes the build at once and offers Undo, which saves it again as a new build.
+func (v *view) deleteBuild(d leaderDecks, b store.Build) {
+	n := len(d.assignment.Builds[b.ID])
+	v.do(func(a actions) { a.DeleteBuild(b.ID) })
+	v.decks.build, v.decks.renaming = 0, false
+	v.toast = &ui.Toast{
+		ID: "build-deleted", Timeout: buildUndoTime, Title: "Deleted " + b.Name + ".",
+		Description: "Its " + games(n) + " went back to no build.", Action: "Undo",
+		OnAction: func() {
+			nb := b
+			nb.ID = 0
+			v.do(func(a actions) { a.SaveBuild(nb) })
+			v.decks.saved = b.Name
+		},
 	}
-	ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(8, 12).Radius(8).Background(t.Surface).Children(func() {
-		ui.Text(c, fmt.Sprintf("Delete %s? Its %s go back to no build.", b.Name, games(len(d.assignment.Builds[b.ID])))).
-			FontSize(13)
-		ui.Spacer(c)
-		if ui.Button(c, "Delete").Clicked() {
-			v.do(func(a actions) { a.DeleteBuild(b.ID) })
-			s.deleting, s.build = false, 0
-		}
-		if ui.Button(c, "Cancel").Clicked() {
-			s.deleting = false
-		}
-	})
 }
 
 // chooseBuild keeps the chosen build to the leader's, chooses the first when none is, and

@@ -24,13 +24,9 @@ const (
 	statColumnW = 200
 )
 
-// listTab is the core being edited, or the chosen build's lists, or the suggested builds when
-// none is chosen or they were asked for.
+// listTab is the chosen build's lists, or the suggested builds when none is chosen or they were
+// asked for.
 func (v *view) listTab(c *ui.Context, d leaderDecks) {
-	if v.decks.edit != nil {
-		v.coreEditor(c, d)
-		return
-	}
 	if b, ok := d.chosen(v.decks.build); ok && !v.decks.suggesting {
 		v.buildList(c, d, b)
 		return
@@ -155,7 +151,7 @@ func (v *view) stack(c *ui.Context, code string, n, swapped int, gone bool) {
 	})
 }
 
-// listStats is the curve with the counters, then the types with the traits, two to a row so
+// listStats is the curve with the counters, then the types and colors with the traits, two to a row so
 // they fit beside the versions rail.
 func listStats(c *ui.Context, st stats.ListStats) {
 	pair := func(key string, left, right func()) {
@@ -187,6 +183,9 @@ func listStats(c *ui.Context, st stats.ListStats) {
 					if n := st.Types[ty]; n > 0 {
 						statLine(c, ty+"s", fmt.Sprint(n))
 					}
+				}
+				if len(st.Colors) > 0 {
+					ui.Text(c, "Colors").FontSize(13).FontWeight(600).Margin(14, 0, 4, 0)
 				}
 				for _, col := range slices.Sorted(maps.Keys(st.Colors)) {
 					statLine(c.Key(string(col)), string(col), fmt.Sprint(st.Colors[col]))

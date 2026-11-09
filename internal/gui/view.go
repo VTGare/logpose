@@ -135,6 +135,8 @@ type actions interface {
 type view struct {
 	snap *snapshot
 	act  actions
+	// toast is a message for the next frame to show.
+	toast *ui.Toast
 	// formats is the Formats page's state.
 	formats formatsState
 	// live is the game in the sim right now, which the log follower updates on its own.

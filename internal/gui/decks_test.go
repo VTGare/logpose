@@ -3,6 +3,8 @@ package gui
 import (
 	"fmt"
 
+	"github.com/egoist/mygo/ui"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -42,14 +44,14 @@ func deckSnapshot(builds ...store.Build) *snapshot {
 }
 
 var _ = Describe("Decks page", func() {
-	It("shows the leader's builds with their record, without suggestions", func() {
+	It("shows the leader's builds with their record, and the suggestions only as a link", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
 		_, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
 		for _, text := range []string{"Wano/Miracle", "5 games · 5–0 · 100%", "5 games in no build"} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
-		Expect(tt.HasText("suggested")).To(BeFalse())
+		Expect(tt.HasText("Builds to make")).To(BeFalse())
 	})
 
 	It("offers the suggestions in one chip when the leader has no builds", func() {
@@ -251,7 +253,8 @@ var _ = Describe("Decks page", func() {
 		v.decks.edit.toggle("OTA")
 		v.decks.edit.name = "Wano"
 		tt.Frame()
-		Expect(tt.HasText("0 games → 5 games")).To(BeTrue())
+		Expect(tt.HasText("5 games · 5–0")).To(BeTrue())
+		Expect(tt.HasText("Results")).To(BeFalse())
 		Expect(tt.Click("Save")).To(Succeed())
 		Expect(f.builds).To(Equal([]store.Build{{Leader: "OP13-001", Name: "Wano", Core: []string{"OTA"}}}))
 		Expect(v.decks.edit).To(BeNil())
@@ -270,43 +273,45 @@ var _ = Describe("Decks page", func() {
 		Expect(f.builds).To(BeEmpty())
 	})
 
-	It("edits, renames and deletes the chosen build from the build menu", func() {
+	It("edits, renames and deletes a build from its menu, with Undo after a delete", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
 		v, tt := tester(deckSnapshot(wano))
 		f := &fakeActions{}
 		v.act = f
 		Expect(tt.Click("Decks")).To(Succeed())
-		Expect(tt.Click("Builds")).To(Succeed())
+		Expect(tt.RightClick("Wano/Miracle")).To(Succeed())
 		Expect(tt.Click("Edit core")).To(Succeed())
 		tt.Frame()
-		Expect(tt.HasText("Editing Wano/Miracle's core")).To(BeTrue())
+		Expect(tt.HasText("Edit Wano/Miracle")).To(BeTrue())
 		Expect(v.decks.edit.core).To(Equal([]string{"OTA"}))
-		Expect(tt.Click("Cancel")).To(Succeed())
+		Expect(tt.HasText("5 games · 5–0")).To(BeTrue())
+		tt.Key(0, ui.KeyEscape)
 		tt.Frame()
+		Expect(v.decks.edit).To(BeNil())
 
-		Expect(tt.Click("Builds")).To(Succeed())
+		Expect(tt.Click("Wano/Miracle actions")).To(Succeed())
 		Expect(tt.Click("Rename")).To(Succeed())
 		tt.Frame()
 		v.decks.rename = "Miracle"
 		Expect(tt.Click("Save")).To(Succeed())
 		Expect(f.builds).To(Equal([]store.Build{{ID: 1, Leader: "OP13-001", Name: "Miracle", Core: []string{"OTA"}}}))
 
-		Expect(tt.Click("Builds")).To(Succeed())
+		Expect(tt.RightClick("Wano/Miracle")).To(Succeed())
 		Expect(tt.Click("Delete build")).To(Succeed())
 		tt.Frame()
-		Expect(tt.HasText("Delete Wano/Miracle? Its 5 games go back to no build.")).To(BeTrue())
-		Expect(tt.Click("Delete")).To(Succeed())
 		Expect(f.deleted).To(Equal([]int64{1}))
+		Expect(tt.HasText("Deleted Wano/Miracle.")).To(BeTrue())
+		Expect(tt.Click("Undo")).To(Succeed())
+		Expect(f.builds).To(ContainElement(store.Build{Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}))
 	})
 
-	It("opens the suggestions from the build menu, with a way back", func() {
+	It("opens the suggestions from the build row, with a way back", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
 		v, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
-		Expect(tt.Click("Builds")).To(Succeed())
-		Expect(tt.Click("Suggested builds · 1")).To(Succeed())
+		Expect(tt.Click("1 suggested")).To(Succeed())
 		tt.Frame()
-		Expect(tt.HasText("Suggested builds · 1")).To(BeTrue())
+		Expect(tt.HasText("Back to Wano/Miracle")).To(BeTrue())
 		Expect(tt.Click("Back to Wano/Miracle")).To(Succeed())
 		tt.Frame()
 		Expect(v.decks.suggesting).To(BeFalse())

@@ -27,7 +27,7 @@ const newBuildID = -1
 func (v *view) startEdit(b store.Build) {
 	s := &v.decks
 	s.edit = &buildEdit{build: b, core: slices.Clone(b.Core), name: b.Name}
-	s.tab, s.renaming, s.deleting, s.suggesting = tabList, false, false, false
+	s.tab, s.renaming, s.suggesting = tabList, false, false
 }
 
 // leaderGames are every game of the leader with what the deck did, oldest first, whatever the
@@ -85,8 +85,8 @@ func (v *view) preview(d leaderDecks, e *buildEdit) editPreview {
 	return p
 }
 
-// coreEditor edits a build's core on its latest list, then the cards of the leader's other lists,
-// with a preview of the games it gets.
+// coreEditor takes the page while a build's core is edited: the cards of its latest list, then
+// the cards of the leader's other lists, with the games it gets as they change.
 func (v *view) coreEditor(c *ui.Context, d leaderDecks) {
 	t := c.Theme()
 	e := v.decks.edit
@@ -109,35 +109,76 @@ func (v *view) coreEditor(c *ui.Context, d leaderDecks) {
 			break
 		}
 	}
-	panel(c).Gap(14).Padding(16).Children(func() {
-		v.editorHeader(c, d, e, p)
-		gameStrip(c, p)
-		ui.Text(c, "Click a card to add it to the core or take it out. A game is in the build when its list runs "+
-			"every core card. Cards in nearly every list can't tell builds apart, so they're dimmed.").
-			FontSize(12).TextColor(t.TextMuted).Wrap()
-		ui.Row(c).Gap(10).Wrap().AlignItems(ui.Start).Children(func() {
-			for _, code := range v.listOrder(base) {
-				v.editStack(c.Key(code), e, code, base[code], freq[code], len(p.all), slices.Contains(staples, code))
-			}
+	root := panel(c).Gap(16).Padding(16, 20, 20, 20)
+	if root.OverlayShortcut(0, ui.KeyEscape) {
+		v.decks.edit = nil
+		return
+	}
+	root.Children(func() {
+		v.editorHeader(c, d, e)
+		editorPreview(c, e, p)
+		ui.Box(c).Height(1).Background(t.Border.Alpha(0.6))
+		ui.Column(c).Gap(12).Children(func() {
+			ui.Text(c, "Latest list").FontWeight(600)
+			ui.Row(c).Gap(10).Wrap().AlignItems(ui.Start).Children(func() {
+				for _, code := range v.listOrder(base) {
+					v.editStack(c.Key(code), e, code, base[code], freq[code], len(p.all), slices.Contains(staples, code))
+				}
+			})
 		})
 		v.otherCards(c, e, base, freq, len(p.all))
 	})
 }
 
-func (v *view) editorHeader(c *ui.Context, d leaderDecks, e *buildEdit, p editPreview) {
+func (v *view) editorHeader(c *ui.Context, d leaderDecks, e *buildEdit) {
 	t := c.Theme()
+	leader := v.snap.card(d.leader).Name
 	ui.Row(c).Gap(14).AlignItems(ui.Center).Children(func() {
-		ui.Column(c).Gap(4).Children(func() {
-			title := "New " + v.snap.card(d.leader).Name + " build"
+		v.artStrip(c, d.leader, 48, 34)
+		ui.Column(c).Gap(2).Children(func() {
+			title := "New " + leader + " build"
 			if e.build.ID != 0 {
-				title = "Editing " + e.build.Name + "'s core"
+				title = "Edit " + e.build.Name
 			}
-			ui.Text(c, title).FontWeight(600)
-			ui.TextInput(c, &e.name).Width(260).Label("Build name").Placeholder("Name")
+			ui.Text(c, title).FontSize(18).FontWeight(600)
+			ui.Text(c, "A game is in the build when its list runs every core card.").FontSize(12).TextColor(t.TextMuted)
 		})
-		ui.Column(c).Gap(2).Padding(6, 12).Radius(8).Background(t.Surface).Children(func() {
-			ui.Text(c, fmt.Sprintf("%s → %s · %s → %s", games(len(p.now)), games(len(p.after)), record(p.before), record(p.with))).
-				FontSize(13).FontWeight(600)
+		ui.Spacer(c)
+		name := strings.TrimSpace(e.name)
+		var missing string
+		switch {
+		case name == "" && len(e.core) == 0:
+			missing = "Name it and pick a core card"
+		case name == "":
+			missing = "Name it to save"
+		case len(e.core) == 0:
+			missing = "Pick a core card to save"
+		}
+		if missing != "" {
+			ui.Text(c, missing).FontSize(12).TextColor(faintColor(t))
+		}
+		if ui.Button(c, "Cancel").Tooltip("Esc").Clicked() {
+			v.decks.edit = nil
+		}
+		save := ui.PrimaryButton(c, "Save").Disabled(missing != "")
+		if save.Clicked() && missing == "" {
+			b := e.build
+			b.Name, b.Core = name, slices.Clone(e.core)
+			v.do(func(a actions) { a.SaveBuild(b) })
+			v.decks.saved, v.decks.edit = name, nil
+		}
+	})
+	if e.build.ID == 0 {
+		ui.TextInput(c, &e.name).Width(280).Label("Build name").Placeholder("Build name").AutoFocus()
+	}
+}
+
+// editorPreview is the games the core gets, and how that differs from the saved core once it
+// does.
+func editorPreview(c *ui.Context, e *buildEdit, p editPreview) {
+	t := c.Theme()
+	ui.Column(c).Gap(8).Children(func() {
+		ui.Row(c).Gap(10).AlignItems(ui.End).Children(func() {
 			joins, leaves := 0, 0
 			for fp := range p.after {
 				if !p.now[fp] {
@@ -149,24 +190,21 @@ func (v *view) editorHeader(c *ui.Context, d leaderDecks, e *buildEdit, p editPr
 					leaves++
 				}
 			}
-			note := fmt.Sprintf("+%d joining, −%d leaving", joins, leaves)
-			if p.conflicts > 0 {
-				note += fmt.Sprintf(", %s in two builds", games(p.conflicts))
+			switch {
+			case len(e.core) == 0:
+				ui.Text(c, "Pick a core card to see its games").FontSize(14).FontWeight(600).TextColor(t.TextMuted)
+			case e.build.ID == 0 || joins+leaves == 0:
+				ui.Text(c, games(len(p.after))+" · "+record(p.with)).FontSize(14).FontWeight(600)
+			default:
+				ui.Text(c, fmt.Sprintf("%s → %s · %s → %s", games(len(p.now)), games(len(p.after)), record(p.before), record(p.with))).
+					FontSize(14).FontWeight(600)
+				ui.Text(c, fmt.Sprintf("+%d joining, −%d leaving", joins, leaves)).FontSize(12).TextColor(t.TextMuted)
 			}
-			ui.Text(c, note).FontSize(12).TextColor(t.TextMuted)
+			if p.conflicts > 0 {
+				ui.Text(c, games(p.conflicts)+" fit two builds").FontSize(12).TextColor(warnColor)
+			}
 		})
-		ui.Spacer(c)
-		if ui.Button(c, "Cancel").Clicked() {
-			v.decks.edit = nil
-		}
-		name := strings.TrimSpace(e.name)
-		save := ui.PrimaryButton(c, "Save").Disabled(name == "" || len(e.core) == 0)
-		if save.Clicked() && name != "" && len(e.core) > 0 {
-			b := e.build
-			b.Name, b.Core = name, slices.Clone(e.core)
-			v.do(func(a actions) { a.SaveBuild(b) })
-			v.decks.saved, v.decks.edit = name, nil
-		}
+		gameStrip(c, p)
 	})
 }
 
@@ -184,33 +222,38 @@ func gameStrip(c *ui.Context, p editPreview) {
 				}
 				last = day
 				mark := ui.Box(c.Key(i)).Size(8, 14).Radius(2).Tooltip(g.PlayedAt.Format("Jan 2 15:04"))
-				switch fp := g.Fingerprint; {
-				case p.after[fp] && p.now[fp]:
-					mark.Background(t.Accent)
-				case p.after[fp]:
-					mark.Background(t.Accent.Alpha(0.35)).Border(1, t.Accent)
-				case p.now[fp]:
-					mark.Background(lossColor.Alpha(0.35)).Border(1, lossColor)
-				case p.others[fp]:
-					mark.Background(warnColor)
-				default:
-					mark.Background(t.Surface)
-				}
+				fill, edge := stripMark(t, p, g.Fingerprint)
+				mark.Background(fill).Border(1.5, edge)
 			}
 		})
 		ui.Row(c).Gap(14).Children(func() {
 			legend := func(label string, fill, edge ui.Color) {
 				ui.Row(c.Key(label)).Gap(5).AlignItems(ui.Center).Children(func() {
-					ui.Box(c).Size(8, 12).Radius(2).Background(fill).Border(1, edge)
+					ui.Box(c).Size(8, 12).Radius(2).Background(fill).Border(1.5, edge)
 					ui.Text(c, label).FontSize(12).TextColor(t.TextMuted)
 				})
 			}
 			legend("in this build", t.Accent, t.Accent)
-			legend("joins", t.Accent.Alpha(0.35), t.Accent)
-			legend("leaves", lossColor.Alpha(0.35), lossColor)
+			legend("joins", ui.Transparent, t.Accent)
+			legend("leaves", ui.Transparent, lossColor)
 			legend("in another build", warnColor, warnColor)
+			legend("in no build", t.Border, t.Border)
 		})
 	})
+}
+
+func stripMark(t *ui.Theme, p editPreview, fp string) (fill, edge ui.Color) {
+	switch {
+	case p.after[fp] && p.now[fp]:
+		return t.Accent, t.Accent
+	case p.after[fp]:
+		return ui.Transparent, t.Accent
+	case p.now[fp]:
+		return ui.Transparent, lossColor
+	case p.others[fp]:
+		return warnColor, warnColor
+	}
+	return t.Border, t.Border
 }
 
 func (e *buildEdit) toggle(code string) {
@@ -222,38 +265,59 @@ func (e *buildEdit) toggle(code string) {
 	slices.Sort(e.core)
 }
 
-// editStack is a card of the list to click into the core or out, with how many of the leader's
-// games ran it.
-func (v *view) editStack(c *ui.Context, e *buildEdit, code string, n, in, total int, staple bool) {
+// coreMark is what a card's toggle says under it: Core when it's in, + Core on hover, and
+// Staple for a card in nearly every list.
+func coreMark(c *ui.Context, core, hovered, staple bool) {
 	t := c.Theme()
-	core := slices.Contains(e.core, code)
-	h := float32(stackW * 7 / 5)
-	b := ui.ButtonBase(c).Label(v.snap.card(code).Name).Column().Gap(4).Padding(4).Radius(8).Background(ui.Transparent)
+	label, col := "+ Core", t.TextMuted
+	switch {
+	case core:
+		label, col = "Core", t.Accent
+	case hovered:
+	case staple:
+		label, col = "Staple", faintColor(t)
+	default:
+		col = ui.Transparent
+	}
+	ui.Text(c, label).FontSize(11).FontWeight(600).TextColor(col)
+}
+
+// toggleLook styles a card toggle by whether the card is in the core.
+func toggleLook(c *ui.Context, b ui.Element, core bool) {
+	t := c.Theme()
+	b.Radius(8).Border(1, ui.Transparent).Background(ui.Transparent)
 	switch {
 	case core:
 		b.Background(t.Accent.Alpha(0.16)).Border(1, t.Accent)
 	case b.Hovered():
 		b.Background(t.SurfaceHover)
 	}
-	if staple && !core {
-		b.Opacity(0.45)
-	}
+}
+
+// editStack is a card of the list to click into the core or out, with how many of the leader's
+// games ran it. Staples are faded, since they can't tell builds apart.
+func (v *view) editStack(c *ui.Context, e *buildEdit, code string, n, in, total int, staple bool) {
+	core := slices.Contains(e.core, code)
+	h := float32(stackW * 7 / 5)
+	b := ui.ButtonBase(c).Label(v.snap.card(code).Name).Column().Gap(4).Padding(4)
+	toggleLook(c, b, core)
 	if b.Clicked() {
 		e.toggle(code)
 	}
+	hovered := b.Hovered()
 	b.Children(func() {
-		ui.Box(c).Size(stackW+float32(n-1)*stackStepX, h+float32(n-1)*stackStepY).Children(func() {
+		art := ui.Box(c).Size(stackW+float32(n-1)*stackStepX, h+float32(n-1)*stackStepY)
+		if staple && !core && !hovered {
+			art.Opacity(0.7)
+		}
+		art.Children(func() {
 			for i := range n {
 				v.cardArt(c.Key(i), code, stackW, h).Absolute().Left(float32(i) * stackStepX).Top(float32(i) * stackStepY)
 			}
 			pill(c, fmt.Sprintf("×%d", n), 11).Absolute().Right(4).Bottom(4)
 		})
 		freqBar(c, in, total, stackW+float32(n-1)*stackStepX)
-		label, col := "+ Core", faintColor(t)
-		if core {
-			label, col = "Core", t.Accent
-		}
-		ui.Text(c, label).FontSize(11).FontWeight(600).TextColor(col)
+		coreMark(c, core, hovered, staple)
 	})
 }
 
@@ -268,8 +332,8 @@ func freqBar(c *ui.Context, in, total int, w float32) {
 	})
 }
 
-// otherCards are the cards of the leader's other lists, most played first, to search and tick
-// into the core.
+// otherCards are the cards of the leader's other lists, most played first, to search and click
+// into the core as the stacks are.
 func (v *view) otherCards(c *ui.Context, e *buildEdit, base, freq map[string]int, total int) {
 	t := c.Theme()
 	var codes []string
@@ -288,23 +352,27 @@ func (v *view) otherCards(c *ui.Context, e *buildEdit, base, freq map[string]int
 		ui.Text(c, "Cards from your other "+v.snap.card(e.build.Leader).Name+" lists").FontWeight(600)
 		ui.TextInput(c, &e.search).Width(240).Label("Search cards").Placeholder("Search cards")
 	})
-	ui.Row(c).Wrap().Gap(4).Children(func() {
+	ui.Row(c).Wrap().Gap(6).Children(func() {
 		for _, code := range codes {
 			card := v.snap.card(code)
 			if q != "" && !strings.Contains(strings.ToLower(card.Name), q) && !strings.Contains(strings.ToLower(code), q) {
 				continue
 			}
-			on := slices.Contains(e.core, code)
-			ui.Row(c.Key(code)).Width(330).Gap(10).AlignItems(ui.Center).Padding(4, 6).Children(func() {
-				if ui.Checkbox(c, &on, "").Label(card.Name).Changed() {
-					e.toggle(code)
-				}
+			core := slices.Contains(e.core, code)
+			b := ui.ButtonBase(c.Key(code)).Label(card.Name).Row().Width(330).Gap(10).AlignItems(ui.Center).Padding(4, 8, 4, 4)
+			toggleLook(c, b, core)
+			if b.Clicked() {
+				e.toggle(code)
+			}
+			hovered := b.Hovered()
+			b.Children(func() {
 				v.cardArt(c, code, 24, 34)
 				ui.Column(c).Gap(1).Grow(1).MinWidth(0).Children(func() {
 					ui.Text(c, card.Name).FontSize(13).SingleLine()
 					ui.Text(c, code).FontSize(11).TextColor(faintColor(t))
 				})
-				freqBar(c, freq[code], total, 90)
+				freqBar(c, freq[code], total, 80)
+				ui.Box(c).Width(44).Children(func() { coreMark(c, core, hovered, false) })
 			})
 		}
 	})

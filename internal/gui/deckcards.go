@@ -64,7 +64,12 @@ func cardsHeader(c *ui.Context) {
 		head("In opening hand").Width(rateColW)
 		head("In hand by its turn").Width(rateColW)
 		head("Not by its turn").Width(rateColW)
-		head("Played").Width(playedColW)
+		ui.Row(c).Width(playedColW).Gap(4).AlignItems(ui.Center).
+			Tooltip("From left to right: played on curve, played later, put out by an effect, never played.").
+			Children(func() {
+				head("Played")
+				ui.Icon(c, iconInfo).FontSize(12).TextColor(faintColor(t))
+			})
 		head("Searcher took it").Width(searchColW)
 	})
 	ui.Box(c).Height(1).Background(t.Border.Alpha(0.6))

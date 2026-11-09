@@ -38,8 +38,6 @@ type simArtState struct {
 	// changed holds the cards the sim shows art of their own for.
 	changed map[string]bool
 	scanned bool
-	// toast is a message for the next frame to show.
-	toast *ui.Toast
 }
 
 type simArtInfo struct {
@@ -127,7 +125,7 @@ func (v *view) simArtDone(card cards.Card, choice sim.ArtChoice, info simArtInfo
 		t.Action = "Undo"
 		t.OnAction = func() { v.useSimArt(card, back) }
 	}
-	v.simArt.toast = &t
+	v.toast = &t
 }
 
 // choiceName names a choice in a sentence: "Alt art", "Base art", "own file" or "own art".
@@ -151,8 +149,8 @@ func choiceName(ca arts.CardArts, choice sim.ArtChoice) string {
 
 // showToast adds the message an action left for this frame.
 func (v *view) showToast(c *ui.Context) {
-	if t := v.simArt.toast; t != nil {
-		v.simArt.toast = nil
+	if t := v.toast; t != nil {
+		v.toast = nil
 		c.AddToast(*t)
 	}
 }
@@ -730,5 +728,5 @@ func (x *appActions) OpenURL(url string) {
 }
 
 func (x *appActions) toast(t ui.Toast) {
-	x.a.win.Update(func() { x.a.view.simArt.toast = &t })
+	x.a.win.Update(func() { x.a.view.toast = &t })
 }

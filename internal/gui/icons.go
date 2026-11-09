@@ -51,5 +51,6 @@ var (
 	iconSave        = mustSVG(svgHead + `<path d="M12 4v11M7 10l5 5 5-5"/><path d="M5 19h14"/></svg>`)
 	iconCopy        = mustSVG(svgHead + `<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>`)
 	iconSim         = mustSVG(svgBold + `<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M9 21h6M12 17v4"/></svg>`)
+	iconMore        = mustSVG(svgBold + `<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>`)
 	iconWarn        = mustSVG(svgHead + `<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>`)
 )

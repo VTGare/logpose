@@ -59,10 +59,14 @@ func (v *view) decksPage(c *ui.Context) {
 	l, all := v.leaderData()
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
-			v.leaderPicker(c, all, l.Leader)
-			v.leaderHead(c, l)
 			d := v.leaderStats.decks
 			v.chooseBuild(d)
+			if v.decks.edit != nil {
+				v.coreEditor(c, d)
+				return
+			}
+			v.leaderPicker(c, all, l.Leader)
+			v.leaderHead(c, l)
 			v.buildRow(c, d)
 			v.pageTabs(c)
 			switch v.decks.tab {
