@@ -278,6 +278,38 @@ var _ = Describe("Decks page", func() {
 		Expect(tt.Texts()).NotTo(ContainElement("No build"))
 	})
 
+	It("counts only the chosen scope's games in the banner and the Results panels", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
+		v, tt := tester(deckSnapshot(wano))
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(v.leaderStats.stats.Record).To(Equal(stats.Record{Wins: 5, Losses: 5}))
+		Expect(tt.Texts()).To(ContainElement("· Overall"))
+
+		Expect(tt.Click("No build")).To(Succeed())
+		tt.Frame()
+		Expect(v.leaderStats.stats.Record).To(Equal(stats.Record{Losses: 5}))
+		Expect(v.leaderStats.games).To(HaveLen(5))
+		Expect(tt.Texts()).To(ContainElements("Monkey D. Luffy ›", "No build", "· No build"))
+
+		Expect(tt.Click("Wano/Miracle")).To(Succeed())
+		tt.Frame()
+		Expect(v.leaderStats.stats.Record).To(Equal(stats.Record{Wins: 5}))
+		Expect(v.leaderStats.turnOrder.First.Games() + v.leaderStats.turnOrder.Second.Games()).To(BeNumerically("<=", 5))
+		Expect(tt.Texts()).To(ContainElement("· Wano/Miracle"))
+	})
+
+	It("keeps no-build games out of a build's turn order when a turn order is filtered", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
+		v, tt := tester(deckSnapshot(wano))
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("Wano/Miracle")).To(Succeed())
+		all := v.leaderStats.turnOrder
+		v.filter.turn = stats.GoingFirst
+		tt.Frame()
+		Expect(v.leaderStats.turnOrder).To(Equal(all))
+		Expect(v.leaderStats.turnOrder.First.Losses + v.leaderStats.turnOrder.Second.Losses).To(Equal(0))
+	})
+
 	It("counts a game without deck facts in No build", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
 		s := deckSnapshot(wano)
@@ -358,6 +390,7 @@ var _ = Describe("Decks page", func() {
 		Expect(tt.Click("Save")).To(Succeed())
 		Expect(f.builds).To(Equal([]store.Build{{ID: 1, Leader: "OP13-001", Name: "Miracle", Core: []string{"OTA"}}}))
 
+		Expect(tt.Click("Overall")).To(Succeed())
 		Expect(tt.RightClick("Wano/Miracle")).To(Succeed())
 		Expect(tt.Click("Delete build")).To(Succeed())
 		tt.Frame()

@@ -11,11 +11,13 @@ import (
 	"github.com/VTGare/logpose/internal/stats"
 )
 
-// leaderCache keeps the Decks page's stats until the scope or the leader changes.
+// leaderCache keeps the Decks page's stats until the filters, the leader or the build scope
+// change. Everything but decks counts only the games the scope does.
 type leaderCache struct {
 	snap    *snapshot
 	filters filters
 	leader  string
+	scope   deckScope
 	stats   stats.Leader
 	// turnOrder ignores the turn order filter, so the tile's other half still shows its games.
 	turnOrder stats.TurnOrder
@@ -35,38 +37,50 @@ func (v *view) leaderData() (stats.Leader, []stats.LeaderRecord) {
 		leader = all[0].Leader
 	}
 	lc := &v.leaderStats
-	if lc.snap != v.snap || lc.filters != v.filter || lc.leader != leader || lc.stats.Leader == "" {
-		lc.snap, lc.filters, lc.leader = v.snap, v.filter, leader
-		lc.stats = stats.ForLeader(sc.anyDeck, leader)
-		lc.turnOrder = stats.ForLeader(sc.anyTurn, leader).TurnOrder
-		lc.games = lc.games[:0]
-		var newest []stats.Match
+	scope := v.decks.scope
+	if lc.snap != v.snap || lc.filters != v.filter || lc.leader != leader || lc.scope != scope || lc.stats.Leader == "" {
+		lc.snap, lc.filters, lc.leader, lc.scope = v.snap, v.filter, leader, scope
+		var newest, anyTurn []stats.Match
 		for _, m := range sc.anyDeck {
 			if m.Me.Leader == leader {
 				newest = append(newest, m)
 			}
 		}
-		for i := len(newest) - 1; i >= 0; i-- {
-			lc.games = append(lc.games, newest[i])
+		for _, m := range sc.anyTurn {
+			if m.Me.Leader == leader {
+				anyTurn = append(anyTurn, m)
+			}
 		}
+		lc.decks = v.deckData(leader, oldestFirst(newest), anyTurn)
+		newest = lc.decks.scopedMatches(scope, newest)
+		lc.stats = stats.ForLeader(newest, leader)
+		lc.turnOrder = stats.ForLeader(lc.decks.scopedMatches(scope, anyTurn), leader).TurnOrder
+		lc.games = oldestFirst(newest)
 		lc.days = stats.BuildOverview(newest, v.snap.Now).Days
-		lc.decks = v.deckData(leader, lc.games)
 	}
 	return lc.stats, all
 }
 
+func oldestFirst(newest []stats.Match) []stats.Match {
+	out := slices.Clone(newest)
+	slices.Reverse(out)
+	return out
+}
+
 func (v *view) decksPage(c *ui.Context) {
+	v.leaderData()
+	v.chooseBuild(v.leaderStats.decks)
+	// Choosing may change the scope, which the stats are counted for.
 	l, all := v.leaderData()
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
 			d := v.leaderStats.decks
-			v.chooseBuild(d)
 			if v.decks.edit != nil {
 				v.coreEditor(c, d)
 				return
 			}
 			v.leaderPicker(c, all, l.Leader)
-			v.leaderHead(c, l)
+			v.leaderHead(c, l, d)
 			v.buildRow(c, d)
 			v.pageTabs(c)
 			switch v.decks.tab {
@@ -79,12 +93,13 @@ func (v *view) decksPage(c *ui.Context) {
 			}
 			ui.Row(c).Gap(16).AlignItems(ui.Start).Children(func() {
 				ui.Column(c).Grow(1).Basis(0).Gap(16).Children(func() {
-					v.rollingChart(c, l.Rolling, v.leaderStats.games, &v.leaderPoint)
-					v.leaderDays(c)
+					tag := v.scopeName(d)
+					v.rollingChart(c, tag, l.Rolling, v.leaderStats.games, &v.leaderPoint)
+					v.leaderDays(c, tag)
 				})
 				ui.Column(c).Width(320).Gap(16).Children(func() {
-					turnOrderTile(c, v.leaderStats.turnOrder, v.filter.turn, v.setTurn)
-					v.matchupLists(c, l)
+					turnOrderTile(c, v.scopeName(d), v.leaderStats.turnOrder, v.filter.turn, v.setTurn)
+					v.matchupLists(c, v.scopeName(d), l)
 				})
 			})
 		})
@@ -134,17 +149,29 @@ func (v *view) deckTabs(c *ui.Context, all []stats.LeaderRecord, chosen, label s
 	})
 }
 
-// leaderHead is the leader's banner with its win rate and the rate over its latest games.
-func (v *view) leaderHead(c *ui.Context, l stats.Leader) {
+// leaderHead is the leader's art and numbers. With a build or No build chosen, it names that
+// over the leader and counts only its games.
+func (v *view) leaderHead(c *ui.Context, l stats.Leader, d leaderDecks) {
 	t := c.Theme()
-	since := ""
-	if !l.First.IsZero() {
-		since = " · since " + l.First.Format("Jan 2")
+	leader := v.snap.card(l.Leader).Name
+	title, note := leader, setOf(l.Leader)
+	if v.decks.scope.kind != scopeOverall {
+		title, note = v.scopeName(d), ""
 	}
-	v.banner(c, l.Leader, 150, func() {
+	if !l.First.IsZero() {
+		note = strings.TrimPrefix(note+" · since "+l.First.Format("Jan 2"), " · ")
+	}
+	height := float32(150)
+	if title != leader {
+		height = 166
+	}
+	v.banner(c, l.Leader, height, func() {
+		if title != leader {
+			ui.Text(c, leader+" ›").FontSize(12).TextColor(t.TextMuted)
+		}
 		ui.Row(c).Gap(8).AlignItems(ui.End).Children(func() {
-			ui.Text(c, v.snap.card(l.Leader).Name).FontSize(22).Bold()
-			ui.Text(c, setOf(l.Leader)+since).FontSize(13).TextColor(t.TextMuted).Margin(0, 0, 3, 0)
+			ui.Text(c, title).FontSize(22).Bold()
+			ui.Text(c, note).FontSize(13).TextColor(t.TextMuted).Margin(0, 0, 3, 0)
 		})
 		ui.Row(c).Gap(32).Margin(12, 0, 0, 0).Children(func() {
 			ui.Column(c).Gap(4).Children(func() {
@@ -179,9 +206,9 @@ func (v *view) leaderHead(c *ui.Context, l stats.Leader) {
 }
 
 // leaderDays is the leader's latest days played, like the Overview's.
-func (v *view) leaderDays(c *ui.Context) {
+func (v *view) leaderDays(c *ui.Context, tag string) {
 	days := v.leaderStats.days
-	tile(c, "By day", func() {
+	tagTile(c, "By day", tag, "", func() {
 		for i, d := range days[:min(len(days), 5)] {
 			v.dayRow(c.Key(i), d)
 		}
@@ -190,7 +217,7 @@ func (v *view) leaderDays(c *ui.Context) {
 
 // matchupLists are the best and worst matchups with enough games, split at 50%, then the even
 // ones and a count of the rest, which the Matchups page lists in full.
-func (v *view) matchupLists(c *ui.Context, l stats.Leader) {
+func (v *view) matchupLists(c *ui.Context, tag string, l stats.Leader) {
 	t := c.Theme()
 	var best, worst, even, few []stats.LeaderRecord
 	for _, mu := range stats.SortMatchups(l.Matchups, stats.BestFirst) {
@@ -211,7 +238,7 @@ func (v *view) matchupLists(c *ui.Context, l stats.Leader) {
 		if len(mus) == 0 {
 			return
 		}
-		tile(c, title, func() {
+		tagTile(c, title, tag, "", func() {
 			for i, mu := range mus[:min(len(mus), 3)] {
 				v.matchupLine(c.Key(i), mu)
 			}
@@ -220,7 +247,7 @@ func (v *view) matchupLists(c *ui.Context, l stats.Leader) {
 	list("Best matchups", best)
 	list("Worst matchups", worst)
 	if len(best)+len(worst)+len(even) == 0 {
-		tile(c, "Matchups", func() {
+		tagTile(c, "Matchups", tag, "", func() {
 			ui.Text(c, fmt.Sprintf("No leader faced %d or more times yet.", stats.MinGames)).FontSize(13).TextColor(t.TextMuted)
 		})
 	}

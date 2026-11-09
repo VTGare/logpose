@@ -29,10 +29,19 @@ func tile(c *ui.Context, label string, body func()) ui.Element {
 
 // titledTile is a tile with a muted note at the right of its title, such as a count.
 func titledTile(c *ui.Context, label, note string, body func()) ui.Element {
+	return tagTile(c, label, "", note, body)
+}
+
+// tagTile is a titled tile whose title names the games it counts after a dot, such as
+// "Matchups · Wano/Miracle".
+func tagTile(c *ui.Context, label, tag, note string, body func()) ui.Element {
 	t := c.Theme()
 	return panel(c).Gap(8).Padding(14, 16).Children(func() {
-		ui.Row(c).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, label).FontSize(13).FontWeight(600)
+			if tag != "" {
+				ui.Text(c, "· "+tag).FontSize(12).TextColor(t.TextMuted).SingleLine()
+			}
 			if note != "" {
 				ui.Spacer(c)
 				ui.Text(c, note).FontSize(12).TextColor(t.TextMuted)
@@ -66,8 +75,8 @@ func splitBar(c *ui.Context, won float64) {
 
 // turnOrderTile is both turn orders as rows. Clicking a row calls pick with its turn order, and
 // the row chosen is tinted.
-func turnOrderTile(c *ui.Context, o stats.TurnOrder, chosen stats.TurnOrderFilter, pick func(stats.TurnOrderFilter)) ui.Element {
-	return tile(c, "Turn order", func() { turnRows(c, o, chosen, pick) })
+func turnOrderTile(c *ui.Context, tag string, o stats.TurnOrder, chosen stats.TurnOrderFilter, pick func(stats.TurnOrderFilter)) ui.Element {
+	return tagTile(c, "Turn order", tag, "", func() { turnRows(c, o, chosen, pick) })
 }
 
 // turnRows is a row for going first and one for going second, each with a filled or hollow mark,

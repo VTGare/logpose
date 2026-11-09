@@ -42,6 +42,8 @@ type decksState struct {
 	rename   string
 	// editOnOpen opens the core editor on the chosen build, or the first, once the page has one.
 	editOnOpen bool
+	// buildOnOpen chooses the first build once the page has one.
+	buildOnOpen bool
 }
 
 type scopeKind int
@@ -131,7 +133,9 @@ func (d leaderDecks) chosen(id int64) (store.Build, bool) {
 	return store.Build{}, false
 }
 
-func (v *view) deckData(leader string, ms []stats.Match) leaderDecks {
+// deckData splits the leader's games, oldest first, into builds. anyTurn are its games of
+// either turn order, which buildOf covers so the turn order tile can be scoped too.
+func (v *view) deckData(leader string, ms, anyTurn []stats.Match) leaderDecks {
 	d := leaderDecks{leader: leader, matches: ms}
 	for _, m := range ms {
 		if g, ok := v.snap.Decks[m.Fingerprint]; ok {
@@ -145,13 +149,20 @@ func (v *view) deckData(leader string, ms []stats.Match) leaderDecks {
 	}
 	d.staples = stats.Staples(d.games)
 	d.assignment = stats.Assign(d.games, d.builds)
+	var wide []stats.DeckGame
+	for _, m := range anyTurn {
+		if g, ok := v.snap.Decks[m.Fingerprint]; ok {
+			wide = append(wide, g)
+		}
+	}
+	all := stats.Assign(wide, d.builds)
 	d.buildOf = make(map[string]int64)
-	for id, gs := range d.assignment.Builds {
+	for id, gs := range all.Builds {
 		for _, g := range gs {
 			d.buildOf[g.Fingerprint] = id
 		}
 	}
-	for _, g := range d.assignment.Conflicts {
+	for _, g := range all.Conflicts {
 		d.buildOf[g.Fingerprint] = conflicted
 	}
 	d.unbuilt = len(d.scopedMatches(deckScope{kind: scopeNoBuild}, ms))
@@ -193,6 +204,22 @@ func (v *view) suggestions(leader string) []stats.Suggestion {
 
 // minSuggested is the fewest games a suggested build is shown for. Smaller groups fold away.
 const minSuggested = 3
+
+// scopeName names the scope in panel titles. It's empty for a leader without builds, where
+// every game counts anyway.
+func (v *view) scopeName(d leaderDecks) string {
+	s := v.decks.scope
+	switch {
+	case len(d.builds) == 0:
+		return ""
+	case s.kind == scopeNoBuild:
+		return "No build"
+	case s.kind == scopeBuild:
+		b, _ := d.chosen(s.build)
+		return b.Name
+	}
+	return "Overall"
+}
 
 // buildRow chooses the scope: Overall, the leader's builds and No build, then a chip for a new
 // build and a link to the suggestions. Without builds, the suggestions get a chip of their own.
@@ -372,6 +399,9 @@ func (v *view) chooseBuild(d leaderDecks) {
 	}
 	if len(d.builds) == 0 {
 		s.scope = deckScope{}
+	}
+	if s.buildOnOpen && len(d.builds) > 0 {
+		s.buildOnOpen, s.scope = false, buildScope(d.builds[0].ID)
 	}
 	if s.editOnOpen && len(d.builds) > 0 {
 		if s.scope.kind != scopeBuild {

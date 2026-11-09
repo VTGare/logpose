@@ -64,7 +64,7 @@ func Pages() []string {
 	for _, tab := range deckTabLabels[1:] {
 		ids = append(ids, pageDecks+"/"+strings.ToLower(tab))
 	}
-	return append(ids, pageDecks+"/edit")
+	return append(ids, pageDecks+"/edit", pageDecks+"/build", pageDecks+"/nobuild")
 }
 
 // open shows a page from Pages.
@@ -72,6 +72,10 @@ func (v *view) open(id string) {
 	page, tab, _ := strings.Cut(id, "/")
 	v.page = page
 	v.decks.editOnOpen = tab == "edit"
+	v.decks.buildOnOpen = tab == "build"
+	if tab == "nobuild" {
+		v.decks.scope = deckScope{kind: scopeNoBuild}
+	}
 	for i, label := range deckTabLabels {
 		if strings.ToLower(label) == tab {
 			v.decks.tab = i
