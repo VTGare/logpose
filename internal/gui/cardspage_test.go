@@ -226,7 +226,6 @@ var _ = Describe("Cards page", func() {
 			}
 			for d := step; (by > 0 && d <= by) || (by < 0 && d >= by); d += step {
 				tt.Move(from+d, 500)
-				tt.Frame()
 			}
 			tt.Release(from+by, 500)
 			tt.Frame()
