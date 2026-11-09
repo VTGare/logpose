@@ -93,6 +93,9 @@ type Game struct {
 	Fingerprint string
 	// Sets is every card set the game's cards come from, such as "OP13", sorted.
 	Sets []string
+	// Closed is set when the log has the sim's RZ1|END line. A game read from a .partial.log
+	// while it was being played doesn't.
+	Closed bool
 	// CardNames maps the codes of the cards the log mentions to the names it gives them.
 	CardNames map[string]string
 	// Text is the game's own part of the log, one line per line ending in "\n". Parsing it again
@@ -102,7 +105,7 @@ type Game struct {
 
 // Version is the parser's version. It goes up whenever parsing the same text gives different
 // results, so stored games know to be parsed again.
-const Version = 4
+const Version = 6
 
 func (g *Game) Player(id string) (Player, bool) {
 	for _, p := range g.Players {

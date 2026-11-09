@@ -23,6 +23,13 @@ func fixture() []simlog.Game {
 	return games
 }
 
+// closed is the game as the sim saves it once it ends, with the END line its .partial.log lacks.
+func closed(g simlog.Game) simlog.Game {
+	g.Text += "RZ1|END|999|1|opponent_concede|ab12\n"
+	g.Closed = true
+	return g
+}
+
 var _ = Describe("Store", func() {
 	var (
 		ctx  context.Context
@@ -105,6 +112,65 @@ var _ = Describe("Store", func() {
 		created, err := st.SaveGame(ctx, &full, src)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(created).To(BeFalse())
+		Expect(st.GameLog(ctx, full.Fingerprint)).To(Equal(full.Text))
+	})
+
+	It("replaces a copy with the same moves that doesn't reach the END line", func() {
+		early := fixture()[1]
+		full := closed(early)
+		_, err := st.SaveGame(ctx, &early, src)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.SaveGame(ctx, &full, src)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.GameLog(ctx, full.Fingerprint)).To(Equal(full.Text))
+
+		_, err = st.SaveGame(ctx, &early, src)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.GameLog(ctx, full.Fingerprint)).To(Equal(full.Text))
+	})
+
+	It("moves a game to the fingerprint a parser update gives it, with what the user set", func() {
+		g := fixture()[0]
+		stale := g
+		stale.Fingerprint = "stale"
+		_, err := st.SaveGame(ctx, &stale, src)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.SetGameNote(ctx, "stale", "kept 2 counters")).To(Succeed())
+		Expect(st.SetGameType(ctx, "stale", TypeRanked)).To(Succeed())
+		Expect(st.SetBookmark(ctx, "stale", true)).To(Succeed())
+		_, err = st.write.ExecContext(ctx, `UPDATE games SET parser_version = 0`)
+		Expect(err).NotTo(HaveOccurred())
+
+		_, err = st.Reparse(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		list, err := st.Games(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(list).To(HaveLen(1))
+		Expect(list[0].Fingerprint).To(Equal(g.Fingerprint))
+		Expect(list[0].Note).To(Equal("kept 2 counters"))
+		Expect(list[0].Type).To(Equal(TypeRanked))
+		Expect(list[0].Bookmarked).To(BeTrue())
+		Expect(list[0].Players).To(HaveLen(2))
+	})
+
+	It("merges a game stored under an old fingerprint into its copy under the new one", func() {
+		stale := fixture()[1]
+		full := closed(stale)
+		stale.Fingerprint = "stale"
+		_, err := st.SaveGame(ctx, &stale, src)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.SetGameNote(ctx, "stale", "misplay on turn 4")).To(Succeed())
+		_, err = st.write.ExecContext(ctx, `UPDATE games SET parser_version = 0`)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.SaveGame(ctx, &full, src)
+		Expect(err).NotTo(HaveOccurred())
+
+		_, err = st.Reparse(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		list, err := st.Games(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(list).To(HaveLen(1))
+		Expect(list[0].Note).To(Equal("misplay on turn 4"))
 		Expect(st.GameLog(ctx, full.Fingerprint)).To(Equal(full.Text))
 	})
 

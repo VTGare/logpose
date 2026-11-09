@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+Fixes for logs from the sim's latest update.
+
+- Games played after the update showed an Unknown result. They now show who won.
+- Games no longer end as Unknown when logpose reads them while you're still playing.
+
 ## 0.1.0
 
 The first release.

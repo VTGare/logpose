@@ -59,6 +59,13 @@ type Check struct {
 	Line int
 }
 
+const endPrefix = "RZ1|END|"
+
+// Closed reports whether a game's text has the sim's RZ1|END line, as Game.Closed does.
+func Closed(text string) bool {
+	return strings.HasPrefix(text, endPrefix) || strings.Contains(text, "\n"+endPrefix)
+}
+
 func (b *builder) addRZ(line string) {
 	parts := strings.Split(line, "|")
 	if len(parts) < 2 {
@@ -69,6 +76,8 @@ func (b *builder) addRZ(line string) {
 		b.headers++
 	case "PLY":
 		b.addRZPlayer(parts)
+	case "END":
+		b.game.Closed = true
 	case "CHK":
 		b.addCheck(parts)
 	default:
@@ -77,7 +86,8 @@ func (b *builder) addRZ(line string) {
 }
 
 func (b *builder) addRZPlayer(parts []string) {
-	if len(parts) != 5 {
+	// The sim writes an empty PLY line per seat before the named one.
+	if len(parts) != 5 || parts[3] == "" {
 		return
 	}
 	owner, err := strconv.Atoi(parts[2])

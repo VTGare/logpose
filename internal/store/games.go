@@ -77,8 +77,8 @@ func (g Game) Player(id string) (GamePlayer, bool) {
 }
 
 // SaveGame stores a parsed game with its log text. A game already stored keeps its copy, unless
-// the new one has more moves, which means the stored one was saved before the game ended. It
-// reports whether the game is new.
+// the new one has more moves, or as many and the sim's END line the stored one lacks. The sim
+// writes a game to a .partial.log while it runs, and a concession at the end adds no move. It reports whether the game is new.
 func (s *Store) SaveGame(ctx context.Context, g *simlog.Game, src Source) (bool, error) {
 	log, err := compress(g.Text)
 	if err != nil {
@@ -86,15 +86,29 @@ func (s *Store) SaveGame(ctx context.Context, g *simlog.Game, src Source) (bool,
 	}
 	created := false
 	err = s.inTx(ctx, func(tx *sql.Tx) error {
-		var moves int
-		err := tx.QueryRowContext(ctx, `SELECT moves FROM games WHERE fingerprint = ?`, g.Fingerprint).Scan(&moves)
+		var (
+			moves  int
+			stored []byte
+		)
+		err := tx.QueryRowContext(ctx, `SELECT moves, log FROM games WHERE fingerprint = ?`, g.Fingerprint).Scan(&moves, &stored)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			created = true
 		case err != nil:
 			return err
-		case moves >= len(g.Moves):
+		case moves > len(g.Moves):
 			return nil
+		case moves == len(g.Moves):
+			if !g.Closed {
+				return nil
+			}
+			text, err := decompress(stored)
+			if err != nil {
+				return err
+			}
+			if simlog.Closed(text) {
+				return nil
+			}
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO games (fingerprint, log, moves, source_file, source_index, played_at, imported_at,
@@ -187,15 +201,94 @@ func (s *Store) reparse(ctx context.Context, fingerprint string) error {
 		return fmt.Errorf("log parses to %d games", len(games))
 	}
 	g := &games[0]
-	// A parser change can change fingerprints. The row keeps the one it was stored under, so
-	// imports of the same file still find it.
-	g.Fingerprint = fingerprint
+	// Imports fingerprint the file with the current parser, so a row left under its old
+	// fingerprint gets stored a second time.
+	if g.Fingerprint != fingerprint {
+		if err := s.inTx(ctx, func(tx *sql.Tx) error { return rekey(ctx, tx, fingerprint, g.Fingerprint) }); err != nil {
+			return err
+		}
+		return s.reparse(ctx, g.Fingerprint)
+	}
 	return s.inTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE games SET moves = ? WHERE fingerprint = ?`, len(g.Moves), fingerprint); err != nil {
 			return err
 		}
 		return writeParsed(ctx, tx, g)
 	})
+}
+
+// rekey moves a game to another fingerprint. When a row is already there, it keeps the copy
+// saved later in the game and takes the old row's type, note and bookmark.
+func rekey(ctx context.Context, tx *sql.Tx, from, to string) error {
+	var (
+		toMoves int
+		toLog   []byte
+	)
+	err := tx.QueryRowContext(ctx, `SELECT moves, log FROM games WHERE fingerprint = ?`, to).Scan(&toMoves, &toLog)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO games (fingerprint, log, moves, source_file, source_index, played_at, imported_at,
+				parser_version, lobby_code, lobby_role, sim_version, first_player, turns, end_kind, loser, sets)
+			SELECT ?, log, moves, source_file, source_index, played_at, imported_at,
+				0, lobby_code, lobby_role, sim_version, first_player, turns, end_kind, loser, sets
+			FROM games WHERE fingerprint = ?`, to, from); err != nil {
+			return err
+		}
+	case err != nil:
+		return err
+	default:
+		var (
+			fromMoves int
+			fromLog   []byte
+		)
+		if err := tx.QueryRowContext(ctx, `SELECT moves, log FROM games WHERE fingerprint = ?`, from).Scan(&fromMoves, &fromLog); err != nil {
+			return err
+		}
+		later, err := laterCopy(fromMoves, fromLog, toMoves, toLog)
+		if err != nil {
+			return err
+		}
+		if later {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE games SET (log, moves, source_file, source_index) =
+					(SELECT log, moves, source_file, source_index FROM games WHERE fingerprint = ?)
+				WHERE fingerprint = ?`, from, to); err != nil {
+				return err
+			}
+		}
+	}
+	for _, q := range []string{
+		`INSERT INTO game_types (fingerprint, ranked) SELECT ?, ranked FROM game_types WHERE fingerprint = ?
+			ON CONFLICT (fingerprint) DO UPDATE SET ranked = excluded.ranked`,
+		`INSERT INTO game_notes (fingerprint, note) SELECT ?, note FROM game_notes WHERE fingerprint = ?
+			ON CONFLICT (fingerprint) DO UPDATE SET note = note || char(10) || excluded.note WHERE note <> excluded.note`,
+		`INSERT INTO game_bookmarks (fingerprint, created_at) SELECT ?, created_at FROM game_bookmarks WHERE fingerprint = ?
+			ON CONFLICT (fingerprint) DO NOTHING`,
+	} {
+		if _, err := tx.ExecContext(ctx, q, to, from); err != nil {
+			return err
+		}
+	}
+	_, err = tx.ExecContext(ctx, `DELETE FROM games WHERE fingerprint = ?`, from)
+	return err
+}
+
+// laterCopy reports whether the first copy of a game was saved later in the game than the
+// second. That copy has more moves, or as many and the END line the second lacks.
+func laterCopy(aMoves int, aLog []byte, bMoves int, bLog []byte) (bool, error) {
+	if aMoves != bMoves {
+		return aMoves > bMoves, nil
+	}
+	a, err := decompress(aLog)
+	if err != nil {
+		return false, err
+	}
+	b, err := decompress(bLog)
+	if err != nil {
+		return false, err
+	}
+	return simlog.Closed(a) && !simlog.Closed(b), nil
 }
 
 // GameLog returns a stored game's log text.

@@ -83,6 +83,27 @@ var _ = Describe("Parse", func() {
 		Expect(m.After).To(ContainElement("OP14-031"))
 	})
 
+	It("says whether the log reaches the sim's END line", func() {
+		lines := append(lobby("XNJ8M66"), opening()...)
+		open := parse(logOf(lines...))[0]
+		Expect(open.Closed).To(BeFalse())
+		Expect(Closed(open.Text)).To(BeFalse())
+		closed := parse(logOf(append(lines, by(bob, "Concedes!"), "RZ1|END|90|1|opponent_concede|ab12")...))[0]
+		Expect(closed.Closed).To(BeTrue())
+		Expect(Closed(closed.Text)).To(BeTrue())
+	})
+
+	It("skips the empty PLY lines the sim writes before the named ones", func() {
+		lines := lobby("XNJ8M66")
+		header := len(lines) - 2
+		lines = append(append(append([]string{}, lines[:header]...), "RZ1|PLY|1||", "RZ1|PLY|2||"), lines[header:]...)
+		g := parse(logOf(append(lines, opening()...)...))[0]
+		Expect(g.Players).To(ConsistOf(
+			Player{Name: "Alice", Tag: "1111", Owner: 1, Leader: "OP13-001"},
+			Player{Name: "Bob", Tag: "2222", Owner: 2, Leader: "OP17-058"},
+		))
+	})
+
 	It("lists the sets of the leaders and the cards that moved, without DON", func() {
 		lines := append(lobby("XNJ8M66"), opening()...)
 		lines = append(lines, "RZ1|2|1|Don|4|0|5|0|1|1|0|0|0", "RZ1|3|2|EB05-037|0|8|1|2|0|0|0|0|0")
