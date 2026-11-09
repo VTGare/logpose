@@ -64,7 +64,7 @@ func cardsHeader(c *ui.Context) {
 	}
 	ui.Row(c).Gap(12).Padding(10, 8).AlignItems(ui.End).Children(func() {
 		head("Card").Grow(1).Basis(0)
-		head("In opening hand").Width(rateColW)
+		head("In starting hand").Width(rateColW)
 		head("In hand by its turn").Width(rateColW)
 		head("Not by its turn").Width(rateColW)
 		ui.Row(c).Width(playedColW).Gap(4).AlignItems(ui.Center).
@@ -123,8 +123,13 @@ func (v *view) cardRow(c *ui.Context, cs stats.CardStats, copies, total int, avg
 // rateCell is a win rate with its record, and a bar of where the rate likely is with a tick at
 // avg, the build's own rate. Below MinGames the rate reads "few".
 func rateCell(c *ui.Context, r stats.Record, avg float64) ui.Element {
+	return rateBar(c, r, avg, rangeBarW)
+}
+
+// rateBar is a rateCell whose bar is barW wide.
+func rateBar(c *ui.Context, r stats.Record, avg float64, barW float32) ui.Element {
 	t := c.Theme()
-	return ui.Column(c).Width(rateColW).Gap(4).Children(func() {
+	return ui.Column(c).Width(barW + rateColW - rangeBarW).Gap(4).Children(func() {
 		if r.Games() == 0 {
 			ui.Text(c, "–").FontSize(13).TextColor(faintColor(t))
 			return
@@ -138,11 +143,11 @@ func rateCell(c *ui.Context, r stats.Record, avg float64) ui.Element {
 			ui.Text(c, record(r)).FontSize(11).TextColor(faintColor(t))
 		})
 		lo, hi := r.LikelyRange()
-		tip := fmt.Sprintf("Likely %s–%s from %s. The build wins %s.", pct(lo), pct(hi), record(r), pct(avg))
-		ui.Box(c).Size(rangeBarW, 5).Radius(3).Background(t.Surface).Tooltip(tip).Children(func() {
-			ui.Box(c).Absolute().Left(float32(lo)*rangeBarW).Top(0).Size(max(float32(hi-lo)*rangeBarW, 2), 5).
+		tip := fmt.Sprintf("Likely %s–%s from %s. The tick is the %s these games win.", pct(lo), pct(hi), record(r), pct(avg))
+		ui.Box(c).Size(barW, 5).Radius(3).Background(t.Surface).Tooltip(tip).Children(func() {
+			ui.Box(c).Absolute().Left(float32(lo)*barW).Top(0).Size(max(float32(hi-lo)*barW, 2), 5).
 				Radius(3).Background(t.Accent.Alpha(0.7))
-			ui.Box(c).Absolute().Left(float32(avg)*rangeBarW-1).Top(-3).Size(2, 11).Background(t.Text)
+			ui.Box(c).Absolute().Left(float32(avg)*barW-1).Top(-3).Size(2, 11).Background(t.Text)
 		})
 	})
 }
@@ -203,9 +208,9 @@ func cardsNote(c *ui.Context, avg float64) {
 // opening hand plus at most one draw.
 func sameAsOpening(c *ui.Context, cost int) {
 	t := c.Theme()
-	ui.Text(c, "same as opening hand").FontSize(12).TextColor(faintColor(t)).Width(2*rateColW + 12).SingleLine().
+	ui.Text(c, "same as starting hand").FontSize(12).TextColor(faintColor(t)).Width(2*rateColW + 12).SingleLine().
 		Tooltip(fmt.Sprintf("A cost %d card can be paid for by your first or second turn, so this is "+
-			"the opening hand plus at most one draw.", cost))
+			"the starting hand plus at most one draw.", cost))
 }
 
 // curveText names the turn a card of this cost can first be paid for. DON!! goes 1, 3, 5 and up

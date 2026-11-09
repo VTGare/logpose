@@ -22,9 +22,10 @@ type leaderCache struct {
 	// turnOrder ignores the turn order filter, so the tile's other half still shows its games.
 	turnOrder stats.TurnOrder
 	// games are the leader's games, oldest first, and days its days played, latest first.
-	games []stats.Match
-	days  []stats.Day
-	decks leaderDecks
+	games     []stats.Match
+	days      []stats.Day
+	decks     leaderDecks
+	mulligans stats.Mulligans
 }
 
 // leaderData is the leader the deck filter names, or the most played one in scope, and every
@@ -57,6 +58,7 @@ func (v *view) leaderData() (stats.Leader, []stats.LeaderRecord) {
 		lc.turnOrder = stats.ForLeader(lc.decks.scopedMatches(scope, anyTurn), leader).TurnOrder
 		lc.games = reversed(newest)
 		lc.days = stats.BuildOverview(newest, v.snap.Now).Days
+		lc.mulligans = stats.ForMulligans(newest)
 	}
 	return lc.stats, all
 }
@@ -89,6 +91,9 @@ func (v *view) decksPage(c *ui.Context) {
 				return
 			case tabCards:
 				v.cardsTab(c, d)
+				return
+			case tabHands:
+				v.handsTab(c, d)
 				return
 			}
 			if v.decks.scope.kind == scopeOverall && len(d.builds) > 0 {

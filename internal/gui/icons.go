@@ -46,6 +46,7 @@ var (
 	iconClose       = mustSVG(svgHead + `<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>`)
 	iconCheck       = mustSVG(svgHead + `<path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`)
 	iconChevron     = mustSVG(svgHead + `<path d="M6 9l6 6 6-6"/></svg>`)
+	iconChevronUp   = mustSVG(svgHead + `<path d="M6 15l6-6 6 6"/></svg>`)
 	iconTrendUp     = mustSVG(svgHead + `<path d="M12 19V5M6 11l6-6 6 6"/></svg>`)
 	iconTrendDown   = mustSVG(svgHead + `<path d="M12 5v14M6 13l6 6 6-6"/></svg>`)
 	iconSave        = mustSVG(svgHead + `<path d="M12 4v11M7 10l5 5 5-5"/><path d="M5 19h14"/></svg>`)

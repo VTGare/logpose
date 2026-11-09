@@ -232,7 +232,7 @@ var _ = Describe("Decks page", func() {
 		v.decks.tab = tabCards
 		tt.Frame()
 		Expect(v.decks.tab).To(Equal(tabCards))
-		for _, text := range []string{"In opening hand", "In hand by its turn", "Not by its turn", "same as opening hand", "Played", "Searcher took it", "Otama", "×4", "The tick is the build's 100%", "the difference likely isn't luck"} {
+		for _, text := range []string{"In starting hand", "In hand by its turn", "Not by its turn", "same as starting hand", "Played", "Searcher took it", "Otama", "×4", "The tick is the build's 100%", "the difference likely isn't luck"} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
 	})

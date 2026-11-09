@@ -18,9 +18,10 @@ const (
 	tabResults = iota
 	tabList
 	tabCards
+	tabHands
 )
 
-var deckTabLabels = []string{"Results", "List", "Cards"}
+var deckTabLabels = []string{"Results", "List", "Cards", "Hands"}
 
 // decksState is what the Decks page shows of the leader.
 type decksState struct {
@@ -44,6 +45,10 @@ type decksState struct {
 	editOnOpen bool
 	// buildOnOpen chooses the first build once the page has one.
 	buildOnOpen bool
+	// handsCard is the card whose dealt hands the Hands tab shows, and allHands shows every one
+	// of them rather than the latest few.
+	handsCard string
+	allHands  bool
 }
 
 type scopeKind int
