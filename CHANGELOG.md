@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+- A game you lose by running out of cards shows as a loss by deck out. Since the sim's latest
+  update it showed an Unknown result.
+- Ranked games the sim's ranked panel joined for you count as ranked. Before, they showed as
+  casual, because the sim logs their room code without the room letter.
+
 ## 0.2.0
 
 - An art viewer in the card database. Click a card's picture in the panel, or right-click any card
