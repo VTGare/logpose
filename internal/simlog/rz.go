@@ -78,11 +78,67 @@ func (b *builder) addRZ(line string) {
 		b.addRZPlayer(parts)
 	case "END":
 		b.game.Closed = true
+		b.addSeal(parts)
 	case "CHK":
 		b.addCheck(parts)
 	default:
 		b.addMove(parts)
 	}
+}
+
+// seal is the sim's RZ1|END line: seq|winner|reason|hash. Winner 1 is the player whose log it
+// is and 2 the opponent, and the reason is from the first one's side: win, loss, concede,
+// opponent_concede, opponent_dc or self_dc.
+type seal struct {
+	winner int
+	reason string
+}
+
+func (b *builder) addSeal(parts []string) {
+	if len(parts) < 5 {
+		return
+	}
+	winner, err := strconv.Atoi(parts[3])
+	if err != nil || (winner != 1 && winner != 2) {
+		return
+	}
+	b.seal = &seal{winner: winner, reason: parts[4]}
+}
+
+// sealedEnd is the end the END line gives, for games whose log has no line saying how they
+// ended. The loser ran out of cards when their last check shows an empty deck.
+func (b *builder) sealedEnd(g *Game) End {
+	if b.seal == nil {
+		return End{}
+	}
+	loser := 3 - b.seal.winner
+	var id string
+	for _, p := range g.Players {
+		if p.Owner == loser {
+			id = p.ID()
+		}
+	}
+	if id == "" {
+		return End{}
+	}
+	end := End{Loser: id}
+	switch {
+	case b.seal.reason == "concede" || b.seal.reason == "opponent_concede":
+		end.Kind = EndConcede
+	case b.lastDeck(loser) == 0:
+		end.Kind = EndDeckOut
+	}
+	return end
+}
+
+// lastDeck is the owner's deck size at their latest check, or -1 without one.
+func (b *builder) lastDeck(owner int) int {
+	for _, c := range slices.Backward(b.game.Checks) {
+		if c.Owner == owner {
+			return c.Deck
+		}
+	}
+	return -1
 }
 
 func (b *builder) addRZPlayer(parts []string) {

@@ -240,6 +240,27 @@ var _ = Describe("Parse", func() {
 			g := game(lifeCheck(2, 0), by(alice, card("Shanks", "OP17-022")+" attacking "+card("Killer", "OP17-060")))
 			Expect(g.End.Kind).To(Equal(EndUnknown))
 		})
+
+		// Sim 1.45a writes "Is Out of Cards" after the END line, into the next file.
+		It("reads a deck out from the END line and an empty deck", func() {
+			g := game("RZ1|CHK|90|1|0|8|2|1|0|10|39|0|1|0", "RZ1|END|90|2|loss|ab12")
+			Expect(g.End).To(Equal(End{Kind: EndDeckOut, Loser: "Alice#1111"}))
+		})
+
+		It("reads a concession from the END line", func() {
+			Expect(game("RZ1|END|90|2|concede|ab12").End).To(Equal(End{Kind: EndConcede, Loser: "Alice#1111"}))
+			Expect(game("RZ1|END|90|1|opponent_concede|ab12").End).To(Equal(End{Kind: EndConcede, Loser: "Bob#2222"}))
+		})
+
+		It("knows the loser from the END line without knowing how it ended", func() {
+			Expect(game(lifeCheck(2, 2), "RZ1|END|90|1|win|ab12").End).To(Equal(End{Loser: "Bob#2222"}))
+			Expect(game("RZ1|END|90|1|opponent_dc|ab12").End).To(Equal(End{Loser: "Bob#2222"}))
+		})
+
+		It("prefers the log's own lines to the END line", func() {
+			g := game(lifeCheck(2, 0), by(alice, card("Shanks", "OP17-022")+" attacking "+kid), "RZ1|END|90|1|win|ab12")
+			Expect(g.End).To(Equal(End{Kind: EndLethal, Loser: "Bob#2222"}))
+		})
 	})
 
 	Describe("logs without RZ1 player lines", func() {

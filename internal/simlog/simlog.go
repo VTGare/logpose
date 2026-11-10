@@ -69,7 +69,8 @@ func (k EndKind) String() string {
 
 type End struct {
 	Kind EndKind
-	// Loser is the losing player's ID. It is empty when the end is unknown.
+	// Loser is the losing player's ID. It is empty when the result is unknown. Kind can be
+	// unknown with a loser, when only the sim's END line says who won.
 	Loser string
 }
 
@@ -105,7 +106,7 @@ type Game struct {
 
 // Version is the parser's version. It goes up whenever parsing the same text gives different
 // results, so stored games know to be parsed again.
-const Version = 6
+const Version = 7
 
 func (g *Game) Player(id string) (Player, bool) {
 	for _, p := range g.Players {
@@ -167,6 +168,7 @@ type builder struct {
 	draws map[string][]string
 	print []string
 	ends  endTracker
+	seal  *seal
 	text  strings.Builder
 }
 
@@ -220,6 +222,9 @@ func (b *builder) finish(prev Lobby) Game {
 	g.Turns = b.turn
 	if g.End.Kind == EndUnknown {
 		g.End = b.ends.lethal(&g)
+	}
+	if g.End.Loser == "" {
+		g.End = b.sealedEnd(&g)
 	}
 	g.Fingerprint = b.fingerprint()
 	g.Sets = setsOf(&g)
