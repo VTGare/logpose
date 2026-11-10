@@ -41,13 +41,18 @@ func LobbySizes(games []store.Game) map[string]int {
 	return sizes
 }
 
-// IsRanked guesses whether a game was ranked, from the games in each lobby. The sim logs
-// nothing that tells a ranked game from a friendly in the same room. A ranked match is one game
-// in its own lobby, while friendlies usually play several, so a lobby with more than one game
-// counts as friendly.
+// IsRanked guesses whether a game was ranked. A game the sim's ranked panel set up has an
+// OPBounty match number. Games queued through the OPBounty app don't, and the sim logs nothing
+// that tells them from a friendly in the same room. A ranked match is one game in its own
+// lobby, while friendlies usually play several, so a lobby with more than one game counts as
+// friendly.
 func IsRanked(g store.Game, lobbySizes map[string]int) bool {
-	return g.Lobby.InRoom() && lobbySizes[g.Lobby.Code] == 1
+	return g.Match > 0 || (g.Lobby.InRoom() && lobbySizes[g.Lobby.Code] == 1)
 }
+
+// CanBeRanked reports whether a game could have been ranked. The joiner's log has the room code
+// without its room letter when the sim's ranked panel joined, so the match number counts too.
+func CanBeRanked(g store.Game) bool { return g.Lobby.InRoom() || g.Match > 0 }
 
 // Matches turns stored games into matches for the local player, keeping the store's order.
 // me is the user's names. A game with more than one of them is from the first one's side.
@@ -67,8 +72,7 @@ func Matches(games []store.Game, me ...string) []Match {
 			continue
 		}
 		m := Match{Game: g, Me: mine, Ranked: IsRanked(g, sizes)}
-		// Only room lobbies can be ranked, whatever the user set.
-		if g.Lobby.InRoom() && g.Type != store.TypeGuessed {
+		if CanBeRanked(g) && g.Type != store.TypeGuessed {
 			m.Ranked = g.Type == store.TypeRanked
 		}
 		for _, p := range g.Players {

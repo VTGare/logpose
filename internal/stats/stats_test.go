@@ -100,6 +100,19 @@ var _ = Describe("Matches", func() {
 		Expect(ms[3].Ranked).To(BeFalse())
 	})
 
+	It("counts a game with an OPBounty match number as ranked, even with the joiner's short code", func() {
+		games := build(
+			game{mine: "OP13-001", theirs: "OP13-001", lobby: "KF669D"},
+			game{mine: "OP13-001", theirs: "OP13-001", lobby: "KF669D"},
+		)
+		games[0].Match = 7849575
+		ms := stats.Matches(games, me)
+		Expect(ms[0].Ranked).To(BeTrue())
+		Expect(ms[1].Ranked).To(BeFalse())
+		Expect(stats.CanBeRanked(games[0])).To(BeTrue())
+		Expect(stats.CanBeRanked(games[1])).To(BeFalse())
+	})
+
 	It("takes games from any of the user's names, each from that name's side", func() {
 		games := build(game{mine: "OP13-001", theirs: "OP17-058", won: true}, game{mine: "OP13-001", theirs: "OP17-058"})
 		alt := store.GamePlayer{ID: "Alt#7", Leader: "OP05-060"}

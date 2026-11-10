@@ -31,6 +31,8 @@ type State struct {
 	// Lobby is the lobby code once the sim logs it. OPBounty's are 7 characters.
 	Lobby   string
 	Hosting bool
+	// Match is OPBounty's match number when the sim's ranked panel set the game up, or 0.
+	Match   int
 	Players []Player
 	// First is the ID of the player who goes first, once they get their first DON.
 	First string
@@ -54,7 +56,9 @@ func (s State) Opponent() (Player, bool) {
 	return Player{}, false
 }
 
-func (s State) Ranked() bool { return len(s.Lobby) == 7 }
+// Ranked reports whether the game is in one of the sim's rooms, or OPBounty numbered it. The
+// joiner's lobby code lacks the room letter when the sim's ranked panel joined.
+func (s State) Ranked() bool { return len(s.Lobby) == 7 || s.Match > 0 }
 
 // Saved is a combat log the sim wrote, with the format its lobby validated decks against.
 type Saved struct {
@@ -103,6 +107,11 @@ func (t *Tracker) Line(line string) bool {
 	line = strings.TrimRight(line, "\r")
 	before := t.State()
 	switch {
+	case strings.HasPrefix(line, rzPrefix+"META|"):
+		parts := strings.Split(line[len(rzPrefix):], "|")
+		if len(parts) == 3 {
+			t.state.Match, _ = strconv.Atoi(parts[2])
+		}
 	case strings.HasPrefix(line, rzPrefix):
 		if t.state.Phase == Playing {
 			t.rz(strings.Split(line[len(rzPrefix):], "|"))
@@ -279,7 +288,7 @@ func playerID(s string) string {
 }
 
 func same(a, b State) bool {
-	if a.Phase != b.Phase || a.Lobby != b.Lobby || a.Hosting != b.Hosting || a.First != b.First ||
+	if a.Phase != b.Phase || a.Lobby != b.Lobby || a.Hosting != b.Hosting || a.Match != b.Match || a.First != b.First ||
 		len(a.Players) != len(b.Players) {
 		return false
 	}

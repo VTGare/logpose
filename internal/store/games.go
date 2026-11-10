@@ -56,7 +56,9 @@ type Game struct {
 	First       string
 	Turns       int
 	End         simlog.End
-	Source      Source
+	// Match is OPBounty's match number when the sim's ranked panel set the game up, or 0.
+	Match  int
+	Source Source
 	// Sets is the card sets of the game's cards, sorted.
 	Sets []string
 	// SimFormat is the sim's name for the game's format, or "" when logpose didn't see it.
@@ -146,10 +148,10 @@ func (s *Store) SaveGame(ctx context.Context, g *simlog.Game, src Source) (Saved
 func writeParsed(ctx context.Context, tx *sql.Tx, g *simlog.Game) error {
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE games SET parser_version = ?, lobby_code = ?, lobby_role = ?, sim_version = ?,
-			first_player = ?, turns = ?, end_kind = ?, loser = ?, sets = ?
+			first_player = ?, turns = ?, end_kind = ?, loser = ?, sets = ?, match_no = ?
 		WHERE fingerprint = ?`,
 		parserVersion, g.Lobby.Code, roleName(g.Lobby.Role), g.SimVersion, g.First, g.Turns,
-		endName(g.End.Kind), g.End.Loser, strings.Join(g.Sets, ","), g.Fingerprint,
+		endName(g.End.Kind), g.End.Loser, strings.Join(g.Sets, ","), g.Match, g.Fingerprint,
 	); err != nil {
 		return err
 	}
@@ -246,9 +248,10 @@ func rekey(ctx context.Context, tx *sql.Tx, from, to string) error {
 	case errors.Is(err, sql.ErrNoRows):
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO games (fingerprint, log, moves, source_file, source_index, played_at, imported_at,
-				parser_version, lobby_code, lobby_role, sim_version, first_player, turns, end_kind, loser, sets)
+				parser_version, lobby_code, lobby_role, sim_version, first_player, turns, end_kind, loser, sets,
+				match_no)
 			SELECT ?, log, moves, source_file, source_index, played_at, imported_at,
-				0, lobby_code, lobby_role, sim_version, first_player, turns, end_kind, loser, sets
+				0, lobby_code, lobby_role, sim_version, first_player, turns, end_kind, loser, sets, match_no
 			FROM games WHERE fingerprint = ?`, to, from); err != nil {
 			return err
 		}
@@ -325,7 +328,8 @@ func (s *Store) GameLog(ctx context.Context, fingerprint string) (string, error)
 func (s *Store) Games(ctx context.Context) ([]Game, error) {
 	rows, err := s.read.QueryContext(ctx, `
 		SELECT g.fingerprint, g.played_at, g.lobby_code, g.lobby_role, g.sim_version, g.first_player,
-			g.turns, g.end_kind, g.loser, g.source_file, g.source_index, g.sets, coalesce(f.sim_format, ''), t.ranked,
+			g.turns, g.end_kind, g.loser, g.match_no, g.source_file, g.source_index, g.sets,
+			coalesce(f.sim_format, ''), t.ranked,
 			coalesce(n.note, ''), b.fingerprint IS NOT NULL
 		FROM games g LEFT JOIN log_formats f ON f.source_file = g.source_file
 		LEFT JOIN game_types t ON t.fingerprint = g.fingerprint
@@ -357,7 +361,7 @@ func scanGame(rows *sql.Rows) (Game, error) {
 	var role, end, sets string
 	var ranked sql.NullBool
 	err := rows.Scan(&g.Fingerprint, &played, &g.Lobby.Code, &role, &g.SimVersion, &g.First, &g.Turns,
-		&end, &g.End.Loser, &g.Source.File, &g.Source.Index, &sets, &g.SimFormat, &ranked, &g.Note, &g.Bookmarked)
+		&end, &g.End.Loser, &g.Match, &g.Source.File, &g.Source.Index, &sets, &g.SimFormat, &ranked, &g.Note, &g.Bookmarked)
 	g.Type = gameType(ranked)
 	g.Sets = splitCodes(sets)
 	g.PlayedAt = time.UnixMilli(played)

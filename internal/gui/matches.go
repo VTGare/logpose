@@ -171,7 +171,7 @@ func (s *matchesState) shown() (rows []stats.Match, marked int) {
 
 // matchMenu is a match row's right-click menu.
 func (v *view) matchMenu(menu *ui.Menu, m stats.Match) {
-	if m.Lobby.InRoom() {
+	if stats.CanBeRanked(m.Game) {
 		menu.Submenu("Game type", func(sub *ui.Menu) {
 			for i, label := range v.typeOptions(m) {
 				if sub.Item(label).Radio(int(m.Type) == i).Chosen() {

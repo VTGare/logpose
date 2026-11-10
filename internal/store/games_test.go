@@ -191,6 +191,16 @@ var _ = Describe("Store", func() {
 		Expect(list[0].PlayedAt).To(BeTemporally("==", src.PlayedAt))
 	})
 
+	It("keeps OPBounty's match number", func() {
+		g := fixture()[0]
+		g.Match = 7849575
+		_, err := st.SaveGame(ctx, &g, src)
+		Expect(err).NotTo(HaveOccurred())
+		list, err := st.Games(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(list[0].Match).To(Equal(7849575))
+	})
+
 	It("parses games again after a parser update", func() {
 		g := fixture()[0]
 		_, err := st.SaveGame(ctx, &g, src)

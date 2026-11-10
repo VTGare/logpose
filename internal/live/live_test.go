@@ -123,6 +123,15 @@ var _ = Describe("Tracker", func() {
 		Expect(t.TakeSaved()).To(BeEmpty())
 	})
 
+	It("counts a game OPBounty numbered as ranked, though the joiner's code is short", func() {
+		var t live.Tracker
+		t.Line("Joined relay KF669D")
+		Expect(t.State().Ranked()).To(BeFalse())
+		Expect(t.Line("[ReplaySync] RZ1|META|f4a4|7849575")).To(BeTrue())
+		Expect(t.State().Match).To(Equal(7849575))
+		Expect(t.State().Ranked()).To(BeTrue())
+	})
+
 	It("starts over when the move numbers do", func() {
 		var t live.Tracker
 		for _, l := range []string{

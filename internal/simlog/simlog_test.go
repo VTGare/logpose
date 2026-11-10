@@ -93,6 +93,12 @@ var _ = Describe("Parse", func() {
 		Expect(Closed(closed.Text)).To(BeTrue())
 	})
 
+	It("reads OPBounty's match number from the META line", func() {
+		g := parse(logOf(append(append(lobby("KF669D"), "RZ1|META|f4a4|7849575"), opening()...)...))[0]
+		Expect(g.Match).To(Equal(7849575))
+		Expect(parse(logOf(append(lobby("KF669D"), opening()...)...))[0].Match).To(BeZero())
+	})
+
 	It("skips the empty PLY lines the sim writes before the named ones", func() {
 		lines := lobby("XNJ8M66")
 		header := len(lines) - 2

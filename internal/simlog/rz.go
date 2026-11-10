@@ -76,6 +76,11 @@ func (b *builder) addRZ(line string) {
 		b.headers++
 	case "PLY":
 		b.addRZPlayer(parts)
+	case "META":
+		// META|replay id|OPBounty match number, 0 outside a match the sim's ranked panel set up.
+		if len(parts) == 4 {
+			b.game.Match, _ = strconv.Atoi(parts[3])
+		}
 	case "END":
 		b.game.Closed = true
 		b.addSeal(parts)

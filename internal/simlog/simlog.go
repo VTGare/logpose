@@ -85,6 +85,9 @@ type Game struct {
 	// counted.
 	Turns int
 	End   End
+	// Match is OPBounty's match number when the sim's own ranked panel set the game up, and 0
+	// otherwise, including games queued through the OPBounty app.
+	Match int
 	Lines []Line
 	// Moves and Checks are the RZ1 stream. Both are empty in logs from sim versions before it.
 	Moves  []Move
@@ -106,7 +109,7 @@ type Game struct {
 
 // Version is the parser's version. It goes up whenever parsing the same text gives different
 // results, so stored games know to be parsed again.
-const Version = 7
+const Version = 8
 
 func (g *Game) Player(id string) (Player, bool) {
 	for _, p := range g.Players {

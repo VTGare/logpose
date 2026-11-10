@@ -118,8 +118,7 @@ func (v *view) matchPage(c *ui.Context) {
 				ui.Text(c, "/").TextColor(faintColor(t))
 				ui.Text(c, m.PlayedAt.Format("Mon Jan 2, 15:04")).Bold()
 				ui.Spacer(c)
-				// Only room lobbies can be ranked, so private ones have no choice to make.
-				if m.Lobby.InRoom() {
+				if stats.CanBeRanked(m.Game) {
 					v.typeSelect(c, m)
 				}
 				if !v.noteShown() && iconButton(c, iconNote, "Add note", false).Label("Add note").Clicked() {
@@ -217,7 +216,7 @@ func (v *view) typeSelect(c *ui.Context, m stats.Match) ui.Element {
 // gives.
 func (v *view) typeOptions(m stats.Match) []string {
 	guess := "Auto: Friendly"
-	if v.lobbyGames(m) == 1 {
+	if m.Match > 0 || v.lobbyGames(m) == 1 {
 		guess = "Auto: Ranked"
 	}
 	return []string{guess, "Ranked", "Friendly"}
@@ -239,6 +238,9 @@ func (v *view) typeNote(m stats.Match) string {
 		return "Counted as ranked, as you set it."
 	case store.TypeFriendly:
 		return "Counted as a friendly, as you set it."
+	}
+	if m.Match > 0 {
+		return fmt.Sprintf("Counted as ranked, since the sim logged it as OPBounty match %d.", m.Match)
 	}
 	n := 0
 	for _, o := range v.snap.Matches {
