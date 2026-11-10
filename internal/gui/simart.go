@@ -470,6 +470,13 @@ func (v *view) cardMenu(card cards.Card) func(m *ui.Menu) {
 		info, loaded := v.simArtFor(card)
 		m.Submenu("Art in the sim", func(m *ui.Menu) { v.artMenu(m, card, info, loaded) }).Disabled(loaded && info.noSim)
 		m.Separator()
+		if m.Item("View art").Chosen() {
+			s := &v.cardsUI
+			if s.selected != card.Code {
+				s.selected, s.viewed, s.versions = card.Code, "", ""
+			}
+			s.viewer = true
+		}
 		if m.Item("Save image…").Chosen() {
 			v.do(func(a actions) { a.SaveArt(card.Code) })
 		}

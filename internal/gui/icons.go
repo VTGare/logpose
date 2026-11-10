@@ -44,6 +44,7 @@ var (
 	iconImmune      = mustSVG(svgBold + `<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 7.5l1 2.5 2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1z"/></svg>`)
 	iconMinus       = mustSVG(svgBold + `<path d="M6 12h12"/></svg>`)
 	iconClose       = mustSVG(svgHead + `<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>`)
+	iconExpand      = mustSVG(svgHead + `<path d="M14 5h5v5M19 5l-6 6M10 19H5v-5M5 19l6-6"/></svg>`)
 	iconCheck       = mustSVG(svgHead + `<path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`)
 	iconChevron     = mustSVG(svgHead + `<path d="M6 9l6 6 6-6"/></svg>`)
 	iconChevronUp   = mustSVG(svgHead + `<path d="M6 15l6-6 6 6"/></svg>`)

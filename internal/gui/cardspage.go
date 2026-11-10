@@ -88,6 +88,9 @@ func (v *view) cardsPage(c *ui.Context) {
 			v.cardSplit(c, list, func() { v.cardDetail(c, card) })
 		})
 	})
+	if s.viewer {
+		v.artViewer(c, v.snap.Cards.Card(s.selected))
+	}
 }
 
 func (v *view) cardsMissing(c *ui.Context) {
@@ -613,8 +616,12 @@ func (v *view) cardDetail(c *ui.Context, card cards.Card) {
 		Margin(0, 0, 18, 14).Children(func() {
 		ui.Column(c).Padding(18).Gap(16).Children(func() {
 			ui.Row(c).Gap(18).AlignItems(ui.Start).Children(func() {
-				art := v.printArt(c, key, artW, artW*7/5).Shadow(0, 4, 14, 0, ui.RGBA(0, 0, 0, 0.45)).
-					ContextMenu(v.cardMenu(card))
+				art := ui.ButtonBase(c).Label("View the art full size").Padding(0).Radius(6).Background(ui.Transparent).
+					FocusRing(false).Shadow(0, 4, 14, 0, ui.RGBA(0, 0, 0, 0.45)).ContextMenu(v.cardMenu(card))
+				if art.Clicked() {
+					v.cardsUI.viewer = true
+				}
+				art.Children(func() { v.printArt(c, key, artW, artW*7/5) })
 				// A preview no bigger than the card adds nothing.
 				if artW < previewWidth(c)*0.85 {
 					v.cardPreview(c, art, key)
@@ -657,7 +664,12 @@ func (v *view) detailTabs(c *ui.Context, key string, ca arts.CardArts, info simA
 			v.tabList(c, labels)
 			ui.Spacer(c)
 			ui.Box(c).Padding(0, 0, 6, 0).Children(func() {
-				ui.Row(c).Gap(6).Children(func() { v.artButtons(c, key) })
+				ui.Row(c).Gap(6).Children(func() {
+					if smallButton(c, "View full size", iconExpand, false).Clicked() {
+						v.cardsUI.viewer = true
+					}
+					v.artButtons(c, key)
+				})
 			})
 		})
 		ui.Box(c).Height(1).Background(t.Border)

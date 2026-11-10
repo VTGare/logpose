@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -55,7 +56,8 @@ const (
 )
 
 // Pages are the ids of every page, which -page takes. A Decks tab is "decks/" and its name, and
-// "decks/edit" opens the core editor on the first build.
+// "decks/edit" opens the core editor on the first build. "cards/" and a card's code, which
+// IsPage also takes, opens the art viewer on that card.
 func Pages() []string {
 	ids := []string{pageSettings}
 	for _, p := range navPages {
@@ -67,10 +69,19 @@ func Pages() []string {
 	return append(ids, pageDecks+"/edit", pageDecks+"/build", pageDecks+"/nobuild")
 }
 
-// open shows a page from Pages.
+// IsPage reports whether -page takes the id.
+func IsPage(id string) bool {
+	code, ok := strings.CutPrefix(id, pageCards+"/")
+	return slices.Contains(Pages(), id) || ok && code != ""
+}
+
+// open shows a page IsPage takes.
 func (v *view) open(id string) {
 	page, tab, _ := strings.Cut(id, "/")
 	v.page = page
+	if page == pageCards && tab != "" {
+		v.cardsUI.selected, v.cardsUI.viewer = tab, true
+	}
 	v.decks.editOnOpen = tab == "edit"
 	v.decks.buildOnOpen = tab == "build"
 	if tab == "nobuild" {

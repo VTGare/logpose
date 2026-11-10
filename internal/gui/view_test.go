@@ -66,6 +66,9 @@ var _ = Describe("view", func() {
 	It("opens on any page -page names", func() {
 		Expect(Pages()).To(ContainElements("overview", "decks", "decks/list", "decks/edit", "decks/build", "decks/nobuild", "matchups", "matches", "formats", "cards", "settings"))
 		v, tt := tester(testSnapshot(10))
+		Expect(IsPage("cards/OP01-024")).To(BeTrue())
+		Expect(IsPage("cards/")).To(BeFalse())
+		Expect(IsPage("nowhere")).To(BeFalse())
 		v.open("decks")
 		tt.Frame()
 		Expect(tt.HasText("Turn order")).To(BeTrue())

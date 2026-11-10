@@ -502,4 +502,77 @@ var _ = Describe("Cards page", func() {
 			Expect(tt.HasText("Art · 3")).To(BeTrue())
 		})
 	})
+
+	Describe("the art viewer", func() {
+		luffyViewer := func() (*view, *ui.Tester, *fakeActions) {
+			v, tt := cardsTester()
+			fa := &fakeActions{}
+			v.act = fa
+			v.cardsUI.selected = "OP01-024"
+			v.setSimArt("OP01-024", simArtInfo{cur: sim.ArtChoice{Kind: sim.ArtOwn}})
+			tt.Frame()
+			Expect(tt.Click("View full size")).To(Succeed())
+			tt.Frame()
+			return v, tt, fa
+		}
+		viewed := func(v *view) string {
+			luffy := v.snap.card("OP01-024")
+			info, _ := v.simArtFor(luffy)
+			return v.viewedKey(luffy, info, arts.LimitlessArts(luffy))
+		}
+
+		It("lists the card's pictures and names the one in the sim", func() {
+			_, tt, _ := luffyViewer()
+			for _, text := range []string{"Monkey D. Luffy", "Base", "Alt art", "Sim's own", "In the sim"} {
+				Expect(tt.HasText(text)).To(BeTrue(), text)
+			}
+		})
+
+		It("walks the pictures with the up and down keys, around the ends", func() {
+			v, tt, _ := luffyViewer()
+			tt.Key(0, ui.KeyDown)
+			tt.Frame()
+			Expect(viewed(v)).To(Equal("OP01-024_p1"))
+			tt.Key(0, ui.KeyUp)
+			tt.Frame()
+			tt.Key(0, ui.KeyUp)
+			tt.Frame()
+			Expect(viewed(v)).To(Equal("sim:OP01-024"))
+		})
+
+		It("puts the picture a click picks in the sim", func() {
+			v, tt, fa := luffyViewer()
+			Expect(tt.Click("View Alt art")).To(Succeed())
+			tt.Frame()
+			Expect(viewed(v)).To(Equal("OP01-024_p1"))
+			Expect(fa.calls).NotTo(ContainElement(HavePrefix("use art")))
+			Expect(tt.Click("Use this art in the sim")).To(Succeed())
+			tt.Frame()
+			Expect(fa.calls).To(ContainElement("use art OP01-024 OP01-024_p1"))
+		})
+
+		It("closes on Escape and on its close button", func() {
+			v, tt, _ := luffyViewer()
+			tt.Key(0, ui.KeyEscape)
+			tt.Frame()
+			Expect(v.cardsUI.viewer).To(BeFalse())
+			Expect(tt.Click("View the art full size")).To(Succeed())
+			tt.Frame()
+			Expect(v.cardsUI.viewer).To(BeTrue())
+			Expect(tt.Click("Close the viewer")).To(Succeed())
+			tt.Frame()
+			Expect(v.cardsUI.viewer).To(BeFalse())
+		})
+
+		It("opens on the card whose menu asked for it", func() {
+			v, tt := cardsTester()
+			v.cardsUI.selected = "OP01-024"
+			tt.Frame()
+			Expect(tt.RightClick("Urouge OP14-002")).To(Succeed())
+			Expect(tt.ChooseMenuItem("View art")).To(Succeed())
+			tt.Frame()
+			Expect(v.cardsUI.viewer).To(BeTrue())
+			Expect(v.cardsUI.selected).To(Equal("OP14-002"))
+		})
+	})
 })

@@ -1,7 +1,7 @@
 {
   "name": "logpose",
   "identifier": "com.vtgare.logpose",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "copyright": "© 2026 VTGare",
   "icon": "cmd/logpose/icon.png",
   "main": "./cmd/logpose",

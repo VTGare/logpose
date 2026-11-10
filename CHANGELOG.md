@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- An art viewer in the card database. Click a card's picture in the panel, or right-click any card
+  and pick View art, to see it full size with every art of the card listed beside it.
+- In the viewer, the Up and Down keys switch art, and you can put the art you're looking at in
+  the sim, save it or copy it.
+
 ## 0.1.2
 
 - A game's result shows as soon as it ends. Before, it stayed Unknown until logpose restarted.

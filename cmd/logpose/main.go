@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -87,9 +86,9 @@ func runApp(ctx context.Context, args []string) (err error) {
 	db := dbFlag(fs)
 	simDir := fs.String("sim", "", "OPTCGSim's folder, the one with OPTCGSim.exe (default: found from the running sim)")
 	dev := fs.Bool("dev", false, "run as a test copy next to the real logpose, with -db pointing at a scratch database")
-	page := fs.String("page", "", "the page to open on, for screenshots of a test copy: "+strings.Join(gui.Pages(), ", "))
+	page := fs.String("page", "", "the page to open on, for screenshots of a test copy: "+strings.Join(gui.Pages(), ", ")+", cards/<code>")
 	_ = fs.Parse(args)
-	if *page != "" && !slices.Contains(gui.Pages(), *page) {
+	if *page != "" && !gui.IsPage(*page) {
 		return fmt.Errorf("-page: no page %q", *page)
 	}
 	if !gui.Claim(*dev) {

@@ -30,6 +30,8 @@ type cardsState struct {
 	viewed   string
 	// versions is the head key of the art whose version list is open.
 	versions string
+	// viewer is whether the art viewer is open over the page.
+	viewer   bool
 	list     bool
 	more     bool
 	wall     ui.ListState
