@@ -108,7 +108,7 @@ func leadersFaced(n int) string {
 // Matchup table columns, in DIPs.
 const (
 	muArtW   = 40
-	muGamesW = 56
+	muGamesW = 68
 	muRateW  = 64
 	muBarW   = 80
 	muTurnW  = 52
@@ -299,7 +299,7 @@ func (v *view) gameLine(c *ui.Context, m stats.Match) {
 		resultBadge(c, m.Result)
 		ui.Text(c, m.Opp.Name).FontSize(13).FontWeight(500).SingleLine().Grow(1).Basis(0)
 		turnMark(c, m)
-		ui.Text(c, fmt.Sprintf("%d turns", m.Turns)).FontSize(12).TextColor(t.TextMuted).Width(54).TextAlign(ui.End)
+		ui.Text(c, turns(m.Turns)).FontSize(12).TextColor(t.TextMuted).Width(54).TextAlign(ui.End)
 		ui.Text(c, m.PlayedAt.Format("Jan 2")).FontSize(12).TextColor(faintColor(t)).Width(44).TextAlign(ui.End)
 	})
 }

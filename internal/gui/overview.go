@@ -107,9 +107,10 @@ func (v *view) headline(c *ui.Context, o stats.Overview) {
 					muted("None yet")
 					return
 				}
+				// The squares wrap before the record does. Two rows of them fit beside the record.
 				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-					big(record(o.TodayRecord), t.Text)
-					resultSquares(c, o.Today)
+					ui.Text(c, record(o.TodayRecord)).FontSize(28).Bold().TextColor(t.Text).SingleLine().Shrink(0)
+					ui.Column(c).Grow(1).Basis(0).MinWidth(0).Children(func() { resultSquares(c, o.Today) })
 				})
 				muted(fmt.Sprintf("%s · %s", games(len(o.Today)), duration(o.TodayTime)))
 			})
@@ -310,7 +311,7 @@ func gameTip(m stats.Match, leader string) string {
 	if o := turnOrderShort(m); o != "" {
 		text += " · " + o
 	}
-	return fmt.Sprintf("%s · %d turns · %s", text, m.Turns, m.PlayedAt.Format("15:04"))
+	return fmt.Sprintf("%s · %s · %s", text, turns(m.Turns), m.PlayedAt.Format("15:04"))
 }
 
 // decksTile is each deck played, latest first, as a short row that opens it on the Leaders

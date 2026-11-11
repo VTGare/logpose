@@ -570,7 +570,7 @@ func (v *view) cardRows(c *ui.Context, shown []cards.Card) {
 			})
 			num := func(s string) { ui.Text(c, s).Width(48).TextAlign(ui.End) }
 			num(costText(card))
-			num(printedPower(card.Power))
+			num(printedPower(card))
 			num(counterShort(card.Counter))
 			first, _, _ := strings.Cut(card.Effect, "\n")
 			ui.Text(c, first).Grow(1).Basis(0).MinWidth(0).TextColor(t.TextMuted).MaxLines(1).Ellipsis("…")
@@ -585,12 +585,15 @@ func costText(c cards.Card) string {
 	return fmt.Sprint(c.Cost)
 }
 
-func printedPower(p int) string {
-	if p == 0 {
+func printedPower(c cards.Card) string {
+	if !hasPower(c) {
 		return "–"
 	}
-	return fmt.Sprint(p)
+	return fmt.Sprint(c.Power)
 }
+
+// hasPower is false for events, stages and cards without data. Some characters print 0 power.
+func hasPower(c cards.Card) bool { return c.Type == "Character" || c.Type == "Leader" }
 
 func counterShort(n int) string {
 	if n == 0 {
@@ -820,7 +823,7 @@ func cardStats(c *ui.Context, card cards.Card) {
 		} else {
 			stat(fmt.Sprint(card.Life), "Life")
 		}
-		if card.Power > 0 {
+		if hasPower(card) {
 			stat(fmt.Sprint(card.Power), "Power")
 		}
 		if card.Type == "Character" {

@@ -34,6 +34,13 @@ func games(n int) string {
 	return fmt.Sprintf("%d games", n)
 }
 
+func turns(n int) string {
+	if n == 1 {
+		return "1 turn"
+	}
+	return fmt.Sprintf("%d turns", n)
+}
+
 // tile is a panel with a title over its content.
 func tile(c *ui.Context, label string, body func()) ui.Element {
 	return titledTile(c, label, "", body)
@@ -129,9 +136,9 @@ func turnRows(c *ui.Context, o stats.TurnOrder, chosen stats.TurnOrderFilter, pi
 
 // resultSquares shows results as small colored squares, oldest first.
 func resultSquares(c *ui.Context, rs []stats.Result) {
-	ui.Row(c).Gap(4).Wrap().Children(func() {
+	ui.Row(c).Gap(3).Wrap().Children(func() {
 		for i, r := range rs {
-			ui.Box(c.Key(i)).Size(16, 16).Radius(4).Background(resultColor(r))
+			ui.Box(c.Key(i)).Size(12, 12).Radius(3).Background(resultColor(r))
 		}
 	})
 }

@@ -52,6 +52,22 @@ func cardsTester() (*view, *ui.Tester) {
 	return v, tt
 }
 
+var _ = Describe("printedPower", func() {
+	It("shows a character's 0 power and no power for events", func() {
+		Expect(printedPower(cards.Card{Type: "Character"})).To(Equal("0"))
+		Expect(printedPower(cards.Card{Type: "Leader", Power: 5000})).To(Equal("5000"))
+		Expect(printedPower(cards.Card{Type: "Event"})).To(Equal("–"))
+		Expect(printedPower(cards.Card{})).To(Equal("–"))
+	})
+})
+
+var _ = Describe("turns", func() {
+	It("says one turn in the singular", func() {
+		Expect(turns(1)).To(Equal("1 turn"))
+		Expect(turns(12)).To(Equal("12 turns"))
+	})
+})
+
 var _ = Describe("Cards page", func() {
 	codes := func(cs []cards.Card) []string {
 		var out []string

@@ -184,7 +184,7 @@ func (v *view) faceOff(c *ui.Context, m stats.Match) {
 		side(m.Me, "You", true)
 		ui.Column(c).Grow(1).Gap(2).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, resultWord(m.Result)).FontSize(44).Bold().TextColor(resultColor(m.Result))
-			ui.Text(c, fmt.Sprintf("%d turns · %s · %s", m.Turns, endWord(m.End.Kind), gameType(m))).FontSize(13)
+			ui.Text(c, fmt.Sprintf("%s · %s · %s", turns(m.Turns), endWord(m.End.Kind), gameType(m))).FontSize(13)
 		})
 		side(m.Opp, m.Opp.Name, false)
 	})
