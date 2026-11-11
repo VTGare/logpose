@@ -75,7 +75,7 @@ func (b *builder) addText(raw string) {
 
 var pregamePrefixes = []string{
 	"Leader is ", "Chose to go ", "Will select turn order", "Hand before Mulligan", "Mulligan",
-	"Hand after Mulligan", "Drew card from deck",
+	"Hand after Mulligan", "Drew card from deck", "Setting up a Relay Room", "Connected to Server: ",
 }
 
 func isPregame(text string) bool {

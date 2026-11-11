@@ -1,6 +1,8 @@
 package simlog
 
 import (
+	"strings"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -40,6 +42,19 @@ var _ = Describe("opening hands", func() {
 			Mulliganed: true,
 			After:      []string{"OP06-038", "OP12-023", "ST24-004", "OP17-022", "OP06-033"},
 		}))
+	})
+
+	It("keeps the opening draws out of turn 1 when the host's log starts with the relay lines", func() {
+		lines := append([]string{"Setting up a Relay Room...", "Connected to Server: europe-north1"}, lobby("XNJ8M66")...)
+		lines = append(lines, drew(bob, "OP01-055", "ST32-003", "ST32-002", "OP08-036", "OP17-031")...)
+		lines = append(lines, by(alice, "Draw 1 Don"), by(alice, "End Turn"))
+		g := parse(logOf(lines...))[0]
+		for _, l := range g.Lines {
+			if strings.HasPrefix(l.Text, "Drew card from deck") {
+				Expect(l.Turn).To(BeZero(), l.Text)
+			}
+		}
+		Expect(g.Mulligans[bobID].Before).To(HaveLen(5))
 	})
 
 	It("keeps the hand the log states over the draws", func() {
