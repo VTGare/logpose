@@ -485,9 +485,9 @@ func (v *view) cardArt(c *ui.Context, code string, w, h float32, notes ...string
 	}
 	if art == nil {
 		cols := colorsOf(v.snap.card(code))
-		return ui.Box(c).Size(w, h).Radius(4).Background(cols[0].Card).Label(name)
+		return ui.Box(c).Size(w, h).Radius(4).Background(cols[0].Card).Label(name).PopoverMenu(v.cardMenu(v.snap.card(code)))
 	}
-	img := ui.Image(c, art).Size(w, h).Fit(ui.Cover).Radius(4).Label(name)
+	img := ui.Image(c, art).Size(w, h).Fit(ui.Cover).Radius(4).Label(name).PopoverMenu(v.cardMenu(v.snap.card(code)))
 	if w < previewMin {
 		v.cardPreview(c, img, code, notes...)
 	}

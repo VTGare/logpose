@@ -53,7 +53,7 @@ func (v *view) cardsPage(c *ui.Context) {
 		v.simArt.scanned = true
 		v.do(func(a actions) { a.ScanSimArt() })
 	}
-	shown := s.results(v.snap.Cards)
+	shown := s.results(v.snap.Cards, v.prefs.cardSort)
 	if s.selected == "" && len(shown) > 0 {
 		s.selected = shown[0].Code
 	}
@@ -72,12 +72,15 @@ func (v *view) cardsPage(c *ui.Context) {
 				return
 			}
 			list := func() {
-				ui.Row(c).Fill().MinHeight(0).AlignItems(ui.Stretch).Padding(0, 14, 0, 0).Children(func() {
-					if s.list {
+				if v.prefs.cardList {
+					ui.Column(c).Fill().MinHeight(0).Padding(0, 14, 0, 0).Children(func() {
+						v.cardHeader(c)
 						v.cardRows(c, shown)
-					} else {
-						v.cardWall(c, shown)
-					}
+					})
+					return
+				}
+				ui.Row(c).Fill().MinHeight(0).AlignItems(ui.Stretch).Padding(0, 14, 0, 0).Children(func() {
+					v.cardWall(c, shown)
 				})
 			}
 			card := v.snap.Cards.Card(s.selected)
@@ -296,69 +299,115 @@ func (v *view) costCurve(c *ui.Context) {
 	})
 }
 
-// chipRow holds More filters, the chips picked from it and the suggestions, the count and the
-// switch between images and a list.
+// chipRow holds More filters, the chips picked from it and the suggestions, the count, the sort
+// and the switch between images and a list. The chips wrap in their own space, and the rest
+// stays on the first line.
 func (v *view) chipRow(c *ui.Context, count int) {
+	ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
+		ui.Row(c).Grow(1).Basis(0).MinWidth(0).Gap(8).Wrap().AlignItems(ui.Center).MinHeight(chipLineH).
+			Children(func() { v.chips(c) })
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Height(chipLineH).Children(func() { v.viewControls(c, count) })
+	})
+}
+
+// chipLineH is the height of the chip row's first line, which the Images | List switch sets.
+const chipLineH = 32
+
+func (v *view) chips(c *ui.Context) {
 	s := &v.cardsUI
 	t := c.Theme()
-	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-		// More filters comes first, so its menu stays put as chips come and go.
-		more := filterPill(c.Key("more"), "More filters", false)
-		if more.Clicked() {
-			s.more = !s.more
+	// More filters comes first, so its menu stays put as chips come and go.
+	more := filterPill(c.Key("more"), "More filters", false)
+	if more.Clicked() {
+		s.more = !s.more
+	}
+	ui.PopoverBase(c, more, &s.more, func(panel ui.Element) {
+		panel.Margin(6, 0, 0, 0).Padding(14).Radius(10).Background(t.Background).Border(1, t.Border).
+			Shadow(0, 12, 32, 0, ui.RGBA(0, 0, 0, 0.45))
+		v.moreFilters(c)
+	})
+	for i, ch := range s.chips {
+		b := ui.ButtonBase(c.Key(fmt.Sprint("chip", i, ch.field, ch.value))).Label("Remove "+ch.value).
+			Padding(5, 10, 5, 12).Radius(16).Background(t.Accent.Alpha(0.18)).Border(1, t.Accent).Gap(6).AlignItems(ui.Center)
+		if ch.out {
+			b.Background(lossColor.Alpha(0.14)).Border(1, lossColor.Alpha(0.5))
 		}
-		ui.PopoverBase(c, more, &s.more, func(panel ui.Element) {
-			panel.Margin(6, 0, 0, 0).Padding(14).Radius(10).Background(t.Background).Border(1, t.Border).
-				Shadow(0, 12, 32, 0, ui.RGBA(0, 0, 0, 0.45))
-			v.moreFilters(c)
-		})
-		for i, ch := range s.chips {
-			b := ui.ButtonBase(c.Key(fmt.Sprint("chip", i, ch.field, ch.value))).Label("Remove "+ch.value).
-				Padding(5, 10, 5, 12).Radius(16).Background(t.Accent.Alpha(0.18)).Border(1, t.Accent).Gap(6).AlignItems(ui.Center)
+		if b.Clicked() {
+			s.toggleChip(ch)
+		}
+		b.Children(func() {
+			col := t.Text
 			if ch.out {
-				b.Background(lossColor.Alpha(0.14)).Border(1, lossColor.Alpha(0.5))
+				col = hideColor
+				ui.Icon(c, iconMinus).Size(11, 11).TextColor(col)
 			}
-			if b.Clicked() {
-				s.toggleChip(ch)
+			ui.Text(c, ch.value).FontSize(13).FontWeight(500).TextColor(col)
+			ui.Icon(c, iconClose).FontSize(11).TextColor(t.TextMuted)
+		})
+	}
+	if s.filtered() {
+		clear := ui.ButtonBase(c.Key("clear")).Label("Clear the filters").Background(ui.Transparent).Padding(4, 6)
+		if clear.Clicked() {
+			s.clear()
+		}
+		clear.Children(func() {
+			col := t.Accent
+			if clear.Hovered() {
+				col = t.AccentHover
 			}
-			b.Children(func() {
-				col := t.Text
-				if ch.out {
-					col = hideColor
-					ui.Icon(c, iconMinus).Size(11, 11).TextColor(col)
-				}
-				ui.Text(c, ch.value).FontSize(13).FontWeight(500).TextColor(col)
-				ui.Icon(c, iconClose).FontSize(11).TextColor(t.TextMuted)
-			})
-		}
-		if s.filtered() {
-			clear := ui.ButtonBase(c.Key("clear")).Label("Clear the filters").Background(ui.Transparent).Padding(4, 6)
-			if clear.Clicked() {
-				s.clear()
+			ui.Text(c, "Clear all").FontSize(13).TextColor(col)
+		})
+	}
+}
+
+func (v *view) viewControls(c *ui.Context, count int) {
+	t := c.Theme()
+	if sync := v.cardSync; sync.running() {
+		ui.Text(c, fmt.Sprintf("Updating · %d of %d sets", sync.done, sync.total)).FontSize(13).TextColor(t.Accent).SingleLine()
+	} else if sync := v.artSync; sync.running() {
+		ui.Text(c, fmt.Sprintf("Reading Bandai's card list · %d of %d", sync.done, sync.total)).FontSize(13).TextColor(t.Accent).SingleLine()
+	}
+	ui.Text(c, cardCount(count)).FontSize(13).TextColor(t.TextMuted).SingleLine()
+	v.sortPill(c)
+	view := boolInt(v.prefs.cardList)
+	if ui.Segmented(c, &view, "Images", "List").Label("Show as").Changed() {
+		v.prefs.cardList = view == 1
+		v.do(func(a actions) { a.SetSetting(store.SettingCardList, flag(v.prefs.cardList)) })
+	}
+}
+
+// sortPill names the sort and opens a menu of the keys and the two directions. It isn't tinted,
+// since sorting narrows nothing.
+func (v *view) sortPill(c *ui.Context) {
+	t := c.Theme()
+	by := v.prefs.cardSort
+	key := sortKeyOf(by.key)
+	label := by.label()
+	b := ui.ButtonBase(c.Key("sort")).Label("Sort: "+label).Padding(5, 12).Radius(16).Border(1, t.Border).
+		Background(ui.Transparent).Gap(6).AlignItems(ui.Center)
+	b.PopoverMenuButton(func(m *ui.Menu) {
+		for _, k := range sortKeys {
+			if m.Item(k.title).Radio(k.id == key.id).Chosen() {
+				v.setCardSort(by.clicked(k.id))
 			}
-			clear.Children(func() {
-				col := t.Accent
-				if clear.Hovered() {
-					col = t.AccentHover
-				}
-				ui.Text(c, "Clear all").FontSize(13).TextColor(col)
-			})
 		}
-		ui.Spacer(c)
-		if sync := v.cardSync; sync.running() {
-			ui.Text(c, fmt.Sprintf("Updating · %d of %d sets", sync.done, sync.total)).FontSize(13).TextColor(t.Accent)
-		} else if sync := v.artSync; sync.running() {
-			ui.Text(c, fmt.Sprintf("Reading Bandai's card list · %d of %d", sync.done, sync.total)).FontSize(13).TextColor(t.Accent)
-		}
-		ui.Text(c, cardCount(count)).FontSize(13).TextColor(t.TextMuted)
-		view := 0
-		if s.list {
-			view = 1
-		}
-		if ui.Segmented(c, &view, "Images", "List").Label("Show as").Changed() {
-			s.list = view == 1
+		m.Separator()
+		for i, d := range key.dirs {
+			if m.Item(d).Radio(boolInt(by.flip) == i).Chosen() {
+				v.setCardSort(cardSort{key: key.id, flip: i == 1})
+			}
 		}
 	})
+	b.Children(func() {
+		ui.Icon(c, iconSort).Size(13, 13).TextColor(t.TextMuted)
+		ui.Text(c, label).FontSize(13).FontWeight(500).TextColor(t.TextMuted).SingleLine()
+		ui.Icon(c, iconChevron).FontSize(12).TextColor(t.TextMuted)
+	})
+}
+
+func (v *view) setCardSort(by cardSort) {
+	v.prefs.cardSort = by
+	v.do(func(a actions) { a.SetSetting(store.SettingCardSort, by.String()) })
 }
 
 func (v *view) moreFilters(c *ui.Context) {
@@ -479,7 +528,7 @@ func (v *view) cardTile(c *ui.Context, card cards.Card, w float32) {
 		if box.Clicked() {
 			s.selected, s.viewed, s.versions = card.Code, "", ""
 		}
-		box.ContextMenu(v.cardMenu(card))
+		box.PopoverMenu(v.cardMenu(card))
 		// Hover and keyboard focus lift the card. It has a printed border of its own, so a ring
 		// around it reads as a second frame.
 		up := float32(0)
@@ -561,21 +610,59 @@ func (v *view) cardRows(c *ui.Context, shown []cards.Card) {
 		if row.Clicked() {
 			s.selected, s.viewed, s.versions = card.Code, "", ""
 		}
-		row.ContextMenu(v.cardMenu(card))
+		row.PopoverMenu(v.cardMenu(card))
 		row.Children(func() {
-			v.printArt(c, card.Code, 30, 42)
-			ui.Column(c).Width(190).Children(func() {
+			v.printArt(c, card.Code, rowArtW, 42)
+			ui.Column(c).Width(rowNameW).Children(func() {
 				ui.Text(c, card.Name).FontWeight(600).MaxLines(1).Ellipsis("…")
 				ui.Text(c, card.Code+" · "+card.Type).FontSize(12).TextColor(t.TextMuted)
 			})
-			num := func(s string) { ui.Text(c, s).Width(48).TextAlign(ui.End) }
+			num := func(s string) { ui.Text(c, s).Width(rowNumW).TextAlign(ui.End) }
 			num(costText(card))
 			num(printedPower(card))
 			num(counterShort(card.Counter))
 			first, _, _ := strings.Cut(card.Effect, "\n")
 			ui.Text(c, first).Grow(1).Basis(0).MinWidth(0).TextColor(t.TextMuted).MaxLines(1).Ellipsis("…")
 		})
-	}).Grow(1).Basis(0).MinWidth(0)
+	}).Grow(1).Basis(0).MinWidth(0).MinHeight(0)
+}
+
+// The list's columns, in DIPs. A number column fits "Counter" and its chevron.
+const (
+	rowArtW  = 30
+	rowNameW = 190
+	rowNumW  = 60
+	rowGap   = 12
+	rowPadX  = 8
+)
+
+// cardHeader titles the list's columns. Name and Set sit together over the name and the code
+// under it. A click sorts as the pill does.
+func (v *view) cardHeader(c *ui.Context) {
+	t := c.Theme()
+	by := v.prefs.cardSort
+	title := func(key string, end bool) {
+		k := sortKeyOf(key)
+		sorted := sortKeyOf(by.key).id == key
+		b := ui.ButtonBase(c.Key(key)).Label("Sort by "+k.title).Row().Gap(4).AlignItems(ui.Center).
+			Padding(2, 0).Background(ui.Transparent)
+		if b.Clicked() {
+			v.setCardSort(by.clicked(key))
+		}
+		sortTitle(c, b, k.title, end, sorted, by.desc(), true)
+	}
+	ui.Row(c).Gap(rowGap).Padding(8, rowPadX).AlignItems(ui.Center).Children(func() {
+		ui.Box(c).Width(rowArtW)
+		ui.Row(c).Width(rowNameW).Gap(10).AlignItems(ui.Center).Children(func() {
+			title(sortName, false)
+			title(sortSet, false)
+		})
+		for _, key := range []string{sortCost, sortPower, sortCounter} {
+			ui.Row(c.Key(key)).Width(rowNumW).Justify(ui.End).AlignItems(ui.Center).Children(func() { title(key, true) })
+		}
+		ui.Text(c, "Effect").FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0).MinWidth(0).SingleLine()
+	})
+	ui.Box(c).Height(1).Background(t.Border.Alpha(0.6))
 }
 
 func costText(c cards.Card) string {
@@ -620,7 +707,7 @@ func (v *view) cardDetail(c *ui.Context, card cards.Card) {
 		ui.Column(c).Padding(18).Gap(16).Children(func() {
 			ui.Row(c).Gap(18).AlignItems(ui.Start).Children(func() {
 				art := ui.ButtonBase(c).Label("View the art full size").Padding(0).Radius(6).Background(ui.Transparent).
-					FocusRing(false).Shadow(0, 4, 14, 0, ui.RGBA(0, 0, 0, 0.45)).ContextMenu(v.cardMenu(card))
+					FocusRing(false).Shadow(0, 4, 14, 0, ui.RGBA(0, 0, 0, 0.45)).PopoverMenu(v.cardMenu(card))
 				if art.Clicked() {
 					v.cardsUI.viewer = true
 				}

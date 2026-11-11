@@ -7,6 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/stats"
+	"github.com/VTGare/logpose/internal/store"
 )
 
 // filters is what the filter bar sets. It stays set while moving between pages.
@@ -50,24 +51,89 @@ const (
 	formatAll     int64 = -1
 )
 
-// active reports whether the filters differ from where Clear puts them.
-func (f filters) active() bool { return f != filters{} }
+// startUnpicked is the format pages start on until the user picks one under "Start on".
+const startUnpicked = formatAll
+
+// startFormatFrom reads store.SettingStartFormat.
+func startFormatFrom(s string) int64 {
+	switch s {
+	case store.StartLatestFormat:
+		return formatCurrent
+	case store.StartAllFormats:
+		return formatAll
+	}
+	return startUnpicked
+}
+
+// cleared is where Clear puts the filters: every one off and the format at the default.
+func (v *view) cleared() filters { return filters{format: v.prefs.startFormat} }
+
+// filtersActive reports whether the filters differ from where Clear puts them. Two format
+// values that pick the same games count as the same.
+func (v *view) filtersActive() bool {
+	f := v.filter
+	f.format = v.prefs.startFormat
+	return f != v.cleared() || !v.atStartFormat()
+}
+
+// canClear reports whether Clear has anything to do, the Matches page's result switch included.
+func (v *view) canClear() bool {
+	return v.filtersActive() || v.page == pageMatches && v.matches.result != anyResult
+}
+
+func (v *view) atStartFormat() bool {
+	a, aok := v.rangeOf(v.filter.format)
+	b, bok := v.rangeOf(v.prefs.startFormat)
+	return aok == bok && a.ID == b.ID
+}
 
 // formatRange is the format the filter picks. There's none with no formats or all of them.
-func (v *view) formatRange() (stats.FormatRange, bool) {
+func (v *view) formatRange() (stats.FormatRange, bool) { return v.rangeOf(v.filter.format) }
+
+func (v *view) rangeOf(format int64) (stats.FormatRange, bool) {
 	fs := v.snap.Formats
 	switch {
-	case len(fs) == 0 || v.filter.format == formatAll:
+	case len(fs) == 0 || format == formatAll:
 		return stats.FormatRange{}, false
-	case v.filter.format == formatCurrent:
+	case format == formatCurrent:
 		return fs[len(fs)-1], true
 	}
 	for _, f := range fs {
-		if f.ID == v.filter.format {
+		if f.ID == format {
 			return f, true
 		}
 	}
 	return stats.FormatRange{}, false
+}
+
+// startFormatName names the default format: the latest one's name or All formats.
+func (v *view) startFormatName() string {
+	if fr, ok := v.rangeOf(v.prefs.startFormat); ok {
+		return fr.Name
+	}
+	return "All formats"
+}
+
+// setStartFormat saves the format pages start on. It leaves the format picked now alone.
+func (v *view) setStartFormat(format int64) {
+	v.prefs.startFormat = format
+	value := store.StartAllFormats
+	if format == formatCurrent {
+		value = store.StartLatestFormat
+	}
+	v.do(func(a actions) { a.SetSetting(store.SettingStartFormat, value) })
+}
+
+// startOnMenu is the two defaults as radio items.
+func (v *view) startOnMenu(m *ui.Menu) {
+	fs := v.snap.Formats
+	latest := "Latest format, now " + fs[len(fs)-1].Name
+	if m.Item(latest).Radio(v.prefs.startFormat == formatCurrent).Chosen() {
+		v.setStartFormat(formatCurrent)
+	}
+	if m.Item("All formats").Radio(v.prefs.startFormat == formatAll).Chosen() {
+		v.setStartFormat(formatAll)
+	}
 }
 
 // currentScope is the filters as a stats.Scope. A format holds ranked games only, since casual
@@ -121,6 +187,9 @@ func (v *view) formatMenu(m *ui.Menu) {
 		v.resetPoints()
 	}
 	m.Separator()
+	if len(fs) > 0 {
+		m.Submenu("Start on", v.startOnMenu)
+	}
 	if m.Item("Manage formats").Chosen() {
 		v.page = pageFormats
 	}
@@ -187,7 +256,7 @@ func (v *view) resetPoints() {
 }
 
 func (v *view) clearFilters() {
-	v.filter = filters{}
+	v.filter = v.cleared()
 	v.matches.result = anyResult
 	v.resetPoints()
 }
@@ -255,14 +324,19 @@ func filterPill(c *ui.Context, label string, on bool) ui.Element {
 // what the pages show are tinted.
 func (v *view) filterBar(c *ui.Context) {
 	t := c.Theme()
-	pill := func(key, label string, on bool, build func(m *ui.Menu)) {
-		filterPill(c.Key(key), label, on).PopoverMenuButton(build)
+	pill := func(key, label string, on bool, build func(m *ui.Menu), clear func(*ui.Menu)) {
+		pillMenu(c.Key(key), func() { filterPill(c, label, on).PopoverMenuButton(build) }, clear)
 	}
 	ui.Row(c).Padding(14, 20, 0, 20).Gap(8).Children(func() {
 		_, inFormat := v.formatRange()
-		pill("format", v.formatLabel(), inFormat, v.formatMenu)
-		v.periodPill(c)
-		pill("deck", v.deckLabel(), v.filter.deck != "", v.deckMenu)
+		pill("format", v.formatLabel(), inFormat, v.formatMenu,
+			v.clearPillMenu("Back to "+v.startFormatName(), v.atStartFormat(), func() { v.filter.format = v.prefs.startFormat }))
+		pillMenu(c.Key("period"), func() { v.periodPill(c) },
+			v.clearPillMenu("Clear period", v.filter.period == 0, func() {
+				v.filter.period, v.filter.from, v.filter.to, v.filter.ongoing = 0, time.Time{}, time.Time{}, false
+			}))
+		pill("deck", v.deckLabel(), v.filter.deck != "", v.deckMenu,
+			v.clearPillMenu("Clear deck", v.filter.deck == "", func() { v.filter.deck = "" }))
 		if inFormat {
 			ui.Text(c, "Ranked").FontSize(13).TextColor(t.TextMuted).Padding(6, 12).Radius(16).Border(1, t.Border)
 		} else {
@@ -273,9 +347,10 @@ func (v *view) filterBar(c *ui.Context) {
 						v.resetPoints()
 					}
 				}
-			})
+			}, v.clearPillMenu("Clear game type", v.filter.gameType == 0, func() { v.filter.gameType = 0 }))
 		}
-		pill("turn", turnLabels[v.filter.turn], v.filter.turn != stats.EitherTurn, v.turnMenu)
+		pill("turn", turnLabels[v.filter.turn], v.filter.turn != stats.EitherTurn, v.turnMenu,
+			v.clearPillMenu("Clear turn order", v.filter.turn == stats.EitherTurn, func() { v.filter.turn = stats.EitherTurn }))
 		// The opponent filters have no menu of their own, so they show only while set.
 		if v.filter.opp != "" {
 			v.removablePill(c, "opp", "vs "+v.oppName(v.filter.opp), func() { v.filter.opp = "" })
@@ -283,8 +358,7 @@ func (v *view) filterBar(c *ui.Context) {
 		if v.filter.oppLeader != "" {
 			v.removablePill(c, "oppLeader", "vs "+v.snap.card(v.filter.oppLeader).Name, func() { v.filter.oppLeader = "" })
 		}
-		listOnly := v.page == pageMatches && v.matches.result != anyResult
-		if (v.filter.active() || listOnly) && ui.Text(c, "Clear").FontSize(13).TextColor(t.Accent).Padding(6, 4).Clicked() {
+		if v.canClear() && ui.Text(c, "Clear").FontSize(13).TextColor(t.Accent).Padding(6, 4).Clicked() {
 			v.clearFilters()
 		}
 		ui.Spacer(c)

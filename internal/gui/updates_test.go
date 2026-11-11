@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"image/color"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -67,6 +68,23 @@ var _ = Describe("updates", func() {
 		Expect(tt.Click("0.1.1 is ready")).To(Succeed())
 		tt.Frame()
 		Expect(fa.calls).To(Equal([]string{"restart to update"}))
+	})
+
+	It("tints the rail's update button blue, unlike the grey of the current page", func() {
+		v, tt, _ := sidebar(ready)
+		v.prefs.sideWidth = sideRail
+		v.page = pageFormats
+		tt.Frame()
+		fill := func(label string) color.RGBA {
+			GinkgoHelper()
+			r, ok := tt.Find(label)
+			Expect(ok).To(BeTrue(), label)
+			return tt.Image().RGBAAt(int(r.X+6), int(r.Y+r.H/2))
+		}
+		upd, page := fill("0.1.1 is ready"), fill("Formats")
+		Expect(upd).NotTo(Equal(page))
+		Expect(upd.B).To(BeNumerically(">", upd.R+20))
+		Expect(page.B).To(BeNumerically("<", page.R+8))
 	})
 
 	It("shows the version and checks from Settings, and stores the download choice", func() {

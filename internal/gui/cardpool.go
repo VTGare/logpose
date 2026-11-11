@@ -14,7 +14,7 @@ import (
 )
 
 // cardsState is the Cards page: its search, filters and the card shown. It resets like the
-// other filters, when logpose restarts.
+// other filters, when logpose restarts. The sort and the list switch are kept in prefs.
 type cardsState struct {
 	// tab is the card panel's tab, which stays as other cards are picked.
 	tab    int
@@ -32,7 +32,6 @@ type cardsState struct {
 	versions string
 	// viewer is whether the art viewer is open over the page.
 	viewer   bool
-	list     bool
 	more     bool
 	wall     ui.ListState
 	wallBox  ui.Rect
@@ -191,14 +190,170 @@ func setNumber(set string) int {
 	return n
 }
 
-// results are the cards that match the page's search and filters. They're worked out again
-// only when those or the cards change.
-func (s *cardsState) results(db *cards.DB) []cards.Card {
+// cardSort is the Cards page's order. flip turns the key's first direction around.
+type cardSort struct {
+	key  string
+	flip bool
+}
+
+// cardSortFrom reads the card_sort setting, "<key>" or "<key> reversed". An unknown key sorts
+// by set.
+func cardSortFrom(v string) cardSort {
+	key, rest, _ := strings.Cut(v, " ")
+	if sortKeyOf(key).id != key {
+		return cardSort{key: sortSet}
+	}
+	return cardSort{key: key, flip: rest == "reversed"}
+}
+
+func (s cardSort) String() string {
+	if s.flip {
+		return s.key + " reversed"
+	}
+	return s.key
+}
+
+// label is the sort as the pill names it, such as "Cost · lowest first".
+func (s cardSort) label() string {
+	k := sortKeyOf(s.key)
+	return k.title + " · " + strings.ToLower(k.dirs[boolInt(s.flip)])
+}
+
+// desc is whether the larger values come first, which points the list header's chevron down.
+func (s cardSort) desc() bool { return sortKeyOf(s.key).desc != s.flip }
+
+// clicked is the sort after picking key in the menu or the list header. The key in force
+// turns around, and another starts at its first direction.
+func (s cardSort) clicked(key string) cardSort {
+	if sortKeyOf(s.key).id == key {
+		return cardSort{key: key, flip: !s.flip}
+	}
+	return cardSort{key: key}
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+const (
+	sortSet     = "set"
+	sortName    = "name"
+	sortCost    = "cost"
+	sortPower   = "power"
+	sortCounter = "counter"
+	sortRarity  = "rarity"
+	sortColor   = "color"
+)
+
+type sortKey struct {
+	id, title string
+	// dirs names the first direction and the other.
+	dirs [2]string
+	desc bool
+	// compare orders two cards in the first direction.
+	compare func(a, b cards.Card) int
+	// last picks the cards that go after the rest in either direction, in the first
+	// direction's order among themselves.
+	last func(cards.Card) bool
+}
+
+var sortKeys = []sortKey{
+	{
+		id: sortSet, title: "Set", dirs: [2]string{"By number", "Reversed"}, desc: true,
+		compare: func(a, b cards.Card) int { return compareCodes(a.Code, b.Code) },
+	},
+	{
+		id: sortName, title: "Name", dirs: [2]string{"A to Z", "Z to A"},
+		compare: func(a, b cards.Card) int { return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)) },
+	},
+	{
+		id: sortCost, title: "Cost", dirs: [2]string{"Lowest first", "Highest first"},
+		compare: func(a, b cards.Card) int { return cmp.Compare(a.Cost, b.Cost) },
+		last:    func(c cards.Card) bool { return c.Cost < 0 },
+	},
+	{
+		id: sortPower, title: "Power", dirs: [2]string{"Highest first", "Lowest first"}, desc: true,
+		compare: func(a, b cards.Card) int { return cmp.Compare(b.Power, a.Power) },
+		last:    func(c cards.Card) bool { return !hasPower(c) },
+	},
+	{
+		id: sortCounter, title: "Counter", dirs: [2]string{"Highest first", "Lowest first"}, desc: true,
+		compare: func(a, b cards.Card) int { return cmp.Compare(b.Counter, a.Counter) },
+	},
+	{
+		id: sortRarity, title: "Rarity", dirs: [2]string{"Rarest first", "Commonest first"}, desc: true,
+		compare: func(a, b cards.Card) int { return cmp.Compare(rarityRank(a.Rarity), rarityRank(b.Rarity)) },
+		last:    func(c cards.Card) bool { return rarityRank(c.Rarity) >= rarityRanked },
+	},
+	{
+		id: sortColor, title: "Color", dirs: [2]string{"Game order", "Reversed"},
+		compare: compareColors,
+		last:    func(c cards.Card) bool { return len(c.Colors) == 0 },
+	},
+}
+
+func sortKeyOf(id string) sortKey {
+	for _, k := range sortKeys {
+		if k.id == id {
+			return k
+		}
+	}
+	return sortKeys[0]
+}
+
+// rarityOrder runs from the rarest. Leader and Special Card aren't rarer or commoner than the
+// others, so they go last either way.
+var rarityOrder = []string{"Secret Rare", "Super Rare", "Rare", "Uncommon", "Common", "Leader", "Special Card"}
+
+const rarityRanked = 5
+
+func rarityRank(r string) int {
+	if i := slices.Index(rarityOrder, r); i >= 0 {
+		return i
+	}
+	return len(rarityOrder)
+}
+
+// compareColors puts cards in the game's color order, with multicolor cards after the single
+// color they start with. A card's colors are already in that order.
+func compareColors(a, b cards.Card) int {
+	return slices.CompareFunc(a.Colors, b.Colors, func(x, y cards.Color) int {
+		return cmp.Compare(slices.Index(cardColors, x), slices.Index(cardColors, y))
+	})
+}
+
+// sortCards orders cards by the sort, with ties in set order.
+func sortCards(cs []cards.Card, by cardSort) {
+	k := sortKeyOf(by.key)
+	slices.SortStableFunc(cs, func(a, b cards.Card) int {
+		if k.last != nil {
+			la, lb := k.last(a), k.last(b)
+			if la != lb {
+				return cmp.Compare(boolInt(la), boolInt(lb))
+			}
+			if la {
+				return cmp.Or(k.compare(a, b), compareCodes(a.Code, b.Code))
+			}
+		}
+		r := k.compare(a, b)
+		if by.flip {
+			r = -r
+		}
+		return cmp.Or(r, compareCodes(a.Code, b.Code))
+	})
+}
+
+// results are the cards that match the page's search and filters, in the sort's order. They're
+// worked out again only when those or the cards change.
+func (s *cardsState) results(db *cards.DB, by cardSort) []cards.Card {
 	if s.pool == nil || s.pool.db != db {
 		s.pool = newCardPool(db)
 		s.key = ""
 	}
-	key := s.filterKey()
+	key := s.filterKey() + "|sort " + by.String()
 	if key == s.key && s.shown != nil {
 		return s.shown
 	}
@@ -218,6 +373,7 @@ func (s *cardsState) results(db *cards.DB) []cards.Card {
 			s.shown = append(s.shown, pc.card)
 		}
 	}
+	sortCards(s.shown, by)
 	return s.shown
 }
 

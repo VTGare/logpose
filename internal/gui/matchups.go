@@ -137,7 +137,7 @@ func (v *view) matchupRow(c *ui.Context, tv tableView, deck string, mu stats.Mat
 	turns := v.matchups.turns[mu.Leader]
 	ui.Column(c).Transition(slide).Children(func() {
 		line := ui.Row(c).Gap(tv.gap).Padding(6, 16).AlignItems(ui.Center).Cursor(ui.CursorPointer).
-			Label("Show the matchup vs " + name + " " + setOf(mu.Leader))
+			Label("Show the matchup vs " + name + " " + setOf(mu.Leader)).PopoverMenu(v.opponentMenu(deck, mu.Leader))
 		if open {
 			line.Background(t.Surface).BorderStartWidth(3).BorderColor(t.Accent)
 		} else if line.Hovered() {
@@ -211,35 +211,54 @@ func (v *view) matchupCell(c *ui.Context, id string, mu stats.Matchup, turns sta
 	}
 }
 
-// matchupOpen is the open row's detail: turn order, how the games went and the latest games.
+// matchupOpen is the open row's detail: turn order, how the games went and the latest games,
+// then links to the matchup's games and to a filter on the leader.
 func (v *view) matchupOpen(c *ui.Context, deck string, mu stats.Matchup, turns stats.TurnOrder) {
 	t := c.Theme()
 	label := func(text string) { ui.Text(c, text).FontSize(12).TextColor(t.TextMuted) }
-	ui.Row(c.Key("open")).Gap(28).Padding(8, 16, 16, 16+muArtW+12).Background(t.Surface).BorderStartWidth(3).BorderColor(t.Accent).
-		AlignItems(ui.Start).Clip().Transition(unfold).Children(func() {
-		ui.Column(c).Grow(1).Basis(0).Gap(8).Children(func() {
-			label("Turn order")
-			turnRows(c, turns, v.filter.turn, v.setTurn)
-		})
-		ui.Column(c).Grow(1).Basis(0).Gap(8).Children(func() {
-			label("How the games went")
-			howGamesWent(c, mu.Games)
-		})
-		ui.Column(c).Grow(1.3).Basis(0).Gap(4).Children(func() {
-			ui.Row(c).Children(func() {
+	name := v.snap.card(mu.Leader).Name
+	ui.Column(c.Key("open")).Gap(12).Padding(8, 16, 14, 16+muArtW+12).Background(t.Surface).BorderStartWidth(3).
+		BorderColor(t.Accent).Clip().Transition(unfold).Children(func() {
+		ui.Row(c).Gap(28).AlignItems(ui.Start).Children(func() {
+			ui.Column(c).Grow(1).Basis(0).Gap(8).Children(func() {
+				label("Turn order")
+				turnRows(c, turns, v.filter.turn, v.setTurn)
+			})
+			ui.Column(c).Grow(1).Basis(0).Gap(8).Children(func() {
+				label("How the games went")
+				howGamesWent(c, mu.Games)
+			})
+			ui.Column(c).Grow(1.3).Basis(0).Gap(4).Children(func() {
 				label("Latest games")
-				ui.Spacer(c)
-				if ui.Text(c, "Show in Matches").FontSize(12).TextColor(t.Accent).Clicked() {
-					v.filter.deck, v.filter.oppLeader = deck, mu.Leader
-					v.page = pageMatches
-					v.resetPoints()
+				for i, m := range mu.Games[:min(len(mu.Games), 4)] {
+					v.gameLine(c.Key(i), m)
 				}
 			})
-			for i, m := range mu.Games[:min(len(mu.Games), 4)] {
-				v.gameLine(c.Key(i), m)
+		})
+		ui.Row(c).Gap(24).AlignItems(ui.Center).Children(func() {
+			if iconLink(c.Key("show"), iconMatches, "Show in Matches") {
+				v.showOpponentGames(deck, mu.Leader)
+			}
+			if iconLink(c.Key("filter"), iconFilter, "Filter to games vs "+name) {
+				v.filterOpponent(mu.Leader)
 			}
 		})
 	})
+}
+
+// iconLink is a link with an icon before it.
+func iconLink(c *ui.Context, icon *ui.SVG, label string) bool {
+	t := c.Theme()
+	b := ui.ButtonBase(c).Label(label).Background(ui.Transparent).Padding(2, 0).Gap(6).AlignItems(ui.Center)
+	col := t.Accent
+	if b.Hovered() {
+		col = t.AccentHover
+	}
+	b.Children(func() {
+		ui.Icon(c, icon).Size(14, 14).TextColor(col)
+		ui.Text(c, label).FontSize(13).TextColor(col).SingleLine()
+	})
+	return b.Clicked()
 }
 
 // howGamesWent is the average turns of the wins and of the losses, and how many games ended by
@@ -291,7 +310,8 @@ func howGamesWent(c *ui.Context, ms []stats.Match) {
 // opens the match.
 func (v *view) gameLine(c *ui.Context, m stats.Match) {
 	t := c.Theme()
-	row := ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(3, 0).Label("Open the match against " + m.Opp.Name)
+	row := ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(3, 0).Label("Open the match against " + m.Opp.Name).
+		PopoverMenu(v.gameMenu(m))
 	if row.Clicked() {
 		v.openMatch(m)
 	}

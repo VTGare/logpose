@@ -150,7 +150,7 @@ var _ = Describe("settings", func() {
 		st.click("Dark")
 		st.click("Colorblind-safe colors")
 		st.click("Quits logpose")
-		Expect(st.v.prefs).To(Equal(prefs{theme: "dark", colorblind: true, closeQuits: true, sideWidth: sideDefault}))
+		Expect(st.v.prefs).To(Equal(prefs{theme: "dark", colorblind: true, closeQuits: true, sideWidth: sideDefault, startFormat: startUnpicked}))
 		Expect(st.fa.calls).To(Equal([]string{
 			store.SettingTheme + "=dark", store.SettingColorblind + "=1", store.SettingCloseQuits + "=1",
 		}))

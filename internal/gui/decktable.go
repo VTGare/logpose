@@ -91,17 +91,20 @@ func (v *view) buildsTable(c *ui.Context, d leaderDecks) {
 		ui.Column(c).Children(func() {
 			v.tableHeader(c, tv, 8)
 			for _, r := range rows {
-				v.scopeTableRow(c.Key(r.name), tv, r)
+				v.scopeTableRow(c.Key(r.name), tv, d, r)
 			}
 		})
 	})
 }
 
-func (v *view) scopeTableRow(c *ui.Context, tv tableView, r scopeRow) {
+func (v *view) scopeTableRow(c *ui.Context, tv tableView, d leaderDecks, r scopeRow) {
 	t := c.Theme()
 	l := r.stats
 	row := ui.ButtonBase(c).Label("Show "+r.name).Row().Gap(tv.gap).Padding(9, 8).AlignItems(ui.Center).
 		Background(ui.Transparent).Radius(6)
+	if b, ok := d.chosen(r.scope.build); ok && r.scope.kind == scopeBuild {
+		row.PopoverMenu(func(m *ui.Menu) { v.buildMenu(m, d, b) })
+	}
 	if row.Hovered() {
 		row.Background(t.SurfaceHover)
 	}

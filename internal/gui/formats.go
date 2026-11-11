@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -130,7 +131,18 @@ func (v *view) formatList(c *ui.Context) {
 	if len(fs) == 0 {
 		return
 	}
-	tile(c, "Your formats", func() {
+	panel(c).Gap(8).Padding(14, 16).Children(func() {
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, "Your formats").FontSize(13).FontWeight(600)
+			ui.Spacer(c)
+			ui.Text(c, "Pages start on").FontSize(12).TextColor(t.TextMuted)
+			starts := []int64{formatCurrent, formatAll}
+			start := max(slices.Index(starts, v.prefs.startFormat), 0)
+			ui.Segmented(c, &start, "Latest format", "All formats").Label("Pages start on")
+			if starts[start] != v.prefs.startFormat {
+				v.setStartFormat(starts[start])
+			}
+		})
 		for i := len(fs) - 1; i >= 0; i-- {
 			v.formatRow(c.Key(fs[i].ID), fs[i])
 		}

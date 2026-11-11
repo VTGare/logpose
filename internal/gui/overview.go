@@ -141,7 +141,7 @@ func weekChange(o stats.Overview) (string, float64) {
 	case d < 0:
 		return fmt.Sprintf("%.0f pts", -d), d
 	default:
-		return "same as last week", 0
+		return "no change", 0
 	}
 }
 
@@ -275,7 +275,7 @@ func (v *view) dayDecks(c *ui.Context, d stats.Day) {
 func (v *view) gameTile(c *ui.Context, m stats.Match, i int) {
 	t := c.Theme()
 	leader := v.snap.card(m.Opp.Leader).Name
-	el := ui.Column(c).Label("Open the match against " + m.Opp.Name)
+	el := ui.Column(c).Label("Open the match against " + m.Opp.Name).PopoverMenu(v.gameMenu(m))
 	if el.Clicked() {
 		v.openMatch(m)
 	}
@@ -322,7 +322,7 @@ func (v *view) decksTile(c *ui.Context, decks []stats.Deck) {
 		for _, d := range decks {
 			card := v.snap.card(d.Leader)
 			el := ui.Row(c.Key(d.Leader)).Gap(12).AlignItems(ui.Center).Padding(5, 6).Margin(0, -6).Label("Show " + card.Name).
-				Transition(slide)
+				Transition(slide).PopoverMenu(v.yourDeckMenu(d.Leader))
 			if el.Hovered() {
 				el.Background(t.Surface)
 			}
@@ -365,12 +365,12 @@ func (v *view) facedTile(c *ui.Context, faced []stats.LeaderRecord) {
 		for _, lr := range faced[:min(len(faced), 5)] {
 			name := v.snap.card(lr.Leader).Name
 			el := ui.Row(c.Key(lr.Leader)).Gap(12).AlignItems(ui.Center).Padding(4, 6).Margin(0, -6).Radius(8).
-				Label("Show games vs " + name).Transition(slide)
+				Label("Show games vs " + name).Transition(slide).PopoverMenu(v.opponentMenu("", lr.Leader))
 			if el.Hovered() {
 				el.Background(t.Surface)
 			}
 			if el.Clicked() {
-				v.filter.oppLeader = lr.Leader
+				v.filterOpponent(lr.Leader)
 			}
 			el.Children(func() {
 				v.artStrip(c, lr.Leader, 44, 30)
@@ -585,14 +585,14 @@ func (v *view) cardThumb(c *ui.Context, code string, width float32) {
 	art := v.art.get(code, artFull)
 	if art == nil {
 		cols := colorsOf(v.snap.card(code))
-		ui.Row(c).Size(width, h).Radius(5).Clip().AlignItems(ui.Stretch).Children(func() {
+		ui.Row(c).Size(width, h).Radius(5).Clip().AlignItems(ui.Stretch).PopoverMenu(v.cardMenu(v.snap.card(code))).Children(func() {
 			for i, col := range cols {
 				ui.Box(c.Key(i)).Grow(1).Background(col.Card)
 			}
 		})
 		return
 	}
-	img := lift(ui.Image(c, art).Size(width, h).Fit(ui.Cover), 5)
+	img := lift(ui.Image(c, art).Size(width, h).Fit(ui.Cover).PopoverMenu(v.cardMenu(v.snap.card(code))), 5)
 	if width < previewMin {
 		pw := previewWidth(c)
 		ui.TooltipBase(c, img, func(tip ui.Element) {

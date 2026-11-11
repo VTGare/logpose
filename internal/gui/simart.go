@@ -462,20 +462,24 @@ func (v *view) artButtons(c *ui.Context, key string) {
 	}
 }
 
-// cardMenu is a card's right-click menu: which art the sim shows, saving and copying the
-// picture, and the card's page on Limitless. An art printed with several stamps has a submenu
-// of them.
+// cardMenu is a card's right-click menu: off the Cards page a way there first, then which art
+// the sim shows, saving and copying the picture, and the card's page on Limitless. An art
+// printed with several stamps has a submenu of them.
 func (v *view) cardMenu(card cards.Card) func(m *ui.Menu) {
 	return func(m *ui.Menu) {
+		if v.page != pageCards {
+			if m.Item("Open in Cards").Chosen() {
+				v.openInCards(card.Code)
+			}
+			if v.showsHands() && m.Item("Show hands with "+card.Name).Chosen() {
+				v.showHands(card.Code)
+			}
+			m.Separator()
+		}
 		info, loaded := v.simArtFor(card)
 		m.Submenu("Art in the sim", func(m *ui.Menu) { v.artMenu(m, card, info, loaded) }).Disabled(loaded && info.noSim)
-		m.Separator()
 		if m.Item("View art").Chosen() {
-			s := &v.cardsUI
-			if s.selected != card.Code {
-				s.selected, s.viewed, s.versions = card.Code, "", ""
-			}
-			s.viewer = true
+			v.viewArt(card.Code)
 		}
 		if m.Item("Save image…").Chosen() {
 			v.do(func(a actions) { a.SaveArt(card.Code) })

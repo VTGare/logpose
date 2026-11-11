@@ -99,7 +99,7 @@ var _ = Describe("replay", func() {
 	It("opens from the Matches row menu", func() {
 		Expect(tt.Click("Matches")).To(Succeed())
 		Expect(tt.RightClick("19:00")).To(Succeed())
-		Expect(tt.ChooseMenuItem("Watch replay")).To(Succeed())
+		Expect(choose(tt, "Watch replay")).To(Succeed())
 		Expect(fa.replays).To(Equal([]string{"0"}))
 		Expect(v.detail.fingerprint).To(Equal("0"))
 		Expect(v.detail.replay).NotTo(BeNil())

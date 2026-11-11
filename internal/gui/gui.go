@@ -156,6 +156,7 @@ func (a *app) ready(ctx context.Context) {
 		a.opts.Log.Warn("settings", "err", err)
 	}
 	a.view.prefs = prefsFrom(set)
+	a.view.filter.format = a.view.prefs.startFormat
 	a.view.prefs.openAtLogin = mygo.App.OpenAtLogin()
 	a.readShortcuts()
 	a.view.prefs.installed = installed()

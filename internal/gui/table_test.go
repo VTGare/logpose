@@ -84,7 +84,7 @@ var _ = Describe("Tables", func() {
 		Expect(tt.Click("Sort by Games")).To(Succeed())
 		tt.Frame()
 		Expect(tt.RightClick("Sort by Games")).To(Succeed())
-		Expect(tt.ChooseMenuItem("Reset columns")).To(Succeed())
+		Expect(choose(tt, "Reset columns")).To(Succeed())
 		tt.Frame()
 		Expect(*v.prefs.tables["matchups"]).To(Equal(tableLayout{}))
 	})

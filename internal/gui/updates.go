@@ -50,7 +50,7 @@ func (v *view) setUpdate(u updateState) {
 	v.upd = u
 }
 
-// updateBox sits above Settings in the sidebar while a newer version is found or ready. The
+// updateBox sits above Formats and Settings in the sidebar while a newer version is found or ready. The
 // rail shows it as an icon.
 func (v *view) updateBox(c *ui.Context, wide bool) {
 	u := v.upd
@@ -76,10 +76,11 @@ func (v *view) updateBox(c *ui.Context, wide bool) {
 		}
 	}
 	if !wide {
-		b := ui.ButtonBase(c).Label(title).Width(44).Height(40).Radius(8).Center().Background(t.Surface).
+		// Tinted with the accent so it reads as an action, not as the current page's grey fill.
+		b := ui.ButtonBase(c).Label(title).Width(44).Height(40).Radius(8).Center().Background(railUpdateTint(t, false)).
 			Tooltip(title + ". " + updateHint(u.phase))
 		if b.Hovered() {
-			b.Background(t.SurfaceHover)
+			b.Background(railUpdateTint(t, true))
 		}
 		if b.Clicked() {
 			run()
@@ -113,6 +114,13 @@ func (v *view) updateBox(c *ui.Context, wide bool) {
 		})
 	})
 	v.updateNotes(c, box)
+}
+
+func railUpdateTint(t *ui.Theme, hovered bool) ui.Color {
+	if hovered {
+		return t.Accent.Alpha(0.26)
+	}
+	return t.Accent.Alpha(0.16)
 }
 
 func updateHint(p updatePhase) string {

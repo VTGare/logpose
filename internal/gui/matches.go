@@ -11,7 +11,6 @@ import (
 
 	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
-	"github.com/VTGare/logpose/internal/store"
 )
 
 type matchesState struct {
@@ -114,11 +113,6 @@ func (v *view) matchesPage(c *ui.Context) {
 		}
 		return items[i].m.Fingerprint
 	}
-	s.list.CellMenu = func(m *ui.Menu, row, _ int) {
-		if row >= 0 && row < len(items) && items[row].day == nil {
-			v.matchMenu(m, items[row].m)
-		}
-	}
 
 	ui.Column(c).Fill().Padding(20).Gap(12).Children(func() {
 		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
@@ -138,7 +132,13 @@ func (v *view) matchesPage(c *ui.Context) {
 					v.dayHeaderRow(c, it.day)
 					return
 				}
-				v.matchCell(c, it.m, cols[col].Title)
+				// The table's own cell menus are the system's, so each cell's content carries
+				// the drawn one, stretched over the cell.
+				box := ui.Row(c).Grow(1).AlignSelf(ui.Stretch).AlignItems(ui.Center).PopoverMenu(v.gameMenu(it.m))
+				if cols[col].Align == ui.End {
+					box.Justify(ui.End)
+				}
+				box.Children(func() { v.matchCell(c, it.m, cols[col].Title) })
 			}).Grow(1).Background(ui.Transparent)
 		})
 		if table.Changed() && s.row >= 0 && s.row < len(items) && items[s.row].day == nil {
@@ -167,49 +167,6 @@ func (s *matchesState) shown() (rows []stats.Match, marked int) {
 		rows = slices.DeleteFunc(slices.Clone(rows), func(m stats.Match) bool { return !m.Bookmarked })
 	}
 	return rows, marked
-}
-
-// matchMenu is a match row's right-click menu.
-func (v *view) matchMenu(menu *ui.Menu, m stats.Match) {
-	if stats.CanBeRanked(m.Game) {
-		menu.Submenu("Game type", func(sub *ui.Menu) {
-			for i, label := range v.typeOptions(m) {
-				if sub.Item(label).Radio(int(m.Type) == i).Chosen() {
-					v.act.SetGameType(m.Fingerprint, store.GameType(i))
-				}
-			}
-		})
-	} else {
-		menu.Item("Game type: private lobby").Disabled(true)
-	}
-	noteLabel := "Add note…"
-	if m.Note != "" {
-		noteLabel = "Edit note…"
-	}
-	if menu.Item(noteLabel).Chosen() {
-		v.openMatch(m)
-		v.detail.focusNote = true
-	}
-	bookmark := "Bookmark"
-	if m.Bookmarked {
-		bookmark = "Remove bookmark"
-	}
-	if menu.Item(bookmark).Chosen() {
-		v.act.SetBookmark(m.Fingerprint, !m.Bookmarked)
-	}
-	if menu.Item("Watch replay").Chosen() {
-		v.openReplay(m, -1)
-	}
-	menu.Separator()
-	if menu.Item("Filter to games vs " + m.Opp.Name).Chosen() {
-		v.filter.opp = m.Opp.ID
-		v.resetPoints()
-	}
-	matchup := v.snap.card(m.Me.Leader).Name + " vs " + v.snap.card(m.Opp.Leader).Name
-	if menu.Item("Filter to " + matchup).Chosen() {
-		v.filter.deck, v.filter.oppLeader = m.Me.Leader, m.Opp.Leader
-		v.resetPoints()
-	}
 }
 
 func summary(ms []stats.Match) string {

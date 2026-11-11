@@ -112,7 +112,7 @@ type colDrag struct{ table, col string }
 // A double click on the edge undoes that width, and Reset columns in the menu undoes it all.
 func (v *view) tableHeader(c *ui.Context, tv tableView, pad float32) {
 	t := c.Theme()
-	ui.Row(c).Gap(tv.gap).Padding(8, pad).AlignItems(ui.Center).ContextMenu(func(m *ui.Menu) {
+	ui.Row(c).Gap(tv.gap).Padding(8, pad).AlignItems(ui.Center).PopoverMenu(func(m *ui.Menu) {
 		if m.Item("Reset columns").Disabled(len(tv.lay.Order) == 0 && len(tv.lay.Widths) == 0 && tv.lay.Sort == "").Chosen() {
 			*tv.lay = tableLayout{}
 			v.saveTable(tv)
@@ -171,24 +171,31 @@ func (v *view) headerTitle(c *ui.Context, tv tableView, i int, col tableCol, sor
 		tv.lay.Sort, tv.lay.Desc = col.id, desc
 		v.saveTable(tv)
 	}
-	col2 := t.TextMuted
+	sortTitle(c, b, col.title, col.end, sorted, tv.desc, !col.noSort)
+}
+
+// sortTitle draws a header title into b, with the accent chevron when its column is sorted and
+// a faint one on hover when it can be.
+func sortTitle(c *ui.Context, b ui.Element, title string, end, sorted, desc, sortable bool) {
+	t := c.Theme()
+	col := t.TextMuted
 	if sorted || b.Hovered() {
-		col2 = t.Text
+		col = t.Text
 	}
 	b.Children(func() {
 		align := ui.Start
-		if col.end {
+		if end {
 			align = ui.End
 		}
-		ui.Text(c, col.title).FontSize(12).TextColor(col2).SingleLine().TextAlign(align)
+		ui.Text(c, title).FontSize(12).TextColor(col).SingleLine().TextAlign(align)
 		switch {
 		case sorted:
 			icon := iconChevron
-			if !tv.desc {
+			if !desc {
 				icon = iconChevronUp
 			}
 			ui.Icon(c, icon).FontSize(sortIconSz).TextColor(t.Accent)
-		case b.Hovered() && !col.noSort:
+		case b.Hovered() && sortable:
 			ui.Icon(c, iconChevron).FontSize(sortIconSz).TextColor(faintColor(t))
 		}
 	})

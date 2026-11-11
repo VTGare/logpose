@@ -234,31 +234,41 @@ var _ = Describe("match detail", func() {
 			v, tt := open(testSnapshot(3))
 			Expect(tt.Click("Matches")).To(Succeed())
 			Expect(tt.RightClick("19:00")).To(Succeed())
+			tt.Frame()
 			return v, tt
 		}
 
-		It("offers game type, note, replay and filters", func() {
+		It("offers opening the match, replay, game type, note and filters", func() {
 			_, tt := rightClick()
-			Expect(tt.Menu()).To(ContainElements(
-				"Game type", "Add note…", "Bookmark", "Watch replay", "Filter to games vs Opp", "Filter to Monkey D. Luffy vs Kaido",
-			))
+			for _, item := range []string{
+				"Open match", "Watch replay", "Game type", "Add note…", "Bookmark", "Filter to games vs Opp",
+				"Filter to Monkey D. Luffy vs Kaido",
+			} {
+				Expect(tt.HasText(item)).To(BeTrue(), item)
+			}
+		})
+
+		It("opens the match", func() {
+			v, tt := rightClick()
+			Expect(choose(tt, "Open match")).To(Succeed())
+			Expect(v.detail.fingerprint).To(Equal("0"))
 		})
 
 		It("bookmarks the match", func() {
 			_, tt := rightClick()
-			Expect(tt.ChooseMenuItem("Bookmark")).To(Succeed())
+			Expect(choose(tt, "Bookmark")).To(Succeed())
 			Expect(fa.bookmarks).To(Equal([]string{"0=true"}))
 		})
 
 		It("sets the game type", func() {
 			_, tt := rightClick()
-			Expect(tt.ChooseMenuItem("Game type", "Friendly")).To(Succeed())
+			Expect(choose(tt, "Game type", "Friendly")).To(Succeed())
 			Expect(fa.types).To(Equal([]string{"0=2"}))
 		})
 
 		It("opens the match to write a note", func() {
 			v, tt := rightClick()
-			Expect(tt.ChooseMenuItem("Add note…")).To(Succeed())
+			Expect(choose(tt, "Add note…")).To(Succeed())
 			Expect(v.detail.fingerprint).To(Equal("0"))
 			tt.Frame()
 			tt.Type("close game")
@@ -267,7 +277,7 @@ var _ = Describe("match detail", func() {
 
 		It("filters to the opponent, shown as a pill that removes it", func() {
 			v, tt := rightClick()
-			Expect(tt.ChooseMenuItem("Filter to games vs Opp")).To(Succeed())
+			Expect(choose(tt, "Filter to games vs Opp")).To(Succeed())
 			Expect(v.filter.opp).To(Equal("Opp#2"))
 			tt.Frame()
 			Expect(tt.Click("Remove the filter vs Opp")).To(Succeed())
@@ -276,7 +286,7 @@ var _ = Describe("match detail", func() {
 
 		It("filters to the matchup", func() {
 			v, tt := rightClick()
-			Expect(tt.ChooseMenuItem("Filter to Monkey D. Luffy vs Kaido")).To(Succeed())
+			Expect(choose(tt, "Filter to Monkey D. Luffy vs Kaido")).To(Succeed())
 			Expect(v.filter.deck).To(Equal("OP13-001"))
 			Expect(v.filter.oppLeader).To(Equal("OP17-058"))
 		})

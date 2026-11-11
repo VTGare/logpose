@@ -292,7 +292,8 @@ func (v *view) handLine(c *ui.Context, m stats.Match, card string) {
 		opp = "vs " + v.snap.card(m.Opp.Leader).Name
 	}
 	row := ui.ButtonBase(c).Row().Gap(14).Padding(6, 4).AlignItems(ui.Center).Radius(6).
-		Label("Open the match " + opp).Transition(ui.ElementTransition{Duration: hoverTime, Colors: true})
+		Label("Open the match " + opp).Transition(ui.ElementTransition{Duration: hoverTime, Colors: true}).
+		PopoverMenu(v.gameMenu(m))
 	if row.Hovered() {
 		row.Background(t.Surface.Alpha(0.5))
 	} else {

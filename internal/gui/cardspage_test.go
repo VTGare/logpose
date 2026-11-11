@@ -6,6 +6,7 @@ import (
 	"github.com/VTGare/logpose/internal/arts"
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/sim"
+	"github.com/VTGare/logpose/internal/store"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -79,20 +80,20 @@ var _ = Describe("Cards page", func() {
 
 	It("lists the newest sets first", func() {
 		v, _ := cardsTester()
-		Expect(codes(v.cardsUI.results(v.snap.Cards))).To(Equal([]string{"OP14-002", "OP14-018", "OP14-020", "OP01-024"}))
+		Expect(codes(v.cardsUI.results(v.snap.Cards, cardSort{}))).To(Equal([]string{"OP14-002", "OP14-018", "OP14-020", "OP01-024"}))
 	})
 
 	It("narrows by color, type and cost together", func() {
 		v, _ := cardsTester()
 		s := &v.cardsUI
 		s.toggleColor(cards.Red)
-		Expect(codes(s.results(v.snap.Cards))).To(Equal([]string{"OP14-002", "OP01-024"}))
+		Expect(codes(s.results(v.snap.Cards, cardSort{}))).To(Equal([]string{"OP14-002", "OP01-024"}))
 		s.toggleCost(2)
-		Expect(codes(s.results(v.snap.Cards))).To(Equal([]string{"OP01-024"}))
+		Expect(codes(s.results(v.snap.Cards, cardSort{}))).To(Equal([]string{"OP01-024"}))
 		s.toggleCost(2)
 		s.toggleColor(cards.Red)
 		s.kind = 3
-		Expect(codes(s.results(v.snap.Cards))).To(Equal([]string{"OP14-018"}))
+		Expect(codes(s.results(v.snap.Cards, cardSort{}))).To(Equal([]string{"OP14-018"}))
 	})
 
 	It("counts the cost curve of the cards that match the other filters", func() {
@@ -100,7 +101,7 @@ var _ = Describe("Cards page", func() {
 		s := &v.cardsUI
 		s.toggleColor(cards.Red)
 		s.toggleCost(2)
-		s.results(v.snap.Cards)
+		s.results(v.snap.Cards, cardSort{})
 		Expect(s.curve[2]).To(Equal(1))
 		Expect(s.curve[3]).To(Equal(1))
 		Expect(s.curve[1]).To(Equal(0))
@@ -111,16 +112,16 @@ var _ = Describe("Cards page", func() {
 		s := &v.cardsUI
 		s.toggleColor(cards.Green)
 		s.toggleCost(1)
-		Expect(codes(s.results(v.snap.Cards))).To(Equal([]string{"OP14-018"}))
+		Expect(codes(s.results(v.snap.Cards, cardSort{}))).To(Equal([]string{"OP14-018"}))
 	})
 
 	It("searches names, traits and effects", func() {
 		v, _ := cardsTester()
 		s := &v.cardsUI
 		s.query = "draw"
-		Expect(codes(s.results(v.snap.Cards))).To(Equal([]string{"OP14-002", "OP14-018"}))
+		Expect(codes(s.results(v.snap.Cards, cardSort{}))).To(Equal([]string{"OP14-002", "OP14-018"}))
 		s.query = "warlords"
-		Expect(codes(s.results(v.snap.Cards))).To(Equal([]string{"OP14-020"}))
+		Expect(codes(s.results(v.snap.Cards, cardSort{}))).To(Equal([]string{"OP14-020"}))
 	})
 
 	It("turns a picked suggestion into a chip", func() {
@@ -131,7 +132,7 @@ var _ = Describe("Cards page", func() {
 		Expect(s.takeSuggestion()).To(BeTrue())
 		Expect(s.query).To(BeEmpty())
 		Expect(s.chips).To(Equal([]cardChip{{field: chipTrait, value: "Supernovas"}}))
-		Expect(codes(s.results(v.snap.Cards))).To(Equal([]string{"OP14-002", "OP01-024"}))
+		Expect(codes(s.results(v.snap.Cards, cardSort{}))).To(Equal([]string{"OP14-002", "OP01-024"}))
 	})
 
 	It("takes either value of one field and every field", func() {
@@ -139,20 +140,20 @@ var _ = Describe("Cards page", func() {
 		s := &v.cardsUI
 		s.toggleChip(cardChip{field: chipLegality, value: "Banned"})
 		s.toggleChip(cardChip{field: chipLegality, value: "Rotated"})
-		Expect(codes(s.results(v.snap.Cards))).To(Equal([]string{"OP14-020", "OP01-024"}))
+		Expect(codes(s.results(v.snap.Cards, cardSort{}))).To(Equal([]string{"OP14-020", "OP01-024"}))
 		s.toggleChip(cardChip{field: chipTrait, value: "Supernovas"})
-		Expect(codes(s.results(v.snap.Cards))).To(Equal([]string{"OP01-024"}))
+		Expect(codes(s.results(v.snap.Cards, cardSort{}))).To(Equal([]string{"OP01-024"}))
 	})
 
 	It("hides a value on the second click and clears it on the third", func() {
 		v, _ := cardsTester()
 		s := &v.cardsUI
 		s.cycleChip(chipLegality, "Rotated")
-		Expect(codes(s.results(v.snap.Cards))).To(Equal([]string{"OP01-024"}))
+		Expect(codes(s.results(v.snap.Cards, cardSort{}))).To(Equal([]string{"OP01-024"}))
 		s.cycleChip(chipLegality, "Rotated")
-		Expect(codes(s.results(v.snap.Cards))).To(Equal([]string{"OP14-002", "OP14-018", "OP14-020"}))
+		Expect(codes(s.results(v.snap.Cards, cardSort{}))).To(Equal([]string{"OP14-002", "OP14-018", "OP14-020"}))
 		s.cycleChip(chipTrait, "Supernovas")
-		Expect(codes(s.results(v.snap.Cards))).To(Equal([]string{"OP14-002"}))
+		Expect(codes(s.results(v.snap.Cards, cardSort{}))).To(Equal([]string{"OP14-002"}))
 		s.cycleChip(chipLegality, "Rotated")
 		Expect(s.chips).To(Equal([]cardChip{{field: chipTrait, value: "Supernovas"}}))
 	})
@@ -161,7 +162,7 @@ var _ = Describe("Cards page", func() {
 		v, _ := cardsTester()
 		s := &v.cardsUI
 		s.toggleChip(cardChip{field: chipKeyword, value: "DON!!"})
-		Expect(codes(s.results(v.snap.Cards))).To(Equal([]string{"OP01-024"}))
+		Expect(codes(s.results(v.snap.Cards, cardSort{}))).To(Equal([]string{"OP01-024"}))
 	})
 
 	It("shows the count and the first card's details, and selects a card on click", func() {
@@ -484,10 +485,13 @@ var _ = Describe("Cards page", func() {
 			_, tt, fa := open(sim.ArtChoice{Kind: sim.ArtOwn}, regional(0))
 			Expect(tt.RightClick("Urouge OP14-002")).To(Succeed())
 			tt.Frame()
-			Expect(tt.ChooseMenuItem("Art in the sim", "Regional · 6 versions", "Online finalist")).NotTo(Succeed())
+			Expect(choose(tt, "Art in the sim", "Regional · 6 versions", "Online finalist")).NotTo(Succeed())
+			tt.Key(0, ui.KeyEscape)
+			tt.Key(0, ui.KeyEscape)
+			tt.Frame()
 			Expect(tt.RightClick("Urouge OP14-002")).To(Succeed())
 			tt.Frame()
-			Expect(tt.ChooseMenuItem("Art in the sim", "Regional · 6 versions", "Online Regional Finalist Card Set 25-26 Season 1")).
+			Expect(choose(tt, "Art in the sim", "Regional · 6 versions", "Online Regional Finalist Card Set 25-26 Season 1")).
 				To(Succeed())
 			tt.Frame()
 			Expect(fa.calls).To(ContainElement("use art OP14-002 OP14-002_p6_bd"))
@@ -585,10 +589,115 @@ var _ = Describe("Cards page", func() {
 			v.cardsUI.selected = "OP01-024"
 			tt.Frame()
 			Expect(tt.RightClick("Urouge OP14-002")).To(Succeed())
-			Expect(tt.ChooseMenuItem("View art")).To(Succeed())
+			Expect(choose(tt, "View art")).To(Succeed())
 			tt.Frame()
 			Expect(v.cardsUI.viewer).To(BeTrue())
 			Expect(v.cardsUI.selected).To(Equal("OP14-002"))
 		})
+	})
+})
+
+var _ = Describe("Card sort", func() {
+	codes := func(cs []cards.Card) []string {
+		var out []string
+		for _, c := range cs {
+			out = append(out, c.Code)
+		}
+		return out
+	}
+	order := func(key string, flip bool) []string {
+		v, _ := cardsTester()
+		return codes(v.cardsUI.results(v.snap.Cards, cardSort{key: key, flip: flip}))
+	}
+
+	It("puts leaders last by cost and events last by power, either way", func() {
+		Expect(order(sortCost, false)).To(Equal([]string{"OP14-018", "OP01-024", "OP14-002", "OP14-020"}))
+		Expect(order(sortCost, true)).To(Equal([]string{"OP14-002", "OP01-024", "OP14-018", "OP14-020"}))
+		Expect(order(sortPower, false)).To(Equal([]string{"OP14-020", "OP01-024", "OP14-002", "OP14-018"}))
+		Expect(order(sortPower, true)).To(Equal([]string{"OP14-002", "OP01-024", "OP14-020", "OP14-018"}))
+	})
+
+	It("sorts by name, counter, rarity, color and set, with ties in set order", func() {
+		Expect(order(sortName, false)).To(Equal([]string{"OP14-020", "OP01-024", "OP14-018", "OP14-002"}))
+		Expect(order(sortCounter, false)).To(Equal([]string{"OP14-002", "OP01-024", "OP14-018", "OP14-020"}))
+		Expect(order(sortRarity, false)).To(Equal([]string{"OP01-024", "OP14-002", "OP14-018", "OP14-020"}))
+		Expect(order(sortRarity, true)).To(Equal([]string{"OP14-018", "OP14-002", "OP01-024", "OP14-020"}))
+		Expect(order(sortColor, false)).To(Equal([]string{"OP14-002", "OP01-024", "OP14-018", "OP14-020"}))
+		Expect(order(sortColor, true)).To(Equal([]string{"OP14-018", "OP14-020", "OP14-002", "OP01-024"}))
+		Expect(order(sortSet, true)).To(Equal([]string{"OP01-024", "OP14-020", "OP14-018", "OP14-002"}))
+	})
+
+	It("sorts a character at 0 power as 0, ahead of events", func() {
+		cs := []cards.Card{
+			{Code: "OP14-003", Type: "Event"},
+			{Code: "OP14-013", Type: "Character"},
+			{Code: "OP14-005", Type: "Character", Power: 1000},
+		}
+		sortCards(cs, cardSort{key: sortPower, flip: true})
+		Expect(codes(cs)).To(Equal([]string{"OP14-013", "OP14-005", "OP14-003"}))
+	})
+
+	It("puts multicolor cards after the single color they start with", func() {
+		cs := []cards.Card{
+			{Code: "OP01-001", Colors: []cards.Color{cards.Green}},
+			{Code: "OP01-002", Colors: []cards.Color{cards.Red, cards.Green}},
+			{Code: "OP01-003", Colors: []cards.Color{cards.Red}},
+		}
+		sortCards(cs, cardSort{key: sortColor})
+		Expect(codes(cs)).To(Equal([]string{"OP01-003", "OP01-002", "OP01-001"}))
+	})
+
+	It("names the sort in words", func() {
+		Expect(cardSort{}.label()).To(Equal("Set · by number"))
+		Expect(cardSort{key: sortSet, flip: true}.label()).To(Equal("Set · reversed"))
+		Expect(cardSort{key: sortCost}.label()).To(Equal("Cost · lowest first"))
+		Expect(cardSort{key: sortCounter}.label()).To(Equal("Counter · highest first"))
+	})
+
+	It("reads the saved sort and list switch", func() {
+		p := prefsFrom(map[string]string{store.SettingCardSort: "cost reversed", store.SettingCardList: "1"})
+		Expect(p.cardSort).To(Equal(cardSort{key: sortCost, flip: true}))
+		Expect(p.cardList).To(BeTrue())
+		Expect(cardSortFrom("nonsense").key).To(Equal(sortSet))
+		Expect(cardSortFrom(cardSort{key: sortPower}.String())).To(Equal(cardSort{key: sortPower}))
+	})
+
+	It("sorts from the pill's menu and saves the sort", func() {
+		v, tt := cardsTester()
+		act := &fakeActions{}
+		v.act = act
+		Expect(tt.Click("Sort: Set · by number")).To(Succeed())
+		tt.Frame()
+		Expect(tt.Click("Rarity")).To(Succeed())
+		tt.Frame()
+		Expect(v.prefs.cardSort).To(Equal(cardSort{key: sortRarity}))
+		Expect(tt.HasText("Rarity · rarest first")).To(BeTrue())
+		Expect(tt.Click("Sort: Rarity · rarest first")).To(Succeed())
+		tt.Frame()
+		Expect(tt.Click("Commonest first")).To(Succeed())
+		tt.Frame()
+		Expect(v.prefs.cardSort).To(Equal(cardSort{key: sortRarity, flip: true}))
+		Expect(act.calls).To(ContainElements("card_sort=rarity", "card_sort=rarity reversed"))
+	})
+
+	It("sorts the list on a header click and turns it around on the next", func() {
+		v, tt := cardsTester()
+		act := &fakeActions{}
+		v.act = act
+		Expect(tt.Click("List")).To(Succeed())
+		tt.Frame()
+		Expect(v.prefs.cardList).To(BeTrue())
+		Expect(tt.HasText("Effect")).To(BeTrue())
+		Expect(tt.Click("Sort by Power")).To(Succeed())
+		tt.Frame()
+		Expect(v.prefs.cardSort).To(Equal(cardSort{key: sortPower}))
+		Expect(tt.Click("Sort by Power")).To(Succeed())
+		tt.Frame()
+		Expect(v.prefs.cardSort).To(Equal(cardSort{key: sortPower, flip: true}))
+		Expect(tt.Click("Sort by Name")).To(Succeed())
+		tt.Frame()
+		Expect(v.prefs.cardSort).To(Equal(cardSort{key: sortName}))
+		Expect(codes(v.cardsUI.shown)).To(Equal([]string{"OP14-020", "OP01-024", "OP14-018", "OP14-002"}))
+		Expect(act.calls).To(ContainElements("card_list=1", "card_sort=power", "card_sort=power reversed", "card_sort=name"))
 	})
 })

@@ -59,8 +59,8 @@ const (
 // "decks/edit" opens the core editor on the first build. "cards/" and a card's code, which
 // IsPage also takes, opens the art viewer on that card.
 func Pages() []string {
-	ids := []string{pageSettings}
-	for _, p := range navPages {
+	var ids []string
+	for _, p := range slices.Concat(navPages, refPages, setupPages) {
 		ids = append(ids, p.id)
 	}
 	for _, tab := range deckTabLabels[1:] {
@@ -211,7 +211,10 @@ var (
 )
 
 func newView(art *artCache) *view {
-	return &view{snap: &snapshot{}, art: art, page: pageOverview, leaderPoint: -1, formats: formatsState{day: -1}}
+	return &view{
+		snap: &snapshot{}, art: art, page: pageOverview, leaderPoint: -1, formats: formatsState{day: -1},
+		filter: filters{format: startUnpicked}, prefs: prefs{startFormat: startUnpicked},
+	}
 }
 
 // applyLook sets the theme the user picked, or the one following Windows, and the result
@@ -276,6 +279,10 @@ func (v *view) build(c *ui.Context) {
 			v.dragPane(&v.prefs.sideWidth, &v.sideDrag, size-shown, snapSide, store.SettingSidebarWidth)
 		}
 	})
+	// A card's menu opens the art viewer on any page. The Cards page draws its own.
+	if v.cardsUI.viewer && v.page != pageCards && v.snap.Cards != nil {
+		v.artViewer(c, v.snap.Cards.Card(v.cardsUI.selected))
+	}
 }
 
 // pageBody is the page, or a message when there's nothing to show on it.
@@ -369,23 +376,31 @@ func (v *view) savePane(width float32, key string) {
 	v.do(func(a actions) { a.SetSetting(key, fmt.Sprint(int(width))) })
 }
 
-var navPages = []struct {
+type navPage struct {
 	id    string
 	icon  *ui.SVG
 	label string
-}{
-	{pageOverview, iconOverview, "Overview"},
-	{pageDecks, iconLeaders, "Decks"},
-	{pageMatchups, iconMatchups, "Matchups"},
-	{pageMatches, iconMatches, "Matches"},
-	{pageFormats, iconFormats, "Formats"},
-	{pageCards, iconCards, "Cards"},
 }
 
+// navPages are the sidebar's pages from the top. refPages sit under a line, and setupPages at
+// the bottom.
+var (
+	navPages = []navPage{
+		{pageOverview, iconOverview, "Overview"},
+		{pageMatches, iconMatches, "Matches"},
+		{pageDecks, iconLeaders, "Decks"},
+		{pageMatchups, iconMatchups, "Matchups"},
+	}
+	refPages   = []navPage{{pageCards, iconCards, "Cards"}}
+	setupPages = []navPage{{pageFormats, iconFormats, "Formats"}, {pageSettings, iconSettings, "Settings"}}
+)
+
 func pageLabel(id string) string {
-	for _, p := range navPages {
-		if p.id == id {
-			return p.label
+	for _, group := range [][]navPage{navPages, refPages, setupPages} {
+		for _, p := range group {
+			if p.id == id {
+				return p.label
+			}
 		}
 	}
 	return "Matches"
@@ -440,9 +455,21 @@ func (v *view) sidebar(c *ui.Context) {
 		for _, p := range navPages {
 			item(p.id, p.icon, p.label)
 		}
+		// The line takes the same height in both widths, so the icons under it keep their place.
+		line := ui.Box(c).Height(1).Background(t.Border)
+		if wide {
+			line.Margin(8, 13)
+		} else {
+			line.Width(24).Margin(8, 0)
+		}
+		for _, p := range refPages {
+			item(p.id, p.icon, p.label)
+		}
 		ui.Spacer(c)
 		v.updateBox(c, wide)
-		item(pageSettings, iconSettings, "Settings")
+		for _, p := range setupPages {
+			item(p.id, p.icon, p.label)
+		}
 	})
 }
 

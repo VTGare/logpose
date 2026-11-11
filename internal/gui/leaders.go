@@ -133,7 +133,8 @@ func (v *view) deckTabs(c *ui.Context, all []stats.LeaderRecord, chosen, label s
 			name := v.snap.card(lr.Leader).Name
 			on := lr.Leader == chosen
 			tab := ui.Row(c.Key(i)).Gap(10).AlignItems(ui.Center).Padding(6, 12, 6, 6).
-				Border(1, t.Border.Alpha(0.6)).Label(label + name).Transition(ui.ElementTransition{Duration: hoverTime, Colors: true})
+				Border(1, t.Border.Alpha(0.6)).Label(label + name).Transition(ui.ElementTransition{Duration: hoverTime, Colors: true}).
+				PopoverMenu(v.yourDeckMenu(lr.Leader))
 			if on {
 				tab = tab.Background(t.Surface).Border(1, t.Border)
 			} else if tab.Hovered() {
@@ -289,13 +290,13 @@ func (v *view) matchupLists(c *ui.Context, tag string, l stats.Leader) {
 func (v *view) matchupLine(c *ui.Context, mu stats.LeaderRecord) {
 	t := c.Theme()
 	name := v.snap.card(mu.Leader).Name
-	el := ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(3, 6).Margin(0, -6).Radius(8).Label("Show games vs " + name)
+	el := ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(3, 6).Margin(0, -6).Radius(8).Label("Show games vs " + name).
+		PopoverMenu(v.opponentMenu("", mu.Leader))
 	if el.Hovered() {
 		el.Background(t.Surface)
 	}
 	if el.Clicked() {
-		v.filter.oppLeader = mu.Leader
-		v.page = pageMatches
+		v.showOpponentGames("", mu.Leader)
 	}
 	el.Children(func() {
 		v.artStrip(c, mu.Leader, 42, 30)

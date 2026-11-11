@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -125,6 +126,13 @@ var _ = Describe("view", func() {
 		v.leaderPoint = 5
 		tt.Frame()
 		Expect(tt.HasText("Nov 6 14:00 · game 25 · 50%, 10 of the last 20 won")).To(BeTrue(), fmt.Sprint(tt.Texts()))
+	})
+
+	It("says no change when this week's rate matches last week's", func() {
+		o := stats.Overview{Week: stats.Record{Wins: 3, Losses: 2}, PrevWeek: stats.Record{Wins: 3, Losses: 2}}
+		change, d := weekChange(o)
+		Expect(change).To(Equal("no change"))
+		Expect(d).To(BeZero())
 	})
 
 	It("writes a streak of one in the singular", func() {
@@ -282,6 +290,32 @@ var _ = Describe("sidebar", func() {
 		Expect(v.prefs.sideWidth).To(BeEquivalentTo(sideRail))
 		drag(sideRail, 200)
 		Expect(v.prefs.sideWidth).To(BeNumerically(">=", sideMin))
+	})
+
+	It("lists the pages read after games, a line, Cards, then Formats and Settings at the bottom", func() {
+		v, tt := tester(testSnapshot(4))
+		v.page = pageMatches
+		order := []string{"Overview", "Matches", "Decks", "Matchups", "Cards", "Formats", "Settings"}
+		centers := func() []float32 {
+			GinkgoHelper()
+			tt.Frame()
+			var ys []float32
+			for _, label := range order {
+				r, ok := tt.Find(label)
+				Expect(ok).To(BeTrue(), label)
+				ys = append(ys, r.Y+r.H/2)
+			}
+			return ys
+		}
+		open := centers()
+		Expect(slices.IsSorted(open)).To(BeTrue())
+		step := open[1] - open[0]
+		Expect(open[4] - open[3]).To(BeNumerically("~", step+17+4, 0.5))
+		Expect(open[6] - open[5]).To(BeNumerically("~", step, 0.5))
+		Expect(open[5] - open[4]).To(BeNumerically(">", 4*step))
+
+		v.prefs.sideWidth = sideRail
+		Expect(centers()).To(Equal(open))
 	})
 
 	It("folded, still goes to every page", func() {

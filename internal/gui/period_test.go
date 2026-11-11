@@ -83,6 +83,7 @@ var _ = Describe("custom period", func() {
 
 	It("overlaps a format to the days in both", func() {
 		v.snap.Formats = []stats.FormatRange{{ID: 1, Name: "OP14", Start: now.Add(-30 * time.Hour)}}
+		v.filter.format = formatCurrent
 		v.setRange(date(time.November, 4), date(time.November, 5))
 		s := v.currentScope()
 		Expect(s.Since).To(Equal(now.Add(-30 * time.Hour)))

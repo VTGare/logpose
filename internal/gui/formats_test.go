@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/egoist/mygo/ui"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -83,8 +85,16 @@ var _ = Describe("formats", func() {
 		return s
 	}
 
+	// latestFirst is a view whose pages start on the latest format.
+	latestFirst := func(s *snapshot) (*view, *ui.Tester) {
+		v, tt := tester(s)
+		v.prefs.startFormat, v.filter.format = formatCurrent, formatCurrent
+		tt.Frame()
+		return v, tt
+	}
+
 	It("starts on the current format and can show the older one or all", func() {
-		v, tt := tester(withFormats())
+		v, tt := latestFirst(withFormats())
 		Expect(tt.HasText("New format")).To(BeTrue())
 		Expect(tt.HasText("All of New format")).To(BeTrue())
 		Expect(v.scoped().matches).To(HaveLen(4))
@@ -97,7 +107,7 @@ var _ = Describe("formats", func() {
 	It("counts ranked games only in a format, with the type fixed to ranked", func() {
 		s := withFormats()
 		s.Matches[0].Ranked = false
-		v, tt := tester(s)
+		v, tt := latestFirst(s)
 		v.filter.gameType = int(stats.CasualGames)
 		Expect(v.scoped().matches).To(HaveLen(3))
 		tt.Frame()
