@@ -42,12 +42,30 @@ var _ = Describe("match detail", func() {
 		Expect(tt.HasText("10 games · 5–5")).To(BeTrue())
 	})
 
-	It("opens a match from its tile on the overview", func() {
+	It("opens a match from its tile on the overview and goes back there", func() {
 		v, tt := open(testSnapshot(1))
 		Expect(tt.Click("Open the match against Opp")).To(Succeed())
-		Expect(v.page).To(Equal(pageMatches))
+		Expect(v.page).To(Equal(pageOverview))
 		Expect(v.detail.fingerprint).To(Equal("0"))
-		Expect(tt.HasText("Back to matches")).To(BeTrue())
+		Expect(tt.Click("Back to overview")).To(Succeed())
+		Expect(v.detail.fingerprint).To(BeEmpty())
+		Expect(v.page).To(Equal(pageOverview))
+	})
+
+	It("closes the match when its page is picked in the sidebar", func() {
+		v, tt := open(testSnapshot(1))
+		Expect(tt.Click("Open the match against Opp")).To(Succeed())
+		Expect(tt.Click("Overview")).To(Succeed())
+		Expect(v.detail.fingerprint).To(BeEmpty())
+	})
+
+	It("closes the match when another page is picked", func() {
+		v, tt := open(testSnapshot(1))
+		Expect(tt.Click("Open the match against Opp")).To(Succeed())
+		Expect(tt.Click("Matches")).To(Succeed())
+		tt.Frame()
+		Expect(v.detail.fingerprint).To(BeEmpty())
+		Expect(tt.HasText("Back to overview")).To(BeFalse())
 	})
 
 	It("shows life, hand and board by turn once the log is read", func() {
@@ -149,7 +167,7 @@ var _ = Describe("match detail", func() {
 
 		Expect(tt.Click("Opening hands")).To(Succeed())
 		Expect(fa.notes).To(Equal([]string{"0=missed lethal on 7"}))
-		Expect(tt.Click("Back to matches")).To(Succeed())
+		Expect(tt.Click("Back to overview")).To(Succeed())
 		Expect(fa.notes).To(HaveLen(1))
 	})
 

@@ -77,13 +77,18 @@ var _ = Describe("Hands tab", func() {
 		Expect(tt.HasText("Show all 10")).To(BeFalse())
 	})
 
-	It("opens a match from its hand", func() {
+	It("opens a match from its hand and goes back to the Hands tab", func() {
 		v, tt := handsTester()
 		Expect(tt.Click("Show the hands dealt Shanks")).To(Succeed())
 		tt.Frame()
 		Expect(tt.Click("Open the match vs Kaido")).To(Succeed())
 		tt.Frame()
-		Expect(v.page).To(Equal(pageMatches))
+		Expect(v.page).To(Equal(pageDecks))
+		Expect(v.detail.fingerprint).NotTo(BeEmpty())
+		Expect(tt.Click("Back to decks")).To(Succeed())
+		tt.Frame()
+		Expect(v.detail.fingerprint).To(BeEmpty())
+		Expect(tt.HasText("Open the match vs Kaido")).To(BeTrue())
 	})
 
 	It("says when there are too few games to compare", func() {

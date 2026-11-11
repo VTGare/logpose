@@ -233,7 +233,7 @@ func (v *view) applyLook(c *ui.Context) {
 }
 
 func (v *view) build(c *ui.Context) {
-	if v.page != pageMatches {
+	if v.detail.fingerprint != "" && v.page != v.detail.from {
 		v.closeMatch()
 	}
 	v.replayKeys(c)
@@ -382,6 +382,15 @@ var navPages = []struct {
 	{pageCards, iconCards, "Cards"},
 }
 
+func pageLabel(id string) string {
+	for _, p := range navPages {
+		if p.id == id {
+			return p.label
+		}
+	}
+	return "Matches"
+}
+
 // sidebar is the pages as icons, and with their names when it's wider than the rail. The icons
 // sit at the same place either way, so folding it only hides the names.
 func (v *view) sidebar(c *ui.Context) {
@@ -398,6 +407,9 @@ func (v *view) sidebar(c *ui.Context) {
 			b.Background(t.SurfaceHover)
 		}
 		if b.Clicked() {
+			if v.page == id {
+				v.closeMatch()
+			}
 			v.page = id
 		}
 		if !wide {

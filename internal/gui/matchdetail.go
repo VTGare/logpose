@@ -14,6 +14,8 @@ import (
 
 type detailState struct {
 	fingerprint string
+	// from is the page the match opened on. It stays chosen in the sidebar, and Back returns to it.
+	from string
 	// timeline is nil while the match's log loads.
 	timeline *matchTimeline
 	// gameType is a store.GameType, an int for ui.Segmented. It shows the user's choice before
@@ -52,15 +54,14 @@ type matchTimeline struct {
 
 func (v *view) openMatch(m stats.Match) {
 	v.saveNote()
-	v.page = pageMatches
 	v.detail = detailState{
-		fingerprint: m.Fingerprint, gameType: int(m.Type), lifePoint: -1,
+		fingerprint: m.Fingerprint, from: v.page, gameType: int(m.Type), lifePoint: -1,
 		note: m.Note, savedNote: m.Note,
 	}
 	v.act.LoadTimeline(m.Fingerprint, m.Me.ID, m.Opp.ID)
 }
 
-// closeMatch goes back to the match list and saves the note being typed.
+// closeMatch goes back to the page the match opened on and saves the note being typed.
 func (v *view) closeMatch() {
 	v.saveNote()
 	v.detail = detailState{}
@@ -107,13 +108,14 @@ func (v *view) matchPage(c *ui.Context) {
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				back := ui.Row(c).Gap(6).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("Back to matches")
+				from := pageLabel(v.detail.from)
+				back := ui.Row(c).Gap(6).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("Back to " + strings.ToLower(from))
 				if back.Clicked() {
 					v.closeMatch()
 				}
 				back.Children(func() {
 					ui.Icon(c, iconPrevStep).TextColor(t.TextMuted)
-					ui.Text(c, "Matches").TextColor(t.TextMuted)
+					ui.Text(c, from).TextColor(t.TextMuted)
 				})
 				ui.Text(c, "/").TextColor(faintColor(t))
 				ui.Text(c, m.PlayedAt.Format("Mon Jan 2, 15:04")).Bold()
