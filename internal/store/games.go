@@ -20,7 +20,7 @@ var ErrNotFound = errors.New("store: not found")
 type Source struct {
 	File  string
 	Index int
-	// PlayedAt is when the game ended, from the log file's name.
+	// PlayedAt is when the sim began the game's log file, from the file's name.
 	PlayedAt time.Time
 }
 

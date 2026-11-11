@@ -307,6 +307,37 @@ var _ = Describe("Store", func() {
 		Expect(st.Setting(ctx, SettingSimDir)).To(Equal(`D:\OPTCGSim`))
 	})
 
+	It("reads the play time of 1.45a logs as UTC", func() {
+		g := fixture()[0]
+		utcName := Source{File: "2026-11-11T00.27.09.2230886-a2133d1d.log", PlayedAt: time.Date(2026, 11, 11, 0, 27, 9, 0, time.FixedZone("EET", 2*3600))}
+		_, err := st.SaveGame(ctx, &g, utcName)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.write.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = 11`)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Close()).To(Succeed())
+
+		st, err = Open(ctx, path)
+		Expect(err).NotTo(HaveOccurred())
+		list, err := st.Games(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(list[0].PlayedAt).To(BeTemporally("==", time.Date(2026, 11, 11, 0, 27, 9, 0, time.UTC)))
+	})
+
+	It("keeps the local play time of older logs", func() {
+		g := fixture()[0]
+		_, err := st.SaveGame(ctx, &g, src)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.write.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = 11`)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Close()).To(Succeed())
+
+		st, err = Open(ctx, path)
+		Expect(err).NotTo(HaveOccurred())
+		list, err := st.Games(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(list[0].PlayedAt).To(BeTemporally("==", src.PlayedAt))
+	})
+
 	It("reopens an existing database without applying migrations again", func() {
 		g := fixture()[0]
 		_, err := st.SaveGame(ctx, &g, src)

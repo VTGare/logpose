@@ -84,14 +84,19 @@ func File(ctx context.Context, st *store.Store, path string) (Result, error) {
 	return r, nil
 }
 
-// logTimeLayout is the sim's file name, the local time it saved the log, which is when the
-// file's last game ended.
+// logTimeLayout is the start of the sim's file name, the time it began the file. Since 1.45a
+// the time is UTC and has fractional seconds after it. Older names end at the seconds and are
+// local time.
 const logTimeLayout = "2006-01-02T15.04.05"
 
 func playedAt(path string) (time.Time, error) {
 	name := filepath.Base(path)
 	if len(name) >= len(logTimeLayout) {
-		if t, err := time.ParseInLocation(logTimeLayout, name[:len(logTimeLayout)], time.Local); err == nil {
+		zone := time.Local
+		if rest := name[len(logTimeLayout):]; len(rest) > 1 && rest[0] == '.' && rest[1] >= '0' && rest[1] <= '9' {
+			zone = time.UTC
+		}
+		if t, err := time.ParseInLocation(logTimeLayout, name[:len(logTimeLayout)], zone); err == nil {
 			return t, nil
 		}
 	}

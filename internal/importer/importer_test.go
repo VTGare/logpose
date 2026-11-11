@@ -63,6 +63,18 @@ var _ = Describe("Dir", func() {
 		Expect(games[1].PlayedAt).To(BeTemporally("==", time.Date(2026, 11, 5, 15, 37, 33, 0, time.Local)))
 	})
 
+	It("reads the play time in a 1.45a file name as UTC", func() {
+		text, err := os.ReadFile(filepath.Join("testdata", "2026-11-05T15.37.33.log"))
+		Expect(err).NotTo(HaveOccurred())
+		path := filepath.Join(GinkgoT().TempDir(), "2026-11-05T15.37.33.2230886-a2133d1d.log")
+		Expect(os.WriteFile(path, text, 0o600)).To(Succeed())
+		_, err = importer.File(ctx, st, path)
+		Expect(err).NotTo(HaveOccurred())
+		games, err := st.Games(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(games[0].PlayedAt).To(BeTemporally("==", time.Date(2026, 11, 5, 15, 37, 33, 0, time.UTC)))
+	})
+
 	It("keeps the parsed results", func() {
 		_, err := importer.Dir(ctx, st, "testdata")
 		Expect(err).NotTo(HaveOccurred())
