@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.0
+
+- Sort the card database by set, name, cost, power, counter, rarity or color, and click the list
+  headers to sort. The sort and the images or list view are kept between starts.
+- Right-click a game, card, deck, opposing leader, build or filter pill anywhere for what you can
+  do with it, such as opening the match, putting a card's art in the sim, or clearing a filter.
+- Pick which format the pages start on, the latest one or all formats, from the format menu or the
+  Formats page. Until you pick, they start on all formats.
+- The sidebar puts Matches second, and Formats sits at the bottom next to Settings.
+- Opening a match from Decks, the Overview or Matchups goes back there, not to Matches.
+- Games from the sim's latest update show the time you played them. They showed two hours early,
+  some under the wrong day.
+- A card's plays count right on the Cards tab. Some plays put out by an effect counted as paid,
+  and events used as counters didn't count as counters. Your games are read again on the first
+  start.
+- A hand you sent back in a mulligan no longer counts as in hand.
+- Rates under 5 games read "too few" on every page.
+- Settings shows the sim's version from your latest game.
+- A damaged card data file is downloaded again instead of leaving the card database without bans
+  and printings.
+
 ## 0.2.1
 
 - A game you lose by running out of cards shows as a loss by deck out. Since the sim's latest
