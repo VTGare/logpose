@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- Filter the card database by power. Open Power and drag the range, or pick exactly a power, that
+  power or less, or that power or more, the way card text puts it.
+- Cost is a row of buttons, one for each cost from 0 to 10. A cost no card has under your other
+  filters is dimmed.
+- Pick two traits, keywords, attributes or sets and click the "or" between them to show only the
+  cards that have both.
+- Reading Bandai's card list shows quietly next to the card count, with a spinner.
+
 ## 0.3.0
 
 - Sort the card database by set, name, cost, power, counter, rarity or color, and click the list
