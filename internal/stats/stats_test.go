@@ -142,6 +142,18 @@ var _ = Describe("Record", func() {
 		Expect(rate).To(BeNumerically("~", 0.8))
 	})
 
+	It("shares wins however few games there are, and 0 with none", func() {
+		Expect(stats.Record{Wins: 1, Losses: 3}.Share()).To(BeNumerically("~", 0.25))
+		Expect(stats.Record{}.Share()).To(BeZero())
+	})
+
+	It("counts the results of matches and deck games, leaving out unknown ones", func() {
+		ms := stats.Matches(build(game{won: true}, game{}, game{unknown: true}), me)
+		Expect(stats.RecordOf(ms)).To(Equal(stats.Record{Wins: 1, Losses: 1}))
+		Expect(stats.RecordOf([]stats.DeckGame{{Match: ms[0]}})).To(Equal(stats.Record{Wins: 1}))
+		Expect(stats.RecordOf(ms).Plus(stats.Record{Wins: 2})).To(Equal(stats.Record{Wins: 3, Losses: 1}))
+	})
+
 	DescribeTable("gives the 80% Wilson range as the likely win rate",
 		func(r stats.Record, lo, hi float64) {
 			gotLo, gotHi := r.LikelyRange()
@@ -176,7 +188,7 @@ var _ = Describe("Matchups", func() {
 	), me)
 
 	It("groups one leader's games by the opponent's leader, most played first", func() {
-		mus := stats.Matchups(ms, luffy)
+		mus := stats.Matchups(ms, luffy, stats.EitherTurn)
 		Expect(mus).To(HaveLen(2))
 		Expect(mus[0].Leader).To(Equal(kaido))
 		Expect(mus[0].Record).To(Equal(stats.Record{Wins: 1, Losses: 1}))
@@ -187,14 +199,32 @@ var _ = Describe("Matchups", func() {
 	})
 
 	It("keeps each matchup's games newest first, unknown results included", func() {
-		games := stats.Matchups(ms, luffy)[0].Games
+		games := stats.Matchups(ms, luffy, stats.EitherTurn)[0].Games
 		Expect(games).To(HaveLen(3))
 		Expect(games[0].PlayedAt).To(BeTemporally("==", now.Add(-2*time.Hour)))
 		Expect(games[2].Result).To(Equal(stats.Unknown))
 	})
 
 	It("is empty for a leader never played", func() {
-		Expect(stats.Matchups(ms, "OP13-079")).To(BeEmpty())
+		Expect(stats.Matchups(ms, "OP13-079", stats.EitherTurn)).To(BeEmpty())
+	})
+
+	It("counts the turn filter's games but both turn orders", func() {
+		mus := stats.Matchups(ms, luffy, stats.GoingFirst)
+		Expect(mus).To(HaveLen(2))
+		Expect(mus[1].Leader).To(Equal(kaido))
+		Expect(mus[1].Record).To(Equal(stats.Record{Wins: 1}))
+		Expect(mus[1].Games).To(HaveLen(1))
+		Expect(mus[1].TurnOrder.Second).To(Equal(stats.Record{Losses: 1}))
+		Expect(stats.Matchups(ms, "OP01-001", stats.GoingFirst)).To(BeEmpty())
+	})
+
+	It("says how the games went: average turns and how they ended", func() {
+		mu := stats.Matchups(ms, luffy, stats.EitherTurn)[0]
+		Expect(mu.WinTurns).To(Equal(10))
+		Expect(mu.LossTurns).To(Equal(10))
+		Expect(mu.Lethal).To(Equal(1))
+		Expect(mu.Conceded).To(Equal(1))
 	})
 })
 
@@ -300,16 +330,15 @@ var _ = Describe("ForLeader", func() {
 	), me)
 
 	It("only counts games with that leader", func() {
-		l := stats.ForLeader(ms, luffy)
+		l := stats.ForLeader(ms, luffy, stats.EitherTurn)
 		Expect(l.Record).To(Equal(stats.Record{Wins: 1, Losses: 2}))
 		Expect(l.TurnOrder.First).To(Equal(stats.Record{Wins: 1}))
-		Expect(l.Recent).To(HaveLen(3))
 		Expect(l.Last).To(BeTemporally("==", now.Add(-2*time.Hour)))
 		Expect(l.First).To(BeTemporally("==", now.Add(-4*time.Hour)))
 	})
 
 	It("lists the leaders it faced, most played first", func() {
-		l := stats.ForLeader(ms, luffy)
+		l := stats.ForLeader(ms, luffy, stats.EitherTurn)
 		Expect(l.Matchups).To(Equal([]stats.LeaderRecord{
 			{Leader: buggy, Record: stats.Record{Wins: 1, Losses: 1}},
 			{Leader: kid, Record: stats.Record{Losses: 1}},
@@ -317,7 +346,7 @@ var _ = Describe("ForLeader", func() {
 	})
 
 	It("is empty for a leader never played", func() {
-		Expect(stats.ForLeader(ms, "OP13-079").Record.Games()).To(BeZero())
+		Expect(stats.ForLeader(ms, "OP13-079", stats.EitherTurn).Record.Games()).To(BeZero())
 	})
 })
 
@@ -368,12 +397,6 @@ var _ = Describe("SortMatchups", func() {
 		Expect(order(stats.SortMatchups(lrs, stats.MostPlayed))).To(Equal([]string{"c", "b", "a", "d"}))
 		Expect(order(stats.SortMatchups(lrs, stats.BestFirst))).To(Equal([]string{"d", "b", "a", "c"}))
 		Expect(order(stats.SortMatchups(lrs, stats.WorstFirst))).To(Equal([]string{"c", "a", "b", "d"}))
-	})
-
-	It("splits off matchups under the minimum games", func() {
-		enough, few := stats.SplitBySample(stats.SortMatchups(lrs, stats.MostPlayed))
-		Expect(order(enough)).To(Equal([]string{"c", "b"}))
-		Expect(order(few)).To(Equal([]string{"a", "d"}))
 	})
 })
 

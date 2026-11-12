@@ -10,11 +10,6 @@ import (
 	"github.com/VTGare/logpose/internal/stats"
 )
 
-func (v *view) timeline(c *ui.Context, m stats.Match) {
-	v.flowTile(c, m)
-	v.momentsTile(c, m)
-}
-
 func (v *view) momentsTile(c *ui.Context, m stats.Match) ui.Element {
 	t := c.Theme()
 	return v.foldTile(c, "match.moments", foldHead{label: "Key moments"}, func() {
@@ -33,11 +28,9 @@ func (v *view) momentsTile(c *ui.Context, m stats.Match) ui.Element {
 	})
 }
 
-// momentRow is one moment as a ledger line: its pin on a spine that joins the moments, the turn
-// and what happened, then every card of the turn in one strip.
 func (v *view) momentRow(c *ui.Context, m stats.Match, i int, mo simlog.Moment, last bool) {
 	t := c.Theme()
-	col := playerColor(m, mo.Player)
+	s := sideOf(m, mo.Player)
 	row := ui.Row(c).Gap(12).AlignItems(ui.Stretch).Cursor(ui.CursorPointer).Tooltip("Watch from here")
 	defer func() {
 		if row.Clicked() {
@@ -55,7 +48,9 @@ func (v *view) momentRow(c *ui.Context, m stats.Match, i int, mo simlog.Moment, 
 			ui.Column(c).Grow(2).Basis(0).MinWidth(200).Gap(3).Children(func() {
 				ui.Row(c).Gap(6).Children(func() {
 					ui.Text(c, fmt.Sprintf("Turn %d", mo.Turn)).Bold()
-					ui.Text(c, turnOwner(m, mo.Player)).FontSize(12).TextColor(col)
+					if mo.Player != "" {
+						ui.Text(c, s.name()).FontSize(12).TextColor(s.color())
+					}
 				})
 				for j, line := range v.momentLines(m, mo) {
 					ui.Text(c.Key(j), line).Wrap()
@@ -69,17 +64,9 @@ func (v *view) momentRow(c *ui.Context, m stats.Match, i int, mo simlog.Moment, 
 // momentCardWidth keeps a strip of 8 cards beside the text at the default window size.
 const momentCardWidth = 44
 
-// momentStrip shows a moment's cards in one row that wraps when narrow: what the turn's player
-// played, then what the other player lost, greyed out. On a big board the board leads, with the
-// cards new this turn outlined in the player's color, and played cards that didn't stay come
-// after.
 func (v *view) momentStrip(c *ui.Context, m stats.Match, mo simlog.Moment) {
 	t := c.Theme()
-	col := playerColor(m, mo.Player)
-	player, other := turnOwner(m, mo.Player), "you"
-	if mo.Player == m.Me.ID {
-		other = m.Opp.Name
-	}
+	s := sideOf(m, mo.Player)
 	is := func(k simlog.ReasonKind) bool {
 		for _, r := range mo.Reasons {
 			if r.Kind == k {
@@ -101,10 +88,10 @@ func (v *view) momentStrip(c *ui.Context, m stats.Match, mo simlog.Moment) {
 			ui.Row(c).Gap(4).Wrap().Children(func() {
 				for k, cd := range cards {
 					box := ui.Box(c.Key(k)).Label(v.snap.card(cd.code).Name).Radius(6).Padding(2).Children(func() {
-						v.cardThumb(c, cd.code, momentCardWidth)
+						lift(v.card(c, cd.code, momentCardWidth), 5)
 					})
 					if cd.ring {
-						box.Border(2, col)
+						box.Border(2, s.color())
 					} else {
 						box.Border(2, ui.Color{})
 					}
@@ -122,96 +109,42 @@ func (v *view) momentStrip(c *ui.Context, m stats.Match, mo simlog.Moment) {
 		}
 		return out
 	}
-	removed := func() { group("removed", "Removed from "+other, plain(mo.Removed, true)) }
+	removed := func() { group("removed", "Removed from "+s.other().object(), plain(mo.Removed, true)) }
 	ui.Row(c).Gap(18).Wrap().Children(func() {
 		switch {
 		case is(simlog.ReasonBoard):
-			left := make(map[string]int)
-			for _, code := range mo.Played {
-				left[code]++
+			board := make([]card, len(mo.Board))
+			for k, code := range mo.Board {
+				board[k] = card{code: code, ring: k >= len(mo.Board)-mo.New}
 			}
-			var board []card
-			for _, code := range mo.Board {
-				board = append(board, card{code: code, ring: left[code] > 0})
-				if left[code] > 0 {
-					left[code]--
-				}
-			}
-			var gone []string
-			for _, code := range mo.Played {
-				if left[code] > 0 {
-					gone = append(gone, code)
-					left[code]--
-				}
-			}
-			group("board", possessive(player)+" board after the turn", board)
-			group("gone", "Also played", plain(gone, false))
+			group("board", s.possessive()+" board after the turn", board)
+			group("gone", "Also played", plain(mo.Gone, false))
 			removed()
 		default:
-			group("played", player+" played", plain(mo.Played, false))
+			group("played", s.name()+" played", plain(mo.Played, false))
 			removed()
 		}
 	})
 }
 
-func possessive(name string) string {
-	if name == "You" {
-		return "Your"
-	}
-	return name + "'s"
-}
-
-func pin(c *ui.Context, n int, col ui.Color) ui.Element {
-	return ui.Text(c, fmt.Sprint(n)).FontSize(11).Bold().TextColor(ui.Hex("#FFFFFF")).
-		Size(18, 18).Radius(9).Background(col).TextAlign(ui.Center)
-}
-
-// momentPin is a key moment's numbered pin, which opens the replay at the moment's turn.
 func (v *view) momentPin(c *ui.Context, m stats.Match, i int, mo simlog.Moment) {
-	p := pin(c, i+1, playerColor(m, mo.Player)).Label(fmt.Sprintf("Replay moment %d", i+1)).
+	p := ui.Text(c, fmt.Sprint(i+1)).FontSize(11).Bold().TextColor(ui.Hex("#FFFFFF")).Size(18, 18).Radius(9).
+		Background(sideOf(m, mo.Player).color()).TextAlign(ui.Center).Label(fmt.Sprintf("Replay moment %d", i+1)).
 		Tooltip("Watch from here").Cursor(ui.CursorPointer)
 	if p.Clicked() {
 		v.openReplay(m, mo.Line)
 	}
 }
 
-func playerColor(m stats.Match, id string) ui.Color {
-	if id == m.Me.ID {
-		return youColor
-	}
-	return oppColor
-}
-
-func turnOwner(m stats.Match, id string) string {
-	switch id {
-	case "":
-		return ""
-	case m.Me.ID:
-		return "You"
-	}
-	return m.Opp.Name
-}
-
 // momentLines words a moment's reasons as table talk, as in "emog removed Garp, Oden and Law"
 // or "emog took 2 life · You're at 1". Life lost and life left share a line.
 func (v *view) momentLines(m stats.Match, mo simlog.Moment) []string {
-	name := func(id string) string {
-		if id == m.Me.ID {
-			return "You"
-		}
-		return m.Opp.Name
-	}
-	other := func(id string) string {
-		if id == m.Me.ID {
-			return m.Opp.Name
-		}
-		return "You"
-	}
+	name := func(id string) string { return sideOf(m, id).name() }
 	at := func(id string, n int) string {
-		if id == m.Me.ID {
-			return fmt.Sprintf("You're at %d", n)
+		if s := sideOf(m, id); !s.mine {
+			return fmt.Sprintf("%s is at %d", s.name(), n)
 		}
-		return fmt.Sprintf("%s is at %d", m.Opp.Name, n)
+		return fmt.Sprintf("You're at %d", n)
 	}
 	var lines []string
 	life := make(map[string][]string)
@@ -228,7 +161,7 @@ func (v *view) momentLines(m stats.Match, mo simlog.Moment) []string {
 		case simlog.ReasonRemoved:
 			lines = append(lines, name(r.Player)+" removed "+v.cardList(mo.Removed))
 		case simlog.ReasonBoard:
-			lines = append(lines, fmt.Sprintf("%s played %s", name(r.Player), v.cardList(characters(v, mo.Played))))
+			lines = append(lines, fmt.Sprintf("%s played %s", name(r.Player), v.cardList(mo.Characters)))
 		case simlog.ReasonLifeLost:
 			addLife(r.Player, hitText(m, r))
 		case simlog.ReasonAtOne:
@@ -236,7 +169,8 @@ func (v *view) momentLines(m stats.Match, mo simlog.Moment) []string {
 		case simlog.ReasonAtZero:
 			addLife(r.Player, at(r.Player, 0))
 		case simlog.ReasonFinish:
-			finish = finishText(m, name(r.Player), other(r.Player))
+			loser := sideOf(m, r.Player)
+			finish = finishText(m, loser.name(), loser.other().name())
 		}
 	}
 	for _, id := range lifeOrder {
@@ -251,20 +185,8 @@ func (v *view) momentLines(m stats.Match, mo simlog.Moment) []string {
 // hitText words life lost from the attacker's side, as "You hit emog for 2" or "emog hit you
 // for 2".
 func hitText(m stats.Match, r simlog.Reason) string {
-	if r.Player == m.Me.ID {
-		return fmt.Sprintf("%s hit you for %d", m.Opp.Name, r.N)
-	}
-	return fmt.Sprintf("You hit %s for %d", m.Opp.Name, r.N)
-}
-
-func characters(v *view, codes []string) []string {
-	var out []string
-	for _, code := range codes {
-		if v.snap.card(code).Type != "Stage" {
-			out = append(out, code)
-		}
-	}
-	return out
+	hit := sideOf(m, r.Player)
+	return fmt.Sprintf("%s hit %s for %d", hit.other().name(), hit.object(), r.N)
 }
 
 // cardList names cards as "Garp, Oden ×2 and Law".

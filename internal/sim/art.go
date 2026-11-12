@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,22 +31,20 @@ const (
 	overrideSmall = "_small_OVERRIDE.jpg"
 )
 
+// fullSuffixes are the full image overrides in the order the sim looks for them.
+var fullSuffixes = []string{overrideJPG, overridePNG}
+
 // The sim's small images are 120×167 JPEGs.
 const (
 	smallWidth  = 120
 	smallHeight = 167
 )
 
-func (i Install) cardDir(code string) string {
-	set, _, _ := strings.Cut(code, "-")
-	return filepath.Join(i.streamingAssets(), "Cards", set)
-}
-
 // Override is the full image the sim shows in place of the card's own, or "" when it shows
 // its own.
 func (i Install) Override(code string) string {
 	dir := i.cardDir(code)
-	for _, suffix := range []string{overrideJPG, overridePNG} {
+	for _, suffix := range fullSuffixes {
 		if p := filepath.Join(dir, code+suffix); fileExists(p) {
 			return p
 		}
@@ -53,10 +52,9 @@ func (i Install) Override(code string) string {
 	return ""
 }
 
-// Overrides lists the cards the sim shows another full image for.
 func (i Install) Overrides() []string {
 	var codes []string
-	for _, suffix := range []string{overrideJPG, overridePNG} {
+	for _, suffix := range fullSuffixes {
 		paths, _ := filepath.Glob(filepath.Join(i.streamingAssets(), "Cards", "*", "*"+suffix))
 		for _, p := range paths {
 			codes = append(codes, strings.TrimSuffix(filepath.Base(p), suffix))
@@ -98,6 +96,16 @@ type artRecord struct {
 	Written map[string]string `json:"written"`
 	// Matches holds the user's own files that show a printing.
 	Matches map[string]string `json:"matches"`
+}
+
+// lookup returns the printing the file with this hash shows, whether logpose wrote the file,
+// and whether the file is in the record at all.
+func (r artRecord) lookup(sum string) (key string, ours, known bool) {
+	if key, ok := r.Written[sum]; ok {
+		return key, true, true
+	}
+	key, known = r.Matches[sum]
+	return key, false, known
 }
 
 func (s *SimArt) recordPath() string { return filepath.Join(s.Dir, "sim-art.json") }
@@ -148,7 +156,6 @@ func fileHash(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// Current is what the sim shows for the card.
 func (s *SimArt) Current(code string) (ArtChoice, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -168,10 +175,7 @@ func (s *SimArt) current(code string) (ArtChoice, error) {
 	if err != nil {
 		return ArtChoice{}, err
 	}
-	if key, ok := r.Written[sum]; ok {
-		return ArtChoice{Kind: ArtPrint, Key: key}, nil
-	}
-	if key, ok := r.Matches[sum]; ok {
+	if key, _, known := r.lookup(sum); known {
 		return ArtChoice{Kind: ArtPrint, Key: key}, nil
 	}
 	return ArtChoice{Kind: ArtFile}, nil
@@ -196,10 +200,10 @@ func (s *SimArt) OwnFile(code string) string {
 		if err != nil {
 			continue
 		}
-		if _, ours := r.Written[sum]; ours {
+		switch _, ours, known := r.lookup(sum); {
+		case ours:
 			continue
-		}
-		if _, known := r.Matches[sum]; known {
+		case known:
 			return ""
 		}
 		return p
@@ -207,14 +211,17 @@ func (s *SimArt) OwnFile(code string) string {
 	return ""
 }
 
-// keptFile is the newest full image kept for the card, or "".
+// keptFile is the full image kept last for the card, or "".
 func (s *SimArt) keptFile(code string) string {
-	for _, suffix := range []string{overridePNG, overrideJPG} {
-		if p := filepath.Join(s.keptDir(), code+suffix); fileExists(p) {
-			return p
+	var newest string
+	var at time.Time
+	for _, suffix := range fullSuffixes {
+		p := filepath.Join(s.keptDir(), code+suffix)
+		if info, err := os.Stat(p); err == nil && (newest == "" || info.ModTime().After(at)) {
+			newest, at = p, info.ModTime()
 		}
 	}
-	return ""
+	return newest
 }
 
 // Matched records that the override the sim shows for the card is the printing key. Current
@@ -234,7 +241,7 @@ func (s *SimArt) Matched(code, key string) error {
 	if err != nil {
 		return err
 	}
-	if _, ours := r.Written[sum]; ours {
+	if _, ours, _ := r.lookup(sum); ours {
 		return nil
 	}
 	r.Matches[sum] = key
@@ -316,7 +323,7 @@ func (s *SimArt) UseFile(code string) error {
 // keepAll removes the card's override files. Each one logpose didn't write is kept first.
 func (s *SimArt) keepAll(code string, r artRecord) error {
 	dir := s.Install.cardDir(code)
-	for _, suffix := range []string{overrideJPG, overridePNG, overrideSmall} {
+	for _, suffix := range append(slices.Clone(fullSuffixes), overrideSmall) {
 		path := filepath.Join(dir, code+suffix)
 		if !fileExists(path) {
 			continue
@@ -325,7 +332,7 @@ func (s *SimArt) keepAll(code string, r artRecord) error {
 		if err != nil {
 			return err
 		}
-		if _, ours := r.Written[sum]; !ours {
+		if _, ours, _ := r.lookup(sum); !ours {
 			if err := s.keep(path, sum); err != nil {
 				return err
 			}

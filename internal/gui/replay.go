@@ -16,7 +16,9 @@ type replayState struct {
 	game        *simlog.Game
 	r           *replay.Replay
 	err         error
-	step        int
+	// asked is set once the app was asked to build the replay.
+	asked bool
+	step  int
 	// atLine is the log line the replay opens at once built, or -1 for its start.
 	atLine  int
 	playing bool
@@ -37,11 +39,11 @@ type replayState struct {
 	// own cards. tab is 0 for the action list and 1 for the game log.
 	selected int
 	tab      int
-	// pile is the deck or trash clicked on the mat, which the inspector shows in place of a card.
+	// pile is the deck, trash or life clicked on the mat, which the inspector shows in place of
+	// a card.
 	pile pileRef
 }
 
-// pileRef names a player's deck or trash.
 type pileRef struct {
 	kind pileKind
 	mine bool
@@ -56,7 +58,6 @@ const (
 	pileLife
 )
 
-// loadedReplay is a game's replay as the app builds it off the main thread.
 type loadedReplay struct {
 	Fingerprint string
 	Game        *simlog.Game
@@ -64,10 +65,33 @@ type loadedReplay struct {
 	Err         error
 }
 
-var (
-	replaySpeeds = []time.Duration{1200 * time.Millisecond, 600 * time.Millisecond, 300 * time.Millisecond}
-	speedLabels  = []string{"1×", "2×", "4×"}
-)
+// replaySpeeds are how long each step shows while the replay plays, how long cards take to move
+// on a step, and the speed's name. Cards don't move at the fastest speed.
+var replaySpeeds = []struct {
+	tick, glide time.Duration
+	label       string
+}{
+	{1200 * time.Millisecond, 250 * time.Millisecond, "1×"},
+	{600 * time.Millisecond, 150 * time.Millisecond, "2×"},
+	{300 * time.Millisecond, 0, "4×"},
+}
+
+func speedLabels() []string {
+	out := make([]string, len(replaySpeeds))
+	for i, s := range replaySpeeds {
+		out[i] = s.label
+	}
+	return out
+}
+
+// glideTime is how long cards take to move on a one-step change. A step taken by hand glides as
+// at the slowest speed.
+func glideTime(playing bool, speed int) time.Duration {
+	if !playing {
+		speed = 0
+	}
+	return replaySpeeds[speed].glide
+}
 
 // openReplay shows the match's replay, at the step of a log line or, with -1, from the start.
 func (v *view) openReplay(m stats.Match, line int) {
@@ -78,12 +102,24 @@ func (v *view) openReplay(m stats.Match, line int) {
 		v.openMatch(m)
 	}
 	v.detail.replay = &replayState{fingerprint: m.Fingerprint, atLine: line}
-	v.act.OpenReplay(m.Fingerprint)
+	v.buildReplay()
+}
+
+func (v *view) buildReplay() {
+	rs, l := v.detail.replay, v.detail.timeline
+	if rs == nil || rs.asked || l == nil || l.Fingerprint != rs.fingerprint {
+		return
+	}
+	rs.asked = true
+	if l.Err != nil {
+		rs.err = l.Err
+		return
+	}
+	v.do(func(a actions) { a.OpenReplay(rs.fingerprint, l.Game) })
 }
 
 func (v *view) closeReplay() { v.detail.replay = nil }
 
-// setReplay shows a replay once built, unless another one opened meanwhile.
 func (v *view) setReplay(l loadedReplay) {
 	rs := v.detail.replay
 	if rs == nil || rs.fingerprint != l.Fingerprint {
@@ -113,7 +149,6 @@ func (rs *replayState) cur() replay.Step { return rs.r.Steps[rs.step] }
 
 func (rs *replayState) restartTurn() { rs.jump(rs.r.FirstOfTurn(rs.cur().Turn)) }
 
-// prevTurn goes to the first step of the turn before, or to the start from the first turn.
 func (rs *replayState) prevTurn() {
 	turn := rs.cur().Turn
 	if turn == 0 {
@@ -136,8 +171,6 @@ func (rs *replayState) nextTurn() {
 	rs.jump(len(rs.r.Steps) - 1)
 }
 
-// replayKeys steps with the arrow keys, goes to the turn before or after with Page Up and
-// Page Down, to the start and end with Home and End, and plays or pauses with Space.
 func (v *view) replayKeys(c *ui.Context) {
 	rs := v.detail.replay
 	if !rs.ready() {
@@ -161,7 +194,6 @@ func (v *view) togglePlay() {
 	v.schedule()
 }
 
-// schedule starts the timer for the next step while playing.
 func (v *view) schedule() {
 	rs := v.detail.replay
 	rs.ticks++
@@ -169,14 +201,16 @@ func (v *view) schedule() {
 		return
 	}
 	tick := rs.ticks
-	v.act.After(replaySpeeds[rs.speed], func() {
-		if v.detail.replay != rs || !rs.playing || rs.ticks != tick {
-			return
-		}
-		rs.jump(rs.step + 1)
-		if rs.step == len(rs.r.Steps)-1 {
-			rs.playing = false
-		}
-		v.schedule()
+	v.do(func(a actions) {
+		a.After(replaySpeeds[rs.speed].tick, func() {
+			if v.detail.replay != rs || !rs.playing || rs.ticks != tick {
+				return
+			}
+			rs.jump(rs.step + 1)
+			if rs.step == len(rs.r.Steps)-1 {
+				rs.playing = false
+			}
+			v.schedule()
+		})
 	})
 }

@@ -50,3 +50,20 @@ var _ = Describe("art", func() {
 		Expect(mid).To(BeNumerically("<", 255))
 	})
 })
+
+var _ = Describe("artRef", func() {
+	It("reads back every kind of picture from its string form", func() {
+		for _, s := range []string{"OP07-021", "OP07-021_p3_bd", simOwnRef("OP07-021"), fileRef(`C:\\art\\zoro.jpg`), donCode, donBackCode} {
+			Expect(parseArtRef(s).String()).To(Equal(s))
+		}
+	})
+
+	It("knows the card a picture shows and names its saved file", func() {
+		Expect(parseArtRef("OP07-021_p3_bd").card()).To(Equal("OP07-021"))
+		Expect(parseArtRef(simOwnRef("OP07-021")).card()).To(Equal("OP07-021"))
+		Expect(parseArtRef(fileRef("/art/zoro.jpg")).card()).To(BeEmpty())
+		Expect(parseArtRef(simOwnRef("OP07-021")).fileName()).To(Equal("OP07-021_sim.png"))
+		Expect(parseArtRef(fileRef("/art/zoro.jpg")).fileName()).To(Equal("zoro.png"))
+		Expect(parseArtRef("OP07-021_p1").fileName()).To(Equal("OP07-021_p1.png"))
+	})
+})

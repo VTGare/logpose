@@ -1,7 +1,9 @@
 package cards
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,49 +23,6 @@ func fixture(name string) []byte {
 	Expect(err).NotTo(HaveOccurred())
 	return data
 }
-
-var _ = Describe("Limitless", func() {
-	It("reads the set index and the sets it names as updated", func() {
-		idx, err := ParseSetIndex(strings.NewReader(string(fixture("limitless-index.html"))))
-		Expect(err).NotTo(HaveOccurred())
-		Expect(idx.Latest).To(Equal([]string{"eb05-one-piece-heroines-edition-vol-2", "op18-the-dominance-of-god"}))
-		Expect(idx.Sets).To(Equal([]string{
-			"eb05-one-piece-heroines-edition-vol-2", "op18-the-dominance-of-god", "op14-the-azure-seas-seven", "st14-3D2Y", "promos",
-		}))
-	})
-
-	It("reads every printing on a set page with the card's data", func() {
-		prints, err := parseSetPage(strings.NewReader(string(fixture("limitless-op14.html"))))
-		Expect(err).NotTo(HaveOccurred())
-		Expect(prints).To(HaveLen(8))
-		law := prints[0]
-		Expect(law.card).To(gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
-			"Code": Equal("OP14-001"), "Name": Equal("Trafalgar Law"), "Type": Equal("Leader"),
-			"Colors": Equal([]Color{Red}), "Cost": Equal(-1), "Life": Equal(5), "Power": Equal(5000),
-			"Attributes": Equal([]string{"Slash"}), "Block": Equal("4"), "Detailed": BeTrue(),
-			"Traits": Equal([]string{"The Seven Warlords of the Sea", "Supernovas", "Heart Pirates"}),
-		}))
-		Expect(law.card.Effect).To(HavePrefix("[Activate: Main] [Once Per Turn] Select 2"))
-		Expect(law.print).To(Equal(Print{Key: "OP14-001", Block: "4", Rarity: "Leader", Artist: "Kaito Tomioka", Set: "The Azure Sea's Seven"}))
-		Expect(law.standard).To(Equal("legal"))
-	})
-
-	It("reads alternate printings, counters, banned cards and triggers", func() {
-		prints, err := parseSetPage(strings.NewReader(string(fixture("limitless-op14.html"))))
-		Expect(err).NotTo(HaveOccurred())
-		byKey := make(map[string]limitlessPrint)
-		for _, p := range prints {
-			byKey[p.print.Key] = p
-		}
-		Expect(byKey["OP14-001_p1"].print.Kind).To(Equal("aa"))
-		Expect(byKey["OP14-002"].card.Counter).To(Equal(1000))
-		Expect(byKey["OP14-002"].card.Cost).To(Equal(3))
-		Expect(byKey["OP14-020"].standard).To(Equal("banned"))
-		Expect(byKey["OP14-020"].card.Effect).To(ContainSubstring("has the <Slash> attribute"))
-		Expect(byKey["OP14-018"].card.Effect).To(ContainSubstring("\n[Trigger]"))
-		Expect(byKey["OP14-018"].card.Type).To(Equal("Event"))
-	})
-})
 
 var _ = Describe("Bandai's ban list", func() {
 	It("reads the active restrictions and not the announcement above them", func() {
@@ -103,6 +62,53 @@ func (f *fakeSites) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// pagePrint is a printing as a set page shows it, with only what the parser reads.
+type pagePrint struct {
+	code, key, set, setCode, rarity, kind, block string
+}
+
+func setPage(ps ...pagePrint) []byte {
+	var b strings.Builder
+	b.WriteString("<html><body>")
+	for _, p := range ps {
+		fmt.Fprintf(&b, `<div class="card-page-main"><img class="card" src="https://cdn/one-piece/%s/%s_EN.webp">`, p.setCode, p.key)
+		fmt.Fprintf(&b, `<span class="card-text-id">%s</span>`, p.code)
+		if p.block != "" {
+			fmt.Fprintf(&b, `<div class="regulation-mark">Block %s</div>`, p.block)
+		}
+		fmt.Fprintf(&b, `<div class="prints-current-details"><span>%s (%s)</span><span>%s</span></div>`, p.set, p.setCode, p.rarity)
+		fmt.Fprintf(&b, `<table><tr class="current"><td><span class="prints-table-card-number">%s</span></td></tr></table></div>`, p.kind)
+	}
+	b.WriteString("</body></html>")
+	return []byte(b.String())
+}
+
+// refreshPages refreshes a new library from a Limitless that lists the pages in order.
+func refreshPages(pages ...[]byte) *Library {
+	GinkgoHelper()
+	var index strings.Builder
+	for i := range pages {
+		fmt.Fprintf(&index, `<a href="/cards/set%d-page">x</a>`, i)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/cards" {
+			_, _ = w.Write([]byte(index.String()))
+			return
+		}
+		var i int
+		if _, err := fmt.Sscanf(r.URL.Path, "/cards/set%d-page", &i); err != nil || i >= len(pages) {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(pages[i])
+	}))
+	DeferCleanup(srv.Close)
+	l := newLibrary()
+	_, err := l.Refresh(context.Background(), Source{Client: srv.Client(), Limitless: srv.URL}, time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC))
+	Expect(err).NotTo(HaveOccurred())
+	return l
+}
+
 var _ = Describe("Library", func() {
 	var (
 		sites *fakeSites
@@ -115,6 +121,27 @@ var _ = Describe("Library", func() {
 		srv = httptest.NewServer(sites)
 		DeferCleanup(srv.Close)
 		src = Source{Client: srv.Client(), Limitless: srv.URL, Rules: srv.URL + "/rules"}
+	})
+
+	It("reads every printing on a set page with the card's data", func() {
+		l := newLibrary()
+		_, err := l.Refresh(context.Background(), src, now)
+		Expect(err).NotTo(HaveOccurred())
+		law := l.Cards["OP14-001"]
+		Expect(law).To(gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+			"Code": Equal("OP14-001"), "Name": Equal("Trafalgar Law"), "Type": Equal("Leader"),
+			"Colors": Equal([]Color{Red}), "Cost": Equal(-1), "Life": Equal(5), "Power": Equal(5000),
+			"Attributes": Equal([]string{"Slash"}), "Block": Equal("4"), "Detailed": BeTrue(), "Legality": Equal(Legal),
+			"Traits": Equal([]string{"The Seven Warlords of the Sea", "Supernovas", "Heart Pirates"}),
+		}))
+		Expect(law.Effect).To(HavePrefix("[Activate: Main] [Once Per Turn] Select 2"))
+		Expect(law.Prints[0]).To(Equal(Print{Key: "OP14-001", Block: "4", Rarity: "Leader", Artist: "Kaito Tomioka", Set: "The Azure Sea's Seven"}))
+		Expect(l.Cards["OP14-002"].Counter).To(Equal(1000))
+		Expect(l.Cards["OP14-002"].Cost).To(Equal(3))
+		Expect(l.Cards["OP14-020"].Legality).To(Equal(Banned))
+		Expect(l.Cards["OP14-020"].Effect).To(ContainSubstring("has the <Slash> attribute"))
+		Expect(l.Cards["OP14-018"].Effect).To(ContainSubstring("\n[Trigger]"))
+		Expect(l.Cards["OP14-018"].Type).To(Equal("Event"))
 	})
 
 	It("fetches every set once, then only the updated ones a day later", func() {
@@ -170,43 +197,26 @@ var _ = Describe("Library", func() {
 	})
 
 	It("takes a card's data from its own set even when a reprint is read first", func() {
-		l := newLibrary()
-		reprint := limitlessPrint{
-			card: Card{Code: "OP01-024", Rarity: "Rare", Set: "One Piece Card The Best"}, setCode: "PRB02",
-			print: Print{Key: "OP01-024", Rarity: "Rare", Set: "One Piece Card The Best"},
-		}
-		original := limitlessPrint{
-			card: Card{Code: "OP01-024", Rarity: "Super Rare", Set: "Romance Dawn"}, setCode: "OP01",
-			print: Print{Key: "OP01-024", Rarity: "Super Rare", Set: "Romance Dawn"},
-		}
-		l.merge([]limitlessPrint{reprint})
-		l.merge([]limitlessPrint{original})
-		l.merge([]limitlessPrint{reprint})
-		c := l.Cards["OP01-024"]
+		reprint := setPage(pagePrint{code: "OP01-024", key: "OP01-024", set: "One Piece Card The Best", setCode: "PRB02", rarity: "Rare"})
+		original := setPage(pagePrint{code: "OP01-024", key: "OP01-024", set: "Romance Dawn", setCode: "OP01", rarity: "Super Rare"})
+		c := refreshPages(reprint, original, reprint).Cards["OP01-024"]
 		Expect(c.Set).To(Equal("Romance Dawn"))
 		Expect(c.Rarity).To(Equal("Super Rare"))
-		Expect(c.Prints).To(Equal([]Print{original.print}))
+		Expect(c.Prints).To(Equal([]Print{{Key: "OP01-024", Rarity: "Super Rare", Set: "Romance Dawn"}}))
 	})
 
 	It("shows a card's newest block among its printings, with X above all", func() {
-		l := newLibrary()
-		base := limitlessPrint{card: Card{Code: "OP01-120", Block: "1"}, setCode: "OP01", print: Print{Key: "OP01-120", Block: "1"}}
-		reprint := limitlessPrint{card: Card{Code: "OP01-120", Block: "4"}, setCode: "PRB02", print: Print{Key: "OP01-120_p3", Block: "4"}}
-		manga := limitlessPrint{card: Card{Code: "OP01-120", Block: "X"}, setCode: "OP01", print: Print{Key: "OP01-120_p2", Kind: "manga", Block: "X"}}
-		l.merge([]limitlessPrint{base, reprint})
-		Expect(l.Cards["OP01-120"].Block).To(Equal("4"))
-		l.merge([]limitlessPrint{manga})
-		Expect(l.Cards["OP01-120"].Block).To(Equal("X"))
+		base := pagePrint{code: "OP01-120", key: "OP01-120", set: "Romance Dawn", setCode: "OP01", block: "1"}
+		manga := pagePrint{code: "OP01-120", key: "OP01-120_p2", set: "Romance Dawn", setCode: "OP01", kind: "manga", block: "X"}
+		reprint := setPage(pagePrint{code: "OP01-120", key: "OP01-120_p3", set: "One Piece Card The Best", setCode: "PRB02", block: "4"})
+		Expect(refreshPages(setPage(base), reprint).Cards["OP01-120"].Block).To(Equal("4"))
+		Expect(refreshPages(setPage(base, manga), reprint).Cards["OP01-120"].Block).To(Equal("X"))
 	})
 
 	It("fills in a printing's block from a later page, whatever order the pages come in", func() {
-		l := newLibrary()
-		reprinted := limitlessPrint{card: Card{Code: "OP01-120"}, setCode: "PRB01", print: Print{Key: "OP01-120_p2", Kind: "manga"}}
-		own := limitlessPrint{card: Card{Code: "OP01-120", Block: "X"}, setCode: "OP01", print: Print{Key: "OP01-120_p2", Kind: "manga", Block: "X"}}
-		l.merge([]limitlessPrint{reprinted})
-		l.merge([]limitlessPrint{own})
-		l.merge([]limitlessPrint{reprinted})
-		Expect(l.Cards["OP01-120"].Block).To(Equal("X"))
+		reprinted := setPage(pagePrint{code: "OP01-120", key: "OP01-120_p2", set: "Premium", setCode: "PRB01", kind: "manga"})
+		own := setPage(pagePrint{code: "OP01-120", key: "OP01-120_p2", set: "Romance Dawn", setCode: "OP01", kind: "manga", block: "X"})
+		Expect(refreshPages(reprinted, own, reprinted).Cards["OP01-120"].Block).To(Equal("X"))
 	})
 
 	It("takes bans and pairs from Bandai and rotation from Limitless", func() {
@@ -227,7 +237,9 @@ var _ = Describe("Library", func() {
 		l := newLibrary()
 		_, err := l.Refresh(context.Background(), src, now)
 		Expect(err).NotTo(HaveOccurred())
-		l.Rules.Banned = []string{"OP06-047"}
+		sites.rules = bytes.ReplaceAll(sites.rules, []byte("OP14-020"), []byte("OP14-999"))
+		_, err = l.Refresh(context.Background(), src, now.Add(time.Hour))
+		Expect(err).NotTo(HaveOccurred())
 		db := NewDB()
 		l.Apply(db)
 		Expect(db.Card("OP14-020").Legality).To(Equal(Legal))

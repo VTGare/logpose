@@ -8,17 +8,13 @@ import (
 	"github.com/VTGare/logpose/internal/replay"
 )
 
-// inspector shows the card clicked on the mat in full, with what is on it. With none clicked,
-// it shows the step's own cards: the attacker and the card it attacks with their powers, or what
-// the step played.
+// With no card clicked, inspector shows the step's own cards: the attacker and the card it
+// attacks with their powers, or what the step played.
 func (v *view) inspector(c *ui.Context, sv *stepView, width float32) {
 	t := c.Theme()
-	rs := v.detail.replay
-	if rs == nil {
-		return
-	}
+	rs := sv.rs
 	if rs.pile.kind != pileNone {
-		v.pileView(c, sv, rs, width)
+		v.pileView(c, sv, width)
 		return
 	}
 	if card, mine, ok := findCard(sv, rs.selected); ok {
@@ -38,36 +34,32 @@ func (v *view) inspector(c *ui.Context, sv *stepView, width float32) {
 		ui.Row(c).Gap(8).Justify(ui.Center).AlignItems(ui.Start).Margin(8, 0, 0, 0).Children(func() {
 			side := func(code string, p replay.Power, col ui.Color) {
 				ui.Column(c.Key(code)).Grow(1).Basis(0).Gap(6).AlignItems(ui.Center).Children(func() {
-					v.cardArt(c, code, 92, 129).Shadow(0, 6, 18, 0, panelShade).Border(2, col)
+					v.card(c, code, 92).Shadow(0, 6, 18, 0, panelShade).Border(2, col)
 					if len(p.Parts) > 0 {
 						ui.Text(c, powerText(p)).FontSize(22).Bold().TextColor(col).Tooltip(v.powerSum(p))
 					}
 					ui.Text(c, v.snap.card(code).Name).FontSize(12).TextColor(t.TextMuted).TextAlign(ui.Center).Wrap()
 				})
 			}
-			attacker, defender := youColor, oppColor
-			if sv.me.Owner != bt.AttackerOwner {
-				attacker, defender = oppColor, youColor
-			}
-			side(bt.Attacker, bt.Attack, attacker)
+			attacker := sv.attacker()
+			side(bt.Attacker, bt.Attack, attacker.color())
 			ui.Text(c, "vs").FontWeight(600).TextColor(faintColor(t)).Margin(60, 0, 0, 0)
-			side(bt.Defender(), bt.Defense, defender)
+			side(bt.Defender(), bt.Defense, attacker.other().color())
 		})
 	} else if len(sv.step.Cards) > 0 {
 		ui.Row(c).Gap(8).Justify(ui.Center).Margin(8, 0, 0, 0).Children(func() {
 			for i, code := range sv.step.Cards[:min(len(sv.step.Cards), 2)] {
-				ui.Box(c.Key(i)).Children(func() { v.cardArt(c, code, 120, 168).Shadow(0, 6, 18, 0, panelShade) })
+				ui.Box(c.Key(i)).Children(func() { v.card(c, code, 120).Shadow(0, 6, 18, 0, panelShade) })
 			}
 		})
 	}
 	ui.Text(c, "Click a card, deck or trash on the mat to see it here.").FontSize(12).TextColor(faintColor(t)).Margin(10, 0, 0, 0).Wrap()
 }
 
-// inspectCard is a card large, whose it is and where, and each status with its source and end.
 func (v *view) inspectCard(c *ui.Context, card replay.Card, mine bool) {
 	t := c.Theme()
 	ui.Row(c).Justify(ui.Center).Margin(8, 0, 4, 0).Children(func() {
-		v.cardArt(c, card.Code, 170, 238).Shadow(0, 10, 24, 0, panelShade)
+		v.card(c, card.Code, 170).Shadow(0, 10, 24, 0, panelShade)
 	})
 	whose := "Your card"
 	if !mine {
@@ -87,7 +79,8 @@ func (v *view) inspectCard(c *ui.Context, card replay.Card, mine bool) {
 	}
 }
 
-// findCard is the card with an ID on either side's board, and whether it's the user's.
+// findCard is the card with an ID on either side's board or in their trash, and whether it's
+// the user's.
 func findCard(sv *stepView, id int) (replay.Card, bool, bool) {
 	if id == 0 {
 		return replay.Card{}, false, false

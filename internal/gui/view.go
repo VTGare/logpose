@@ -1,17 +1,18 @@
 package gui
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 
+	"github.com/VTGare/logpose/internal/arts"
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/live"
 	"github.com/VTGare/logpose/internal/shortcut"
 	"github.com/VTGare/logpose/internal/sim"
+	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
 )
@@ -24,12 +25,12 @@ type snapshot struct {
 	Matches  []stats.Match
 	Overview stats.Overview
 	Cards    *cards.DB
-	Now      time.Time
 	// Formats are the user's formats, oldest first, and Debuts the sets that look like they
 	// started one.
-	Formats  []stats.FormatRange
-	Debuts   []stats.SetDebut
-	Settings settingsInfo
+	Formats []stats.FormatRange
+	Debuts  []stats.SetDebut
+	// Stored is how many games the store holds, the local player's or not.
+	Stored int
 	// Decks are the matches with what the local player's deck did, oldest first, keyed by
 	// fingerprint. Builds are the user's builds, and Dismissed the cores of suggestions they said
 	// aren't builds, by leader.
@@ -55,42 +56,135 @@ const (
 	pageCards    = "cards"
 )
 
-// Pages are the ids of every page, which -page takes. A Decks tab is "decks/" and its name, and
-// "decks/edit" opens the core editor on the first build. "cards/" and a card's code, which
-// IsPage also takes, opens the art viewer on that card.
+const (
+	// groupTop pages sit at the top, groupRef under a line and groupSetup at the bottom.
+	groupTop = iota
+	groupRef
+	groupSetup
+)
+
+type page struct {
+	id    string
+	icon  *ui.SVG
+	label string
+	group int
+	// games pages show the games in the filters' scope under the filter bar, and a message
+	// instead while there are none. The others show whatever is stored.
+	games bool
+	draw  func(v *view, c *ui.Context)
+	// head draws over the page, under the filter bar and the live strip.
+	head func(v *view, c *ui.Context)
+	// subs are what -page takes after the id and a slash. any, when set, takes every name
+	// there and is how the help shows one. open shows one.
+	subs []string
+	any  string
+	open func(v *view, sub string)
+}
+
+// pages are the app's pages in the sidebar's order. A Decks tab is "decks/" and its name,
+// "decks/build" chooses the first build and "decks/edit" opens the core editor on it. "cards/"
+// and a card's code opens the art viewer on that card.
+var pages = []page{
+	{id: pageOverview, icon: iconOverview, label: "Overview", games: true, draw: (*view).overviewPage, head: (*view).debutBanner},
+	{id: pageMatches, icon: iconMatches, label: "Matches", games: true, draw: (*view).matchesPage},
+	{
+		id: pageDecks, icon: iconLeaders, label: "Decks", games: true, draw: (*view).decksPage,
+		subs: deckPageSubs(), open: (*view).openDecks,
+	},
+	{id: pageMatchups, icon: iconMatchups, label: "Matchups", games: true, draw: (*view).matchupsPage},
+	{
+		id: pageCards, icon: iconCards, label: "Cards", group: groupRef, draw: (*view).cardsPage,
+		any: "<code>", open: func(v *view, code string) { v.cardsUI.selected, v.cardsUI.viewer = code, true },
+	},
+	{id: pageFormats, icon: iconFormats, label: "Formats", group: groupSetup, draw: (*view).formatsPage},
+	{id: pageSettings, icon: iconSettings, label: "Settings", group: groupSetup, draw: (*view).settingsPage},
+}
+
+func deckPageSubs() []string {
+	var out []string
+	for _, tab := range deckPageTabs {
+		if tab.sub != "" {
+			out = append(out, tab.sub)
+		}
+	}
+	return append(out, "edit", "build", "nobuild")
+}
+
+func (v *view) openDecks(sub string) {
+	switch sub {
+	case "nobuild":
+		v.decks.scope = deckScope{kind: scopeNoBuild}
+	case "build", "edit":
+		if d := v.leaderDecks(); len(d.builds) > 0 {
+			v.decks.scope = buildScope(d.builds[0].ID)
+			if sub == "edit" {
+				v.startEdit(d.builds[0])
+			}
+		}
+	}
+	for i, tab := range deckPageTabs {
+		if tab.sub != "" && tab.sub == sub {
+			v.decks.tab = i
+		}
+	}
+}
+
+func pageOf(id string) (page, bool) {
+	for _, p := range pages {
+		if p.id == id {
+			return p, true
+		}
+	}
+	return page{}, false
+}
+
+// Pages are the ids of every page and every name after a slash that -page takes.
 func Pages() []string {
-	var ids []string
-	for _, p := range slices.Concat(navPages, refPages, setupPages) {
+	var ids, subs []string
+	for _, p := range pages {
 		ids = append(ids, p.id)
+		for _, s := range p.subs {
+			subs = append(subs, p.id+"/"+s)
+		}
 	}
-	for _, tab := range deckTabLabels[1:] {
-		ids = append(ids, pageDecks+"/"+strings.ToLower(tab))
+	for _, p := range pages {
+		if p.any != "" {
+			subs = append(subs, p.id+"/"+p.any)
+		}
 	}
-	return append(ids, pageDecks+"/edit", pageDecks+"/build", pageDecks+"/nobuild")
+	return append(ids, subs...)
 }
 
 // IsPage reports whether -page takes the id.
 func IsPage(id string) bool {
-	code, ok := strings.CutPrefix(id, pageCards+"/")
-	return slices.Contains(Pages(), id) || ok && code != ""
+	name, sub, _ := strings.Cut(id, "/")
+	p, ok := pageOf(name)
+	switch {
+	case !ok:
+		return false
+	case !strings.Contains(id, "/"):
+		return true
+	case p.any != "":
+		return sub != ""
+	}
+	return slices.Contains(p.subs, sub)
 }
 
-// open shows a page IsPage takes.
+// open shows a page IsPage takes. What follows the slash waits for the games, since it can
+// name what only they have, such as a leader's first build.
 func (v *view) open(id string) {
-	page, tab, _ := strings.Cut(id, "/")
-	v.page = page
-	if page == pageCards && tab != "" {
-		v.cardsUI.selected, v.cardsUI.viewer = tab, true
+	v.page, _, _ = strings.Cut(id, "/")
+	v.opening = id
+}
+
+func (v *view) openSub() {
+	if v.opening == "" || !v.snap.Loaded {
+		return
 	}
-	v.decks.editOnOpen = tab == "edit"
-	v.decks.buildOnOpen = tab == "build"
-	if tab == "nobuild" {
-		v.decks.scope = deckScope{kind: scopeNoBuild}
-	}
-	for i, label := range deckTabLabels {
-		if strings.ToLower(label) == tab {
-			v.decks.tab = i
-		}
+	name, sub, _ := strings.Cut(v.opening, "/")
+	v.opening = ""
+	if p, ok := pageOf(name); ok && sub != "" && p.open != nil && v.page == name {
+		p.open(v, sub)
 	}
 }
 
@@ -104,23 +198,25 @@ type actions interface {
 	UpdateFormat(f store.Format)
 	DeleteFormat(id int64)
 	DismissSet(set string)
-	// LoadTimeline reads a match's life by turn and key moments from its log and shows them with
-	// view.setTimeline.
+	// LoadTimeline parses a match's log for its life by turn and key moments and shows them,
+	// with the parsed game, through view.setTimeline.
 	LoadTimeline(fingerprint, me, opp string)
 	SetGameType(fingerprint string, t store.GameType)
 	SetGameNote(fingerprint, note string)
 	SetBookmark(fingerprint string, on bool)
-	SaveBuild(b store.Build)
+	// SaveBuild calls saved with the build's ID on the main thread once it's stored.
+	SaveBuild(b store.Build, saved func(id int64))
 	DeleteBuild(id int64)
 	DismissSuggestion(d store.Dismissal)
-	// OpenReplay builds a match's replay from its log and shows it with view.setReplay.
-	OpenReplay(fingerprint string)
+	// OpenReplay builds a match's replay from its parsed game and shows it with view.setReplay.
+	OpenReplay(fingerprint string, g *simlog.Game)
 	// After runs fn on the main thread once d has passed.
 	After(d time.Duration, fn func())
+	// NewDay runs at midnight, for what the app shows outside the window.
+	NewDay()
 
 	SetSetting(key, value string)
 	SetOpenAtLogin(on bool)
-	// SetShortcut adds or removes logpose's shortcut in place.
 	SetShortcut(place shortcut.Place, on bool)
 	// ChooseSimFolder asks for the sim's folder and switches to it.
 	ChooseSimFolder()
@@ -132,10 +228,11 @@ type actions interface {
 	ImportAgain()
 	RefreshCards()
 	Backup()
+	// LoadSettings reads what the Settings page shows and shows it with view.setSettingsInfo.
+	LoadSettings()
 	LoadArtUsage()
 	ClearArt()
-	SetArtCap(mb int)
-	SetArtDownloads(on bool)
+	ApplyPrefs(p prefs)
 
 	// LoadSimArt reads what the sim shows for the card and shows it with view.setSimArt.
 	LoadSimArt(card cards.Card)
@@ -153,17 +250,22 @@ type actions interface {
 type view struct {
 	snap *snapshot
 	act  actions
+	// clock is the time now, and wake the next midnight a frame is asked for, so the day names
+	// change without a new snapshot.
+	clock func() time.Time
+	wake  time.Time
 	// toast is a message for the next frame to show.
 	toast *ui.Toast
 	upd   updateState
 	// updNotes shows the next version's release notes.
 	updNotes bool
-	// formats is the Formats page's state.
-	formats formatsState
+	formats  formatsState
 	// live is the game in the sim right now, which the log follower updates on its own.
 	live live.State
 	art  *artCache
 	page string
+	// opening is the id open was given until the games are in.
+	opening string
 
 	matches matchesState
 	// detail is the open match. Its fingerprint is empty on the match list.
@@ -172,11 +274,14 @@ type view struct {
 	filter filters
 	scope  scoped
 
-	leaderPoint int
+	leaderPoint chartPick
 	leaderStats leaderCache
 	decks       decksState
-	// shownPage is the page the last frame showed, which tells a page's first frame.
+	// shownPage is the page the last frame showed, and entered is true in a page's first frame,
+	// when bars grow from zero and charts draw in.
 	shownPage string
+	entered   bool
+	frame     int
 
 	matchups  matchupsState
 	settings  settingsState
@@ -187,58 +292,74 @@ type view struct {
 	artSync   artSync
 	sideDrag  paneDrag
 	panelDrag paneDrag
-	// tableSaves counts the table layout changes, so only the last of a drag is stored.
-	tableSaves int
-	simArt     simArtState
-	arts       artsState
+	// pending counts the calls to later by key, so only the last one runs.
+	pending map[string]int
+	// system is what Windows says about logpose's startup and shortcuts.
+	system systemState
+	simArt simArtState
+	arts   artsState
 }
 
-// openLeader shows a leader on the Decks page.
+func (v *view) do(fn func(actions)) {
+	if v.act != nil {
+		fn(v.act)
+	}
+}
+
+// The setters below are how the app changes what the view shows. It calls them on the main
+// thread.
+
+func (v *view) setSnapshot(s *snapshot)         { v.snap = s }
+func (v *view) setLive(s live.State)            { v.live = s }
+func (v *view) setArtCache(a *artCache)         { v.art = a }
+func (v *view) setArtSync(s artSync)            { v.artSync = s }
+func (v *view) addCardSync(p cards.SetProgress) { v.cardSync.add(p) }
+func (v *view) endCardSync()                    { v.cardSync = cardSync{} }
+func (v *view) setSystem(s systemState)         { v.system = s }
+func (v *view) setOpenAtLogin(on bool)          { v.system.openAtLogin = on }
+func (v *view) setArtUsage(u arts.Usage)        { v.settings.art = &u }
+func (v *view) queueToast(t ui.Toast)           { v.toast = &t }
+
+func (v *view) setShortcutMade(place shortcut.Place, on bool) { v.system.shortcuts[place] = on }
+
+func (v *view) setSettingsInfo(info settingsInfo) { v.settings.info = &info }
+
 func (v *view) openLeader(code string) {
 	v.page = pageDecks
 	v.setDeck(code)
 }
 
-// The themes are built once, since build sets one every frame. The light one is mygo's with
-// the bundled font.
-var (
-	darkTheme  = graphite()
-	lightTheme = func() *ui.Theme {
-		t := ui.LightTheme()
-		t.Font = fontFamily
-		return t
-	}()
-)
-
 func newView(art *artCache) *view {
-	return &view{
-		snap: &snapshot{}, art: art, page: pageOverview, leaderPoint: -1, formats: formatsState{day: -1},
-		filter: filters{format: startUnpicked}, prefs: prefs{startFormat: startUnpicked},
-	}
+	v := &view{snap: &snapshot{}, art: art, clock: time.Now, page: pageOverview, formats: formatsState{day: -1}}
+	v.setPrefs(prefsFrom(nil))
+	return v
 }
 
-// applyLook sets the theme the user picked, or the one following Windows, and the result
-// colors.
+// setPrefs takes the stored prefs, and starts the filters on the format they name.
+func (v *view) setPrefs(p prefs) {
+	v.prefs = p
+	v.filter.format = p.startFormat
+}
+
+// applyLook sets the theme the user picked, or the one following Windows, with the result
+// colors of the colorblind setting.
 func (v *view) applyLook(c *ui.Context) {
-	dark := c.Theme().Dark
+	l := look{dark: c.Theme().Dark, colorblind: v.prefs.colorblind}
 	switch v.prefs.theme {
 	case "dark":
-		dark = true
+		l.dark = true
 	case "light":
-		dark = false
+		l.dark = false
 	}
-	if dark {
-		c.SetTheme(darkTheme)
-	} else {
-		c.SetTheme(lightTheme)
-	}
-	winColor, lossColor = resultColors(v.prefs.colorblind)
+	c.SetTheme(looks[l])
 }
 
 func (v *view) build(c *ui.Context) {
 	if v.detail.fingerprint != "" && v.page != v.detail.from {
 		v.closeMatch()
 	}
+	v.wakeAtMidnight()
+	v.openSub()
 	v.replayKeys(c)
 	v.applyLook(c)
 	v.showToast(c)
@@ -248,18 +369,19 @@ func (v *view) build(c *ui.Context) {
 	if open {
 		shown = "match " + v.detail.fingerprint
 	}
-	pageEntered = shown != v.shownPage
+	v.frame++
+	v.entered = shown != v.shownPage
 	v.shownPage = shown
 	body := func() {
 		ui.Column(c).Grow(1).Fill().Children(func() {
-			if v.snap.Loaded && len(v.snap.Matches) > 0 && v.page != pageFormats && v.page != pageSettings && v.page != pageCards && !open {
+			if v.snap.Loaded && len(v.snap.Matches) > 0 && v.current().games && !open {
 				v.filterBar(c)
 			}
 			if v.snap.Loaded && v.live.Phase != live.Idle {
 				v.liveStrip(c)
 			}
-			if v.page == pageOverview && len(v.snap.Debuts) > 0 {
-				v.debutBanner(c)
+			if head := v.current().head; head != nil {
+				head(v, c)
 			}
 			v.pageBody(c, open, shown)
 		})
@@ -269,14 +391,11 @@ func (v *view) build(c *ui.Context) {
 			body()
 			return
 		}
-		if v.prefs.sideWidth == 0 {
-			v.prefs.sideWidth = sideDefault
-		}
 		shown := v.prefs.sideWidth
 		size := shown
 		split := ui.Split(c, &size, func() { v.sidebar(c) }, body).Fill()
 		if split.Changed() {
-			v.dragPane(&v.prefs.sideWidth, &v.sideDrag, size-shown, snapSide, store.SettingSidebarWidth)
+			v.dragPane(prefSideWidth, &v.sideDrag, size-shown, snapSide)
 		}
 	})
 	// A card's menu opens the art viewer on any page. The Cards page draws its own.
@@ -285,17 +404,51 @@ func (v *view) build(c *ui.Context) {
 	}
 }
 
+func (v *view) now() time.Time { return v.clock() }
+
+func (v *view) wakeAtMidnight() {
+	now := v.now()
+	next := stats.DayStart(now).AddDate(0, 0, 1)
+	if next.Equal(v.wake) || v.act == nil {
+		return
+	}
+	v.wake = next
+	v.act.After(next.Sub(now)+time.Second, func() { v.act.NewDay() })
+}
+
+// trayTip is the tray icon's tooltip, with today's record once a game was played today.
+func (v *view) trayTip() string {
+	var r stats.Record
+	n := 0
+	for _, m := range v.snap.Matches {
+		if !stats.DayStart(m.PlayedAt).Equal(v.today()) {
+			break
+		}
+		r.Add(m.Result)
+		n++
+	}
+	if n == 0 {
+		return "logpose"
+	}
+	return "logpose · today " + record(r)
+}
+
+func (v *view) current() page {
+	p, ok := pageOf(v.page)
+	if !ok {
+		p, _ = pageOf(pageOverview)
+	}
+	return p
+}
+
 // pageBody is the page, or a message when there's nothing to show on it.
 func (v *view) pageBody(c *ui.Context, open bool, shown string) {
+	p := v.current()
 	switch {
 	case !v.snap.Loaded:
 		v.message(c, "Loading your games", "")
-	case v.page == pageFormats:
-		v.formatsPage(c)
-	case v.page == pageSettings:
-		v.settingsPage(c)
-	case v.page == pageCards:
-		v.cardsPage(c)
+	case !p.games:
+		p.draw(v, c)
 	case len(v.snap.Matches) == 0 && !v.snap.SimFound:
 		v.setupPage(c)
 	case len(v.snap.Matches) == 0:
@@ -305,21 +458,7 @@ func (v *view) pageBody(c *ui.Context, open bool, shown string) {
 	case len(v.scoped().matches) == 0:
 		v.message(c, "No games match these filters", "Change or clear the filters above.")
 	default:
-		ui.Column(c.Key(shown)).Grow(1).Basis(0).MinHeight(0).Transition(pageEnter).Children(func() { v.statsPage(c) })
-	}
-}
-
-// statsPage is the page chosen in the sidebar, for games in the filters' scope.
-func (v *view) statsPage(c *ui.Context) {
-	switch v.page {
-	case pageMatches:
-		v.matchesPage(c)
-	case pageDecks:
-		v.decksPage(c)
-	case pageMatchups:
-		v.matchupsPage(c)
-	default:
-		v.overviewPage(c)
+		ui.Column(c.Key(shown)).Grow(1).Basis(0).MinHeight(0).Transition(pageEnter).Children(func() { p.draw(v, c) })
 	}
 }
 
@@ -330,8 +469,6 @@ const (
 	sideMax     = 320
 	sideSnap    = 120
 	sideRail    = 60
-	// sideSaveDelay waits for a drag to end before a width is saved.
-	sideSaveDelay = 400 * time.Millisecond
 )
 
 func snapSide(w float32) float32 {
@@ -348,62 +485,26 @@ func snapSide(w float32) float32 {
 // where it shows it, so the drag's own position is kept apart from the snapped width, or each
 // small move would snap straight back.
 type paneDrag struct {
-	at    float32
-	saves int
+	at float32
 }
 
-// dragPane moves *width by moved through snap, and saves it under key once the drag stops.
-func (v *view) dragPane(width *float32, d *paneDrag, moved float32, snap func(float32) float32, key string) {
+// dragPane moves the width e holds by moved through snap, and saves it once the drag stops.
+func (v *view) dragPane(e prefEntry[float32], d *paneDrag, moved float32, snap func(float32) float32) {
+	width := e.field(&v.prefs)
 	if d.at == 0 {
 		d.at = *width
 	}
 	d.at += moved
 	*width = snap(d.at)
-	d.saves++
-	n := d.saves
-	v.do(func(a actions) {
-		a.After(sideSaveDelay, func() {
-			if n != d.saves {
-				return
-			}
-			d.at = 0
-			v.savePane(*width, key)
-		})
+	v.later(e.key, func() {
+		d.at = 0
+		v.savePref(e)
 	})
 }
 
-func (v *view) savePane(width float32, key string) {
-	v.do(func(a actions) { a.SetSetting(key, fmt.Sprint(int(width))) })
-}
-
-type navPage struct {
-	id    string
-	icon  *ui.SVG
-	label string
-}
-
-// navPages are the sidebar's pages from the top. refPages sit under a line, and setupPages at
-// the bottom.
-var (
-	navPages = []navPage{
-		{pageOverview, iconOverview, "Overview"},
-		{pageMatches, iconMatches, "Matches"},
-		{pageDecks, iconLeaders, "Decks"},
-		{pageMatchups, iconMatchups, "Matchups"},
-	}
-	refPages   = []navPage{{pageCards, iconCards, "Cards"}}
-	setupPages = []navPage{{pageFormats, iconFormats, "Formats"}, {pageSettings, iconSettings, "Settings"}}
-)
-
 func pageLabel(id string) string {
-	for _, group := range [][]navPage{navPages, refPages, setupPages} {
-		for _, p := range group {
-			if p.id == id {
-				return p.label
-			}
-		}
-	}
-	return "Matches"
+	p, _ := pageOf(id)
+	return p.label
 }
 
 // sidebar is the pages as icons, and with their names when it's wider than the rail. The icons
@@ -411,7 +512,8 @@ func pageLabel(id string) string {
 func (v *view) sidebar(c *ui.Context) {
 	t := c.Theme()
 	wide := v.prefs.sideWidth > sideRail
-	item := func(id string, icon *ui.SVG, label string) {
+	item := func(p page) {
+		id, label := p.id, p.label
 		b := ui.ButtonBase(c.Key(id)).Label(label).Height(40).Radius(8).Background(ui.Transparent)
 		col := t.TextMuted
 		switch {
@@ -429,12 +531,12 @@ func (v *view) sidebar(c *ui.Context) {
 		}
 		if !wide {
 			b.Width(44).Center().Tooltip(label)
-			b.Children(func() { ui.Icon(c, icon).Size(18, 18).TextColor(col) })
+			b.Children(func() { ui.Icon(c, p.icon).Size(18, 18).TextColor(col) })
 			return
 		}
 		b.Padding(0, 13).Children(func() {
 			ui.Row(c).Fill().Gap(12).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, icon).Size(18, 18).TextColor(col)
+				ui.Icon(c, p.icon).Size(18, 18).TextColor(col)
 				ui.Text(c, label).TextColor(col)
 			})
 		})
@@ -452,9 +554,14 @@ func (v *view) sidebar(c *ui.Context) {
 				ui.Text(c, "logpose").Bold()
 			}
 		})
-		for _, p := range navPages {
-			item(p.id, p.icon, p.label)
+		group := func(g int) {
+			for _, p := range pages {
+				if p.group == g {
+					item(p)
+				}
+			}
 		}
+		group(groupTop)
 		// The line takes the same height in both widths, so the icons under it keep their place.
 		line := ui.Box(c).Height(1).Background(t.Border)
 		if wide {
@@ -462,14 +569,10 @@ func (v *view) sidebar(c *ui.Context) {
 		} else {
 			line.Width(24).Margin(8, 0)
 		}
-		for _, p := range refPages {
-			item(p.id, p.icon, p.label)
-		}
+		group(groupRef)
 		ui.Spacer(c)
 		v.updateBox(c, wide)
-		for _, p := range setupPages {
-			item(p.id, p.icon, p.label)
-		}
+		group(groupSetup)
 	})
 }
 

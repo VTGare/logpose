@@ -2,6 +2,7 @@ package cards
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -21,9 +22,25 @@ var (
 	namedCard    = regexp.MustCompile(`\[([^\]]+)\]`)
 )
 
+// Keywords are the bracketed words in an effect, each once, such as "Blocker" or "On Play".
+// "DON!! x2" and the like count as "DON!!".
+func Keywords(effect string) []string {
+	var out []string
+	for _, m := range namedCard.FindAllStringSubmatch(effect, -1) {
+		k := m[1]
+		if strings.HasPrefix(k, "DON!!") {
+			k = "DON!!"
+		}
+		if !slices.Contains(out, k) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
 // SearchTargets reads from a card's effect what it searches the deck for, such as "Land of
-// Wano", "Wisdom", "Trigger" or a card's name, in the order the effect names them. It's empty for a card that
-// doesn't search or whose wording it doesn't know.
+// Wano", "Wisdom", "Trigger" or a card's name. It's empty for a card that doesn't search or
+// whose wording it doesn't know.
 func SearchTargets(effect string) []string {
 	m := searchClause.FindStringSubmatch(effect)
 	if m == nil {

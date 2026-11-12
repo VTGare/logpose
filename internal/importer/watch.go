@@ -2,11 +2,12 @@ package importer
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"time"
 
+	"github.com/VTGare/logpose/internal/simfile"
 	"github.com/VTGare/logpose/internal/store"
 )
 
@@ -41,7 +42,10 @@ func (w *Watcher) Run(ctx context.Context) error {
 	}
 	first := true
 	for {
-		r, err := w.pass(ctx)
+		r, err := w.pass(ctx, w.report)
+		if ctx.Err() != nil {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -57,17 +61,30 @@ func (w *Watcher) Run(ctx context.Context) error {
 	}
 }
 
-func (w *Watcher) pass(ctx context.Context) (Result, error) {
-	paths, err := filepath.Glob(filepath.Join(w.Dir, "*.log"))
+func (w *Watcher) report(err error) error {
+	if w.OnError != nil {
+		w.OnError(err)
+	}
+	return nil
+}
+
+// pass imports the logs changed since the last pass, oldest first, so each game keeps the
+// earliest file it was saved in. fail gets each file's error and stops the pass when it returns
+// one.
+func (w *Watcher) pass(ctx context.Context, fail func(error) error) (Result, error) {
+	if w.seen == nil {
+		w.seen = make(map[string]fileState)
+	}
+	paths, err := simfile.CombatLogs(w.Dir)
 	if err != nil {
 		return Result{}, err
 	}
-	slices.Sort(paths)
 	var total Result
 	for _, path := range paths {
-		if ctx.Err() != nil {
-			return total, nil
+		if err := ctx.Err(); err != nil {
+			return total, err
 		}
+		// The sim renames a .partial.log when its game ends, which can happen after the listing.
 		info, err := os.Stat(path)
 		if err != nil {
 			continue
@@ -78,23 +95,23 @@ func (w *Watcher) pass(ctx context.Context) (Result, error) {
 		}
 		r, err := File(ctx, w.Store, path)
 		if err != nil {
-			if w.OnError != nil {
-				w.OnError(err)
+			if err := fail(fmt.Errorf("importer: %s: %w", filepath.Base(path), err)); err != nil {
+				return total, err
 			}
 			continue
 		}
 		w.seen[path] = state
 		total.add(r)
 	}
-	// The first pass catches games an older parser stored, which a new version of logpose
-	// reads differently. Later passes only need it when a game was added.
-	if total.New > 0 || !w.checked {
+	// Games an older version of logpose stored may read differently now. New games are always
+	// stored by this parser, so a pass only needs this until it succeeds once.
+	if !w.checked {
 		n, err := w.Store.Reparse(ctx)
-		if err != nil && w.OnError != nil {
-			w.OnError(err)
-		}
 		total.Reparsed += n
 		w.checked = err == nil
+		if err != nil {
+			return total, fail(err)
+		}
 	}
 	return total, nil
 }

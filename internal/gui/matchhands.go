@@ -14,8 +14,6 @@ func verdict(p store.GamePlayer) string {
 	return "kept"
 }
 
-// handsTile shows both opening hands side by side. A mulligan's first hand sits under the kept
-// one, small and greyed like removed cards.
 func (v *view) handsTile(c *ui.Context, m stats.Match) ui.Element {
 	t := c.Theme()
 	side := func(key, who string, p store.GamePlayer) {
@@ -34,11 +32,12 @@ func (v *view) handsTile(c *ui.Context, m stats.Match) ui.Element {
 			}
 		})
 	}
-	sum := "You " + verdict(m.Me) + " · " + m.Opp.Name + " " + verdict(m.Opp)
+	you := mySide(m)
+	sum := you.name() + " " + verdict(m.Me) + " · " + you.other().name() + " " + verdict(m.Opp)
 	return v.foldTile(c, "match.hands", foldHead{label: "Opening hands", summary: sum}, func() {
 		ui.Row(c).Gap(24).AlignItems(ui.Start).Children(func() {
-			side("me", "You", m.Me)
-			side("opp", m.Opp.Name, m.Opp)
+			side("me", you.name(), m.Me)
+			side("opp", you.other().name(), m.Opp)
 		})
 	})
 }
@@ -46,7 +45,7 @@ func (v *view) handsTile(c *ui.Context, m stats.Match) ui.Element {
 func (v *view) thumbRow(c *ui.Context, codes []string, width float32, dim bool) {
 	ui.Row(c).Gap(4).Wrap().Children(func() {
 		for i, code := range codes {
-			box := ui.Box(c.Key(i)).Label(v.snap.card(code).Name).Children(func() { v.cardThumb(c, code, width) })
+			box := ui.Box(c.Key(i)).Label(v.snap.card(code).Name).Children(func() { lift(v.card(c, code, width), 5) })
 			if dim {
 				box.Grayscale().Opacity(0.85)
 			}

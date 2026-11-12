@@ -147,7 +147,6 @@ func (s *Store) Dismissals(ctx context.Context) ([]Dismissal, error) {
 	return out, err
 }
 
-// cleanCore sorts the cards and drops blanks and repeats.
 func cleanCore(cards []string) []string {
 	var out []string
 	for _, c := range cards {

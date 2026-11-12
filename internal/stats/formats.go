@@ -2,10 +2,10 @@ package stats
 
 import (
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/store"
 )
 
@@ -14,6 +14,12 @@ import (
 type FormatRange struct {
 	store.Format
 	End time.Time
+}
+
+// Scope is the format's games. A format holds only ranked games, since casual lobbies can play
+// any cards.
+func (f FormatRange) Scope() Scope {
+	return Scope{Type: RankedGames, Since: f.Start, Until: f.End}
 }
 
 // Ranges gives each format, oldest first, its end.
@@ -55,7 +61,7 @@ const debutHistory = 10
 // first.
 func Debuts(ms []Match, fs []store.Format, dismissed []string) []SetDebut {
 	ms = slices.DeleteFunc(slices.Clone(ms), func(m Match) bool {
-		return !m.Ranked || !strings.ContainsRune(formatRooms, rune(m.Lobby.Code[0]))
+		return !m.Ranked || !strings.ContainsRune(formatRooms, rune(m.Lobby.Room()))
 	})
 	highest := make(map[string]int)
 	var out []SetDebut
@@ -63,7 +69,7 @@ func Debuts(ms []Match, fs []store.Format, dismissed []string) []SetDebut {
 		earlier := len(ms) - 1 - i
 		m := ms[i]
 		for _, set := range m.Sets {
-			kind, n, ok := splitSet(set)
+			kind, n, ok := cards.SplitSet(set)
 			if !ok || !formatKinds[kind] {
 				continue
 			}
@@ -88,13 +94,3 @@ func Debuts(ms []Match, fs []store.Format, dismissed []string) []SetDebut {
 // formatKinds are the kinds of set whose release starts a format. Starter decks come out often
 // and old ones turn up late in rare decks, so they would suggest formats that aren't there.
 var formatKinds = map[string]bool{"OP": true, "EB": true}
-
-// splitSet splits "OP13" into "OP" and 13. Promos have no number.
-func splitSet(set string) (string, int, bool) {
-	i := strings.IndexAny(set, "0123456789")
-	if i <= 0 {
-		return "", 0, false
-	}
-	n, err := strconv.Atoi(set[i:])
-	return set[:i], n, err == nil
-}

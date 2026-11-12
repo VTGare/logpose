@@ -11,8 +11,6 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
-
-	"github.com/VTGare/logpose/internal/store"
 )
 
 const (
@@ -31,7 +29,6 @@ type updater struct {
 	found *mygo.Update
 }
 
-// Version is the version mygo build gave logpose.
 func Version() string { return mygo.App.Version() }
 
 // installed reports whether logpose runs from the folder its installer made, which holds the
@@ -51,20 +48,20 @@ func (a *app) startUpdates(ctx context.Context, set map[string]string) {
 	u := &a.upd
 	u.state.current = Version()
 	u.state.can = !a.opts.Dev && mygo.Updater.Enabled()
-	if ms, err := strconv.ParseInt(set[store.SettingUpdateChecked], 10, 64); err == nil {
+	if ms, err := strconv.ParseInt(set[keyUpdateChecked], 10, 64); err == nil {
 		u.state.checked = time.UnixMilli(ms)
 	}
 	a.view.setUpdate(u.state)
-	if last := set[store.SettingLastVersion]; last != u.state.current && !a.opts.Dev {
+	if last := set[keyLastVersion]; last != u.state.current && !a.opts.Dev {
 		if last != "" {
 			ver := u.state.current
-			a.view.toast = &ui.Toast{
+			a.view.queueToast(ui.Toast{
 				Title: "Updated to " + ver, Timeout: 10 * time.Second,
 				Action: "What's new", OnAction: func() { a.view.do(func(x actions) { x.OpenURL(releasesURL + ver) }) },
-			}
+			})
 		}
 		go func() {
-			if err := a.opts.Store.SetSetting(ctx, store.SettingLastVersion, u.state.current); err != nil {
+			if err := a.opts.Store.SetSetting(ctx, keyLastVersion, u.state.current); err != nil {
 				a.opts.Log.Warn("save version", "err", err)
 			}
 		}()
@@ -86,7 +83,6 @@ func (a *app) startUpdates(ctx context.Context, set map[string]string) {
 	}()
 }
 
-// setUpdate changes the update state and shows it.
 func (a *app) setUpdate(change func(s *updateState)) {
 	u := &a.upd
 	u.mu.Lock()
@@ -101,7 +97,7 @@ func (a *app) setUpdate(change func(s *updateState)) {
 func (a *app) checkUpdate(ctx context.Context) {
 	u := &a.upd
 	u.mu.Lock()
-	busy := u.state.phase == updateDownloading || u.state.phase == updateReady || u.state.phase == updateChecking
+	busy := u.state.busy()
 	u.mu.Unlock()
 	if busy {
 		return
@@ -113,7 +109,7 @@ func (a *app) checkUpdate(ctx context.Context) {
 	}
 	now := time.Now()
 	if err == nil {
-		if serr := a.opts.Store.SetSetting(ctx, store.SettingUpdateChecked, strconv.FormatInt(now.UnixMilli(), 10)); serr != nil {
+		if serr := a.opts.Store.SetSetting(ctx, keyUpdateChecked, strconv.FormatInt(now.UnixMilli(), 10)); serr != nil {
 			a.opts.Log.Warn("save update check", "err", serr)
 		}
 	}
@@ -134,14 +130,9 @@ func (a *app) checkUpdate(ctx context.Context) {
 		a.opts.Log.Warn("update check", "err", err)
 		return
 	}
-	if up != nil && !a.manualUpdates(ctx) {
+	if up != nil && !a.applied().updateManual {
 		a.installUpdate(ctx)
 	}
-}
-
-func (a *app) manualUpdates(ctx context.Context) bool {
-	v, err := a.opts.Store.Setting(ctx, store.SettingUpdateManual)
-	return err == nil && v == "1"
 }
 
 // installUpdate downloads the version found and puts it in place of this one. The running app

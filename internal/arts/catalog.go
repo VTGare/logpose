@@ -2,15 +2,13 @@ package arts
 
 import (
 	"cmp"
-	"encoding/json"
 	"errors"
 	"maps"
-	"os"
-	"path/filepath"
 	"slices"
 	"time"
 
 	"github.com/VTGare/logpose/internal/cards"
+	"github.com/VTGare/logpose/internal/fetch"
 )
 
 // catalog is Bandai's printings as last read, stored as bandai.json. Each series keeps its own
@@ -45,8 +43,6 @@ const (
 	catalogVersion = 1
 	promotionID    = "569901"
 	otherID        = "569801"
-	// pageMaxAge is how old a page read daily may be before it is read again.
-	pageMaxAge = 20 * time.Hour
 	// recentFor is how long a new series is read daily. Older pages are taken not to gain
 	// printings.
 	recentFor = 60 * 24 * time.Hour
@@ -59,36 +55,19 @@ func newCatalog() *catalog {
 }
 
 func loadCatalog(path string) (*catalog, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return newCatalog(), nil
-	}
+	c := newCatalog()
+	found, err := fetch.LoadJSON(path, c)
 	if err != nil {
 		return nil, err
 	}
-	c := newCatalog()
-	// The file is a cache of pages that can be read again, so one that doesn't parse starts over.
-	if err := json.Unmarshal(data, c); err != nil || c.Version != catalogVersion || c.Series == nil {
+	if !found || c.Version != catalogVersion || c.Series == nil {
 		return newCatalog(), nil
 	}
 	c.index()
 	return c, nil
 }
 
-func (c *catalog) save(path string) error {
-	data, err := json.Marshal(c)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
-}
+func (c *catalog) save(path string) error { return fetch.SaveJSON(path, c) }
 
 // clone copies the catalog, so a refresh fills its own while readers keep the last one. A
 // series is replaced whole when stored, so the copies share no series that changes.
@@ -108,7 +87,7 @@ var errBadPage = errors.New("arts: Bandai's card list page lists no series or no
 // series new to a list that was read before gets Seen = now. On the first read, the newest
 // id of each family (5690xx starters, 5691xx boosters, 5692xx extras, 5693xx premiums) gets
 // Seen = now and the rest stay zero. It reports whether the series' printings changed.
-func (c *catalog) store(page cards.BandaiPage, now time.Time) (bool, error) {
+func (c *catalog) store(page bandaiPage, now time.Time) (bool, error) {
 	// An empty read means the page changed shape, and storing it would drop every printing
 	// the series had.
 	if len(page.Series) == 0 || len(page.Prints) == 0 || page.Shown == "" {
@@ -134,10 +113,10 @@ func (c *catalog) store(page cards.BandaiPage, now time.Time) (bool, error) {
 	var prints []printing
 	for _, p := range page.Prints {
 		// A site's own key has the same shape on both sites, which leaves out reprints.
-		if !limitlessKey.MatchString(p.Key) {
+		if !cards.IsPrintKey(p.Key) {
 			continue
 		}
-		prints = append(prints, printing{Key: p.Key, Code: p.Code, Rarity: p.Rarity, Product: p.Product})
+		prints = append(prints, printing(p))
 	}
 	shown, ok := c.Series[page.Shown]
 	if !ok {
@@ -152,12 +131,12 @@ func (c *catalog) store(page cards.BandaiPage, now time.Time) (bool, error) {
 }
 
 // due is the series to read now: never read, or promotion, other products and recent series
-// older than pageMaxAge. The newest ids come first.
+// older than fetch.RecheckAfter. The newest ids come first.
 func (c *catalog) due(now time.Time) []string {
 	var out []string
 	for id, s := range c.Series {
 		daily := id == promotionID || id == otherID || (!s.Seen.IsZero() && now.Sub(s.Seen) < recentFor)
-		if s.Fetched.IsZero() || (daily && now.Sub(s.Fetched) > pageMaxAge) {
+		if s.Fetched.IsZero() || (daily && now.Sub(s.Fetched) > fetch.RecheckAfter) {
 			out = append(out, id)
 		}
 	}

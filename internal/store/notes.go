@@ -33,7 +33,6 @@ func (s *Store) SetGameNote(ctx context.Context, fingerprint, note string) error
 	})
 }
 
-// SetBookmark bookmarks a game, or removes its bookmark.
 func (s *Store) SetBookmark(ctx context.Context, fingerprint string, on bool) error {
 	return s.inTx(ctx, func(tx *sql.Tx) error {
 		if !on {

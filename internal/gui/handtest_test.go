@@ -17,7 +17,6 @@ var _ = Describe("handTest", func() {
 		h.deal(list, r)
 		Expect(h.hand).To(HaveLen(5))
 		Expect(h.deck).To(HaveLen(45))
-		Expect(h.list).To(Equal(listKey(list)))
 	})
 
 	It("mulligans once, before the first turn, keeping fifty cards", func() {

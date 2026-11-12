@@ -9,19 +9,19 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"os"
-	"strings"
 	"sync"
 
 	"github.com/egoist/mygo/ui"
 	xdraw "golang.org/x/image/draw"
 
+	"github.com/VTGare/logpose/internal/arts"
 	"github.com/VTGare/logpose/internal/sim"
 )
 
 type artKind int
 
 const (
-	// artFull is the whole card, from the sim's small image.
+	// artFull is the whole card, from the web thumb at webSmallWidth or the sim's small image.
 	artFull artKind = iota
 	// artPortrait is the art area of the full-size card, for banners, with its right edge
 	// faded out so it melts into the backdrop.
@@ -32,8 +32,7 @@ const (
 	artCrop
 	// artLarge is the whole full-size card, for the preview of a small one.
 	artLarge
-	// artCard is the whole full-size card scaled to cardArtWidth, for cards drawn larger than
-	// the sim's small images, such as on the replay's mat.
+	// artCard is the whole card scaled to cardArtWidth, for cards drawn larger than artFull.
 	artCard
 	// artFaceMine and artFaceTheirs are the art area for the two ends of the match face-off,
 	// fading out toward the middle.
@@ -46,9 +45,17 @@ func (k artKind) fromThumb() bool {
 	return k == artFull || k == artCard
 }
 
+// webSmallWidth is how wide a Limitless image is kept for artFull, the size small cards and
+// thumbnails use. Limitless only has 600 px images.
+const webSmallWidth = 150
+
 // cardArtWidth keeps cards sharp up to about 190 DIPs wide at 125% scaling, at a third of the
 // memory of a full image.
 const cardArtWidth = 240
+
+// artCard is scaled from the thumb, and scaling only shrinks. This fails to compile when the
+// thumb is narrower than cardArtWidth.
+const _ = uint(arts.ThumbWidth - cardArtWidth)
 
 type artKey struct {
 	code string
@@ -59,8 +66,9 @@ type artKey struct {
 // main thread, through redraw, since views use them there.
 type artCache struct {
 	install *sim.Install
-	// web is Limitless's art, tried before the sim's. Nil without a folder to keep it in.
-	web    *webArt
+	// web is Limitless's and Bandai's art, tried before the sim's. Nil without a folder to keep
+	// it in.
+	web    *arts.Store
 	redraw func(func())
 
 	mu      sync.Mutex
@@ -69,7 +77,7 @@ type artCache struct {
 	bitmaps map[artKey]*ui.Bitmap
 }
 
-func newArtCache(install *sim.Install, web *webArt, redraw func(func())) *artCache {
+func newArtCache(install *sim.Install, web *arts.Store, redraw func(func())) *artCache {
 	return &artCache{
 		install: install,
 		web:     web,
@@ -124,7 +132,7 @@ func (a *artCache) load(k artKey) {
 	case k.kind == artCrop:
 		img = topArt(img)
 	case k.kind == artCard:
-		img = scaleToWidth(img, cardArtWidth)
+		img = arts.ScaleToWidth(img, cardArtWidth)
 	}
 	a.mu.Lock()
 	a.images[k] = img
@@ -132,50 +140,10 @@ func (a *artCache) load(k artKey) {
 	a.redraw(func() {})
 }
 
-// source is the card's image from Limitless, or from the sim when Limitless has none or
+// source is the card's image from Limitless or Bandai, or from the sim when they have none or
 // can't be reached.
 func (a *artCache) source(k artKey) (image.Image, error) {
-	if code, ok := strings.CutPrefix(k.code, simOwnPrefix); ok {
-		if a.install == nil {
-			return nil, errNoWebArt
-		}
-		return decode(a.install.CardImage(code, k.kind == artFull))
-	}
-	if path, ok := strings.CutPrefix(k.code, ownFilePrefix); ok {
-		img, err := decode(path)
-		if err == nil && k.kind == artFull {
-			img = scaleToWidth(img, webSmallWidth)
-		}
-		return img, err
-	}
-	if a.web != nil && k.code != donCode && k.code != donBackCode {
-		read := a.web.full
-		if k.kind.fromThumb() {
-			read = a.web.thumb
-		}
-		if img, err := read(k.code); err == nil {
-			if k.kind == artFull {
-				img = scaleToWidth(img, webSmallWidth)
-			}
-			return img, nil
-		}
-	}
-	if a.install == nil {
-		return nil, errNoWebArt
-	}
-	return decode(a.path(k))
-}
-
-// path is where the sim keeps an image. DON!! cards have no small image, so every size
-// comes from the full one.
-func (a *artCache) path(k artKey) string {
-	switch k.code {
-	case donCode:
-		return a.install.DonImage()
-	case donBackCode:
-		return a.install.DonBack()
-	}
-	return a.install.CardImage(k.code, k.kind == artFull)
+	return parseArtRef(k.code).read(a.install, a.web, k.kind, true)
 }
 
 func decode(path string) (image.Image, error) {
@@ -206,19 +174,6 @@ func topArt(img image.Image) image.Image {
 	crop := image.Rect(b.Min.X+w*6/100, b.Min.Y+h*10/100, b.Max.X-w*6/100, b.Min.Y+h*40/100)
 	out := image.NewRGBA(image.Rect(0, 0, crop.Dx(), crop.Dy()))
 	draw.Draw(out, out.Bounds(), img, crop.Min, draw.Src)
-	return out
-}
-
-// scaleToWidth scales an image down to a width, keeping its shape. Catmull-Rom keeps the
-// card's text readable where bilinear blurs it.
-func scaleToWidth(img image.Image, w int) image.Image {
-	b := img.Bounds()
-	if b.Dx() <= w {
-		return img
-	}
-	h := b.Dy() * w / b.Dx()
-	out := image.NewRGBA(image.Rect(0, 0, w, h))
-	xdraw.CatmullRom.Scale(out, out.Bounds(), img, b, xdraw.Src, nil)
 	return out
 }
 

@@ -253,13 +253,13 @@ var _ = Describe("effects during an attack", func() {
 		Expect(r.Issues).To(BeEmpty())
 		Expect(battleKinds(r)).To(Equal([]Kind{KindAttack, KindBattleEffect, KindCounter, KindDamage}))
 		effect := firstOf(r, KindBattleEffect)
-		Expect(effect.Title).To(Equal("Charlotte Linlin: +1000 to Stussy (trashed Edward Newgate)"))
+		Expect(summary(effect)).To(Equal("T2 Bob: battle effect OP17-049 trash OP17-040 power OP17-054 1000"))
 		Expect(effect.Player).To(Equal(bobID))
-		Expect(effect.Phase).To(Equal(PhaseBattle))
+
 		Expect(effect.Cards).To(Equal([]string{"OP17-049"}))
 		Expect(moveSeqs(g, effect)).To(Equal([]int{11}))
 		Expect(codes(effect.Board.Side(2).Trash)).To(Equal([]string{"OP17-040"}))
-		Expect(firstOf(r, KindCounter).Title).To(Equal("Countered with There's No Authority in the World +2000"))
+		Expect(firstOf(r, KindCounter).Counter).To(Equal(2000))
 		d := firstOf(r, KindDamage).Battle.Defense
 		Expect(d.Value).To(Equal(8000))
 		Expect(d.Parts).To(Equal([]PowerPart{
@@ -299,7 +299,7 @@ var _ = Describe("effects during an attack", func() {
 		Expect(battleKinds(r)).To(Equal([]Kind{KindAttack, KindBattleEffect, KindDamage}))
 		Expect(moveSeqs(g, firstOf(r, KindAttack))).To(Equal([]int{4}))
 		effect := firstOf(r, KindBattleEffect)
-		Expect(effect.Title).To(Equal("Monkey D. Luffy: +4000 to Monkey D. Luffy (rested 2 DON)"))
+		Expect(summary(effect)).To(Equal("T2 Alice: battle effect OP13-001 Rest 2 Don power OP13-001 4000"))
 		Expect(effect.Player).To(Equal("Alice#1111"))
 		Expect(moveSeqs(g, effect)).To(Equal([]int{5, 6}))
 		Expect(effect.Board.Side(1).DonRested()).To(Equal(2))
@@ -338,12 +338,12 @@ var _ = Describe("counters", func() {
 		var seqs [][]int
 		for _, s := range r.Steps {
 			if s.Kind == KindCounter {
-				counters = append(counters, s.Title)
+				counters = append(counters, summary(s))
 				seqs = append(seqs, moveSeqs(g, s))
 			}
 		}
 		Expect(counters).To(Equal([]string{
-			"Countered with Rocks Pirates +2000", "Countered with Rocks Pirates +2000", "Countered with Buckin +1000",
+			"T1 Bob: counter OP17-056 +2000", "T1 Bob: counter OP17-056 +2000", "T1 Bob: counter OP08-051 +1000",
 		}))
 		Expect(seqs).To(Equal([][]int{{4}, {5}, {6}}))
 		Expect(firstOf(r, KindDamage).Battle.Defense.Parts).To(Equal([]PowerPart{
@@ -418,23 +418,22 @@ var _ = Describe("effect titles", func() {
 			by(bob, "Concedes!"),
 		)...))
 		effect := firstOf(r, KindEffect)
-		Expect(effect.Title).To(Equal("Nami: Set 3 DON active"))
+		Expect(summary(effect)).To(Equal("T3 Alice: effect OP14-031 head Nami [OP14-031] Activate 3 Don"))
 		Expect(effect.Board.Side(1).DonActive()).To(Equal(3))
 	})
 
-	It("writes each counted effect's total", func() {
-		for phrase, want := range map[string]string{
-			"Activate 5 Don":          "Set 5 DON active",
-			"Rest Don [Don]":          "Rest 1 DON",
-			"Minus 2 Don":             "Return 2 DON",
-			"Draw 1 Card":             "Draw 1 card",
-			"Draw 2 Card":             "Draw 2 cards",
-			"Draw 2 Rested Don":       "Add 2 rested DON",
-			"Trash 3 Cards from Deck": "Trash 3 Cards from Deck",
+	It("reads each counted effect", func() {
+		for phrase, want := range map[string]Count{
+			"Activate 5 Don":          {Kind: CountDonActive, N: 5, Verb: "Activate", Object: "Don"},
+			"Rest Don [Don]":          {Kind: CountDonRested, N: 1, Verb: "Rest", Object: "Don"},
+			"Minus 2 Don":             {Kind: CountDonReturned, N: 2, Verb: "Minus", Object: "Don"},
+			"Draw 2 Card":             {Kind: CountCardsDrawn, N: 2, Verb: "Draw", Object: "Card"},
+			"Draw 2 Rested Don":       {Kind: CountRestedDonAdded, N: 2, Verb: "Draw", Object: "Rested Don"},
+			"Trash 3 Cards from Deck": {Kind: CountOther, N: 3, Verb: "Trash", Object: "Cards from Deck"},
 		} {
-			p, n, ok := counted(phrase)
+			c, ok := counted(phrase)
 			Expect(ok).To(BeTrue(), phrase)
-			Expect(countedText(p, n)).To(Equal(want), phrase)
+			Expect(c).To(Equal(want), phrase)
 		}
 	})
 })
@@ -458,7 +457,7 @@ var _ = Describe("power the log words oddly", func() {
 		)...)), printedPower)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(r.PowerChecks).To(BeEmpty())
-		Expect(firstOf(r, KindBattleEffect).Title).To(Equal("Yamato: +2000 to Imu (trashed Ground Death)"))
+		Expect(summary(firstOf(r, KindBattleEffect))).To(Equal("T1 Bob: battle effect EB05-046 trash OP14-096 power OP13-079 2000"))
 		Expect(firstOf(r, KindDamage).Battle.Defense.Parts).To(Equal([]PowerPart{
 			{Kind: PartPrinted, N: 5000}, {Kind: PartEffect, N: 2000, Source: "EB05-046"},
 		}))

@@ -80,3 +80,17 @@ var _ = Describe("Scope until", func() {
 		Expect(stats.Scope{Until: now.Add(-2 * time.Hour)}.Apply(ms)).To(HaveLen(1))
 	})
 })
+
+var _ = Describe("FormatRange", func() {
+	It("scopes to the ranked games from its start to its end", func() {
+		casual := game{ago: 2 * time.Hour, mine: "OP13-001", lobby: "QWERTY"}
+		before := game{ago: 5 * time.Hour, mine: "OP13-001", lobby: "XABCDEF"}
+		in := game{ago: 2 * time.Hour, mine: "OP13-001", lobby: "XBCDEFG"}
+		after := game{ago: time.Minute, mine: "OP13-001", lobby: "XCDEFGH"}
+		ms := stats.Matches(build(after, in, casual, before), me)
+		fr := stats.FormatRange{Format: store.Format{Start: now.Add(-3 * time.Hour)}, End: now.Add(-time.Hour)}
+		got := fr.Scope().Apply(ms)
+		Expect(got).To(HaveLen(1))
+		Expect(got[0].Lobby.Code).To(Equal("XBCDEFG"))
+	})
+})

@@ -4,11 +4,13 @@ import (
 	"context"
 	"image"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"sync"
 	"time"
 
 	"github.com/VTGare/logpose/internal/cards"
+	"github.com/VTGare/logpose/internal/fetch"
 )
 
 // Pictures reads a printing's full image, downloading it when it isn't kept. A read for a grid
@@ -20,13 +22,17 @@ type Pictures interface {
 
 type Config struct {
 	CatalogPath string
-	GridDir     string
-	Pictures    Pictures
-	Client      *http.Client
-	// Site is Bandai's card list, a test server in specs.
+	// ArtDir is the art folder, which the picture grids go in.
+	ArtDir   string
+	Pictures Pictures
+	Client   *http.Client
+	// Site is Bandai's card list, a test server in specs, and cards.BandaiSite when empty.
 	Site  string
 	Pause time.Duration
 }
+
+// BandaiPause is the wait between two pages of Bandai's card list. The first read is 61 pages.
+const BandaiPause = 2 * time.Second
 
 // Gallery is the only owner of Bandai's printings and the picture grids.
 type Gallery struct {
@@ -51,7 +57,10 @@ func Open(cfg Config) (*Gallery, error) {
 	if cfg.Client == nil {
 		cfg.Client = http.DefaultClient
 	}
-	return &Gallery{cfg: cfg, grids: newGridStore(cfg.GridDir), cat: cat}, nil
+	if cfg.Site == "" {
+		cfg.Site = cards.BandaiSite
+	}
+	return &Gallery{cfg: cfg, grids: newGridStore(filepath.Join(cfg.ArtDir, gridDir)), cat: cat}, nil
 }
 
 func (g *Gallery) catalog() *catalog {
@@ -60,13 +69,13 @@ func (g *Gallery) catalog() *catalog {
 	return g.cat
 }
 
-// Stale reports whether the list hasn't been fully read in pageMaxAge. A nil Gallery is
-// never stale.
+// Stale reports whether the list hasn't been fully read in fetch.RecheckAfter. A nil Gallery
+// is never stale.
 func (g *Gallery) Stale(now time.Time) bool {
 	if g == nil {
 		return false
 	}
-	return now.Sub(g.catalog().Checked) > pageMaxAge
+	return now.Sub(g.catalog().Checked) > fetch.RecheckAfter
 }
 
 // Refresh reads the pages that are due, with Pause between two, and stops when ctx ends. Every
@@ -85,7 +94,7 @@ func (g *Gallery) Refresh(ctx context.Context, now time.Time, progress func(done
 	read := 0
 	changed := false
 	err := func() error {
-		page, err := cards.FetchBandaiPage(ctx, g.cfg.Client, g.cfg.Site, first)
+		page, err := fetchBandaiPage(ctx, g.cfg.Client, g.cfg.Site, first)
 		if err != nil {
 			return err
 		}
@@ -100,10 +109,10 @@ func (g *Gallery) Refresh(ctx context.Context, now time.Time, progress func(done
 			progress(read, total)
 		}
 		for _, id := range due {
-			if err := pause(ctx, g.cfg.Pause); err != nil {
+			if err := fetch.Wait(ctx, g.cfg.Pause); err != nil {
 				return err
 			}
-			page, err := cards.FetchBandaiPage(ctx, g.cfg.Client, g.cfg.Site, id)
+			page, err := fetchBandaiPage(ctx, g.cfg.Client, g.cfg.Site, id)
 			if err != nil {
 				return err
 			}
@@ -130,20 +139,6 @@ func (g *Gallery) Refresh(ctx context.Context, now time.Time, progress func(done
 	g.cat = cat
 	g.mu.Unlock()
 	return changed, err
-}
-
-func pause(ctx context.Context, d time.Duration) error {
-	if d <= 0 {
-		return ctx.Err()
-	}
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
-		return nil
-	}
 }
 
 // Arts groups the card's printings and shows each step: at once with the grids known, then
@@ -182,9 +177,8 @@ func (g *Gallery) Arts(ctx context.Context, card cards.Card, show func(CardArts)
 	show(group(card, bandai, g.grids.known, true))
 }
 
-// Match is the version the image shows: the closest version or Same printing at <= matchMax,
-// with a Same printing answered as its head. It makes the grids it needs, so the first match
-// for a card with Bandai printings downloads them.
+// Match is the version the image shows, as match finds it. It makes the grids it needs, so the
+// first match for a card with Bandai printings downloads them.
 func (g *Gallery) Match(ctx context.Context, card cards.Card, img image.Image) (Key, bool) {
 	if g == nil {
 		return Key{}, false

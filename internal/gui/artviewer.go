@@ -18,26 +18,29 @@ const (
 	viewerMargin  = 32
 )
 
-// artEntry is one picture the art viewer lists.
+// artEntry is one picture a card offers. art is nil for the user's file and the sim's own.
 type artEntry struct {
 	key, name, note string
+	art             *arts.Art
 	choice          sim.ArtChoice
 	inSim, usable   bool
 }
 
 // artEntries lists a card's pictures in the Art tab's order: its arts, the user's file and the
-// sim's own. An art stands for the version of it being viewed, or its head.
+// sim's own. An art's key is the version of it being viewed, or its head, and its choice puts
+// that version in the sim. The viewer, the Art tab, the art menu and the tab's count all read
+// this list.
 func (v *view) artEntries(card cards.Card, ca arts.CardArts, info simArtInfo, loaded bool) []artEntry {
 	usable := loaded && !info.noSim && !info.busy
 	var out []artEntry
-	for _, art := range ca.Arts {
+	for i, art := range ca.Arts {
 		ver := art.Head()
 		if shown, ok := art.Find(v.cardsUI.viewed); ok {
 			ver = shown
 		}
 		key := ver.Key.String()
 		out = append(out, artEntry{
-			key: key, name: art.Name(), note: ver.Product,
+			key: key, name: art.Name(), note: ver.Product, art: &ca.Arts[i],
 			choice: sim.ArtChoice{Kind: sim.ArtPrint, Key: key},
 			inSim:  loaded && info.cur.Kind == sim.ArtPrint && art.Has(info.cur.Key),
 			usable: usable && !v.prefs.artOff,
@@ -45,13 +48,13 @@ func (v *view) artEntries(card cards.Card, ca arts.CardArts, info simArtInfo, lo
 	}
 	if info.ownFile != "" {
 		out = append(out, artEntry{
-			key: ownFilePrefix + info.ownFile, name: "Your file", note: "A file you added to the sim",
+			key: fileRef(info.ownFile), name: "Your file", note: "A file you added to the sim",
 			choice: sim.ArtChoice{Kind: sim.ArtFile}, inSim: info.cur.Kind == sim.ArtFile, usable: usable,
 		})
 	}
 	if loaded && !info.noSim {
 		out = append(out, artEntry{
-			key: simOwnPrefix + card.Code, name: "Sim's own", note: "The sim's picture",
+			key: simOwnRef(card.Code), name: "Sim's own", note: "The sim's picture",
 			choice: sim.ArtChoice{Kind: sim.ArtOwn}, inSim: info.cur.Kind == sim.ArtOwn, usable: usable,
 		})
 	}
@@ -72,8 +75,8 @@ func (v *view) artViewer(c *ui.Context, card cards.Card) {
 
 	ww, wh := c.Size()
 	h := min(wh-2*viewerMargin, viewerCardMax)
-	w := min(h*5/7, ww-viewerSide-viewerGap-2*viewerMargin)
-	h = w * 7 / 5
+	w := min(h/cardAspect, ww-viewerSide-viewerGap-2*viewerMargin)
+	h = cardHeight(w)
 
 	look := func(key string) { s.viewed, s.versions = key, "" }
 	step := func(by int) func() {
@@ -84,7 +87,7 @@ func (v *view) artViewer(c *ui.Context, card cards.Card) {
 		panel.OnShortcut(0, ui.KeyUp, step(-1))
 		panel.OnShortcut(0, ui.KeyDown, step(1))
 		ui.Row(c).Gap(viewerGap).Children(func() {
-			v.printArt(c, entry.key, w, h).Radius(w*0.042).Shadow(0, 18, 60, 0, ui.RGBA(0, 0, 0, 0.7))
+			v.cardImage(c, entry.key, w).Radius(w*0.042).Shadow(0, 18, 60, 0, ui.RGBA(0, 0, 0, 0.7))
 			ui.Column(c).Width(viewerSide).Height(h).Gap(14).Children(func() {
 				ui.Row(c).Gap(10).AlignItems(ui.Start).Children(func() {
 					ui.Column(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
@@ -125,7 +128,7 @@ func (v *view) viewerEntry(c *ui.Context, e artEntry, viewed bool) ui.Element {
 		row.Background(t.SurfaceHover)
 	}
 	return row.Children(func() {
-		v.printArt(c, e.key, 60, 84).Radius(4)
+		v.cardImage(c, e.key, 60)
 		ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
 			ui.Text(c, e.name).FontSize(13.5).FontWeight(600)
 			note, col := e.note, t.TextMuted

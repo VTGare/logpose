@@ -9,8 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
+	"github.com/VTGare/logpose/internal/replay"
+	"github.com/VTGare/logpose/internal/simfile"
 	"github.com/VTGare/logpose/internal/simlog"
 )
 
@@ -55,11 +56,12 @@ func main() {
 	}
 	if *replays {
 		power, err := printedPower(*simDir, *catalog, *library)
+		var opts []replay.Option
 		if err == nil {
-			err = setDurations(*durations)
+			opts, err = lastings(*durations)
 		}
 		if err == nil {
-			err = replayReport(*dir, 40, power)
+			err = replayReport(*dir, 40, power, opts)
 		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -84,29 +86,39 @@ func main() {
 
 func scan(dir string) (stats, error) {
 	s := stats{ends: make(map[simlog.EndKind]int), lobbies: make(map[string]int)}
-	paths, err := filepath.Glob(filepath.Join(dir, "*.log"))
+	files, err := eachGame(dir, func(file string, i int, g *simlog.Game, seen bool) error {
+		s.games++
+		if !seen {
+			s.count(g, fmt.Sprintf("%s#%d", file, i))
+		}
+		return nil
+	})
+	s.files = files
+	return s, err
+}
+
+// eachGame parses every log in dir in name order and calls fn with each game, and whether an
+// earlier file had it. It returns how many files it read.
+func eachGame(dir string, fn func(file string, i int, g *simlog.Game, seen bool) error) (int, error) {
+	paths, err := simfile.CombatLogs(dir)
 	if err != nil {
-		return s, err
+		return 0, err
 	}
-	sort.Strings(paths)
 	seen := make(map[string]bool)
-	for _, path := range paths {
+	for n, path := range paths {
 		games, err := parseFile(path)
 		if err != nil {
-			return s, fmt.Errorf("%s: %w", path, err)
+			return n, fmt.Errorf("%s: %w", path, err)
 		}
-		s.files++
 		for i := range games {
-			s.games++
 			g := &games[i]
-			if seen[g.Fingerprint] {
-				continue
+			if err := fn(filepath.Base(path), i, g, seen[g.Fingerprint]); err != nil {
+				return n, err
 			}
 			seen[g.Fingerprint] = true
-			s.count(g, fmt.Sprintf("%s#%d", filepath.Base(path), i))
 		}
 	}
-	return s, nil
+	return len(paths), nil
 }
 
 func parseFile(path string) ([]simlog.Game, error) {
@@ -121,8 +133,8 @@ func parseFile(path string) ([]simlog.Game, error) {
 func (s *stats) count(g *simlog.Game, name string) {
 	s.unique++
 	s.textBytes += len(g.Text)
-	if again, err := simlog.Parse(strings.NewReader(g.Text)); err != nil || len(again) != 1 ||
-		again[0].Fingerprint != g.Fingerprint || again[0].End != g.End || again[0].Lobby != g.Lobby {
+	if again, err := simlog.ParseOne(g.Text); err != nil ||
+		again.Fingerprint != g.Fingerprint || again.End != g.End || again.Lobby != g.Lobby {
 		s.reparseFailures = append(s.reparseFailures, name)
 	}
 	if g.HasRZ() {
@@ -142,17 +154,16 @@ func (s *stats) count(g *simlog.Game, name string) {
 }
 
 func lobbyKind(l simlog.Lobby) string {
-	role := map[simlog.LobbyRole]string{simlog.RoleHost: "host", simlog.RoleJoin: "join"}[l.Role]
 	if l.Code == "" {
 		return "no code"
 	}
-	return fmt.Sprintf("%s, %d chars, starts %c", role, len(l.Code), l.Code[0])
+	return fmt.Sprintf("%s, %d chars, starts %c", l.Role, len(l.Code), l.Code[0])
 }
 
 func lastLine(g *simlog.Game) string {
 	for i := len(g.Lines) - 1; i >= 0; i-- {
-		if t := g.Lines[i].Text; !strings.Contains(t, ": [") && !strings.HasPrefix(t, "Life: ") {
-			return t
+		if l := g.Lines[i]; l.Kind != simlog.LinePrintout {
+			return l.Text
 		}
 	}
 	return ""
@@ -163,7 +174,7 @@ func report(s stats, verbose bool) {
 	fmt.Printf("with RZ1 stream %d, turn order known %d, both mulligans %d\n", s.rz, s.withFirst, s.mulliganBoth)
 	fmt.Printf("game text %d KB, %d games don't parse the same from their own text %v\n", s.textBytes/1024, len(s.reparseFailures), s.reparseFailures)
 	fmt.Println("ends:")
-	for _, k := range []simlog.EndKind{simlog.EndConcede, simlog.EndDeckOut, simlog.EndLethal, simlog.EndUnknown} {
+	for _, k := range simlog.EndKinds {
 		fmt.Printf("  %-8s %d\n", k, s.ends[k])
 	}
 	fmt.Println("lobbies:")
@@ -213,32 +224,17 @@ type gameJSON struct {
 }
 
 func dumpJSON(dir string) error {
-	paths, err := filepath.Glob(filepath.Join(dir, "*.log"))
-	if err != nil {
-		return err
-	}
-	sort.Strings(paths)
-	seen := make(map[string]bool)
 	enc := json.NewEncoder(os.Stdout)
-	for _, path := range paths {
-		games, err := parseFile(path)
-		if err != nil {
-			return err
+	_, err := eachGame(dir, func(file string, i int, g *simlog.Game, seen bool) error {
+		if seen {
+			return nil
 		}
-		for i, g := range games {
-			if seen[g.Fingerprint] {
-				continue
-			}
-			seen[g.Fingerprint] = true
-			out := gameJSON{File: filepath.Base(path), Index: i, Lobby: g.Lobby.Code, First: g.First, Turns: g.Turns, End: g.End.Kind.String(), Loser: g.End.Loser}
-			for _, p := range g.Players {
-				out.Players = append(out.Players, p.ID())
-				out.Leaders = append(out.Leaders, p.Leader)
-			}
-			if err := enc.Encode(out); err != nil {
-				return err
-			}
+		out := gameJSON{File: file, Index: i, Lobby: g.Lobby.Code, First: g.First, Turns: g.Turns, End: g.End.Kind.String(), Loser: g.End.Loser}
+		for _, p := range g.Players {
+			out.Players = append(out.Players, p.ID())
+			out.Leaders = append(out.Leaders, p.Leader)
 		}
-	}
-	return nil
+		return enc.Encode(out)
+	})
+	return err
 }

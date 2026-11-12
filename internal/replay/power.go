@@ -17,7 +17,6 @@ const (
 	PartUnlogged
 )
 
-// PowerPart is one thing a card's power is made of.
 type PowerPart struct {
 	Kind PartKind
 	N    int
@@ -25,7 +24,6 @@ type PowerPart struct {
 	Source string
 }
 
-// Power is a card's power at a step.
 type Power struct {
 	Value int
 	// Estimated is set when no "vs" line anchors the value, so it comes from card data and
@@ -136,29 +134,6 @@ func (b *builder) checkVs(step int, bt *Battle, want [2]int) {
 			Known: b.known(c.Code),
 		})
 	}
-}
-
-// pickPower finds the card a power effect names. Among several copies it takes the first on
-// the likelier side, unless a "vs" line showed the buff went to another.
-func (b *builder) pickPower(code string, n int, sides ...*Side) *Card {
-	var cands []*Card
-	var owners []int
-	for _, s := range sides {
-		for _, c := range s.all(code) {
-			cands = append(cands, c)
-			owners = append(owners, s.Owner)
-		}
-	}
-	switch len(cands) {
-	case 0:
-		return nil
-	case 1:
-		return cands[0]
-	}
-	k := len(b.guesses)
-	i := b.flips[k] % len(cands)
-	b.guesses = append(b.guesses, guess{kind: guessPower, code: code, owners: owners, chosen: owners[i], n: n})
-	return cands[i]
 }
 
 // blamePower finds the latest power guess on a copy of the card that a "vs" line's difference

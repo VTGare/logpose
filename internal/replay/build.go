@@ -1,7 +1,6 @@
 package replay
 
 import (
-	"fmt"
 	"regexp"
 	"slices"
 	"strconv"
@@ -50,6 +49,8 @@ type builder struct {
 	final bool
 	// power is a card's printed power, or 0 when unknown.
 	power func(code string) int
+	// lasts overrides how long statuses from a phrase last.
+	lasts map[string]Duration
 	// attackerID and defenderID are the cards of the attack in progress: the target, or the
 	// blocker after a block.
 	attackerID, defenderID int
@@ -89,7 +90,7 @@ const (
 func newBuilder(g *simlog.Game, power func(string) int) *builder {
 	b := &builder{
 		g: g, owner: make(map[string]int), player: make(map[int]string),
-		checks: make(map[[2]int]simlog.Check), flips: make(map[int]int), power: power,
+		checks: make(map[[2]int]simlog.Check), flips: make(map[int]int), power: power, lasts: make(map[string]Duration),
 	}
 	for _, p := range g.Players {
 		if p.Owner == 1 || p.Owner == 2 {
@@ -141,27 +142,19 @@ func (b *builder) run() {
 	}
 	b.anchorPowers()
 	for i := range b.steps {
-		b.steps[i].Title, b.steps[i].Result = b.describe(&b.steps[i])
+		b.detail(&b.steps[i])
 	}
 	if b.g.End.Kind == simlog.EndLethal {
 		for i := len(b.steps) - 1; i >= 0; i-- {
 			if s := &b.steps[i]; s.Battle != nil {
-				s.Result = strings.TrimPrefix(s.Result+" · Lethal", " · ")
+				s.Lethal = true
 				break
 			}
 		}
 	}
 }
 
-var (
-	hitText     = regexp.MustCompile(`^(.*) \[[A-Z0-9-]+\] hit for (\d+) damage$`)
-	vsText      = regexp.MustCompile(`\[[A-Z0-9-]+\]\[(\d+)\] vs .*\[[A-Z0-9-]+\]\[(\d+)\]$`)
-	counterText = regexp.MustCompile(`^Discard .* for Counter (\d+)$`)
-	// counterEffect is an event's counter that the sim writes without "Activate Counter".
-	counterEffect = regexp.MustCompile(`\]: Counter (\d+)$`)
-	attachText    = regexp.MustCompile(`^Attach (\d+) (?:Rested )?Don to `)
-	codeTag       = regexp.MustCompile(` ?\[[A-Za-z][A-Za-z0-9-]*\]`)
-)
+var vsText = regexp.MustCompile(`\[[A-Z0-9-]+\]\[(\d+)\] vs .*\[[A-Z0-9-]+\]\[(\d+)\]$`)
 
 // cut splits the events into steps. The sim writes a readable line before its moves for the
 // opponent's actions, and often after them for the local player's, so a step that starts on a
@@ -257,18 +250,18 @@ func (b *builder) starts(p, li int, l simlog.Line, st *cutState) (draft, bool) {
 	cur := b.drafts[len(b.drafts)-1]
 	d := draft{start: p, turn: l.Turn, player: l.Player, starter: li}
 	switch {
-	case l.Text == "End Turn":
+	case l.Kind == simlog.LineEndTurn:
 		st.battle = false
 		next := l.Turn + 1
 		d.player, d.turn, d.kind = g.TurnPlayer(next), next, KindTurnStart
 		d.start = b.backRefresh(p, cur.start, b.owner[d.player])
-	case l.Text == "Concedes!" && l.Player != "":
+	case l.Kind == simlog.LineConcede && (l.Player != "" || l.Local):
 		d.kind = KindConcede
-	case l.Text == "Is Out of Cards, Loses the Game!":
+	case l.Kind == simlog.LineDeckOut:
 		d.kind = KindDeckOut
 	case st.battle && b.battleStep(&d, l, cur.start, st):
-	case l.Player == "" || l.Player == "You" || l.Player != g.TurnPlayer(l.Turn):
-		if l.Text == "Attack Fails" || hitText.MatchString(l.Text) {
+	case l.Player == "" || l.Player != g.TurnPlayer(l.Turn):
+		if l.Kind == simlog.LineAttackFails || l.Kind == simlog.LineHit {
 			st.battle = false
 		}
 		return d, false
@@ -281,31 +274,31 @@ func (b *builder) starts(p, li int, l simlog.Line, st *cutState) (draft, bool) {
 // action returns the step a line of the turn's player begins, when it begins one.
 func (b *builder) action(d draft, l simlog.Line, floor int, st *cutState) (draft, bool) {
 	owner := b.owner[l.Player]
-	source, effect := effectSource(l)
+	source := l.Source
 	switch {
-	case strings.HasPrefix(l.Text, "Deploy ") && len(l.Cards) > 0:
+	case l.Kind == simlog.LinePlay && len(l.Cards) > 0:
 		code := l.Cards[0]
 		d.kind, d.cards = KindPlay, []string{code}
 		d.start = b.back(d.start, floor, owner, func(m simlog.Move) bool {
 			return m.Card == code && m.From == simlog.ZoneHand &&
 				(m.To == simlog.ZoneCharacter || m.To == simlog.ZoneStage)
 		})
-	case attachText.MatchString(l.Text) && len(l.Cards) > 0:
+	case l.Kind == simlog.LineAttach && len(l.Cards) > 0:
 		d.kind, d.cards = KindAttach, l.Cards[len(l.Cards)-1:]
 		d.start = b.back(d.start, floor, owner, func(m simlog.Move) bool {
 			return m.From == simlog.ZoneDonField && m.To == simlog.ZoneDonAttached
 		})
-	case strings.Contains(l.Text, " attacking ") && len(l.Cards) >= 2:
+	case l.Kind == simlog.LineAttack && len(l.Cards) >= 2:
 		st.battle = true
 		st.attack = Battle{Attacker: l.Cards[0], Target: l.Cards[1], AttackerOwner: owner}
 		st.source = l.Cards[0]
 		a := st.attack
 		d.kind, d.cards, d.battle = KindAttack, l.Cards[:2], &a
 		d.start = b.back(d.start, floor, owner, nil)
-	case strings.HasSuffix(l.Text, " Destroyed"):
+	case l.Kind == simlog.LineKO:
 		st.battle = false
 		return d, false
-	case effect && !st.battle && !st.involved[source]:
+	case source != "" && !st.battle && !st.involved[source]:
 		d.kind, d.cards = KindEffect, []string{source}
 		d.start = b.back(d.start, floor, owner, func(m simlog.Move) bool {
 			return m.Card == source && m.From == simlog.ZoneHand && m.To == simlog.ZoneTrash
@@ -320,9 +313,9 @@ func (b *builder) action(d draft, l simlog.Line, floor int, st *cutState) (draft
 // which the "X [power] vs Y [power]" line opens. It reports whether the line starts one.
 func (b *builder) battleStep(d *draft, l simlog.Line, floor int, st *cutState) bool {
 	owner := b.owner[l.Player]
-	source, effect := effectSource(l)
+	source := l.Source
 	switch {
-	case l.Player == "" && vsText.MatchString(l.Text):
+	case l.Player == "" && !l.Local && vsText.MatchString(l.Text):
 		m := vsText.FindStringSubmatch(l.Text)
 		st.battle = false
 		st.attack.AttackerPower, _ = strconv.Atoi(m[1])
@@ -330,16 +323,16 @@ func (b *builder) battleStep(d *draft, l simlog.Line, floor int, st *cutState) b
 		d.kind, d.player = KindDamage, b.player[st.attack.AttackerOwner]
 		d.cards = []string{st.attack.Attacker, st.attack.Defender()}
 		d.start = b.backDamage(d.start, floor, 3-st.attack.AttackerOwner)
-	case strings.HasSuffix(l.Text, " Blocks") && len(l.Cards) == 1:
+	case l.Kind == simlog.LineBlock && len(l.Cards) == 1:
 		st.attack.Blocker = l.Cards[0]
 		d.kind, d.cards = KindBlock, l.Cards
-	case counterText.MatchString(l.Text) && len(l.Cards) == 1:
+	case l.Kind == simlog.LineCounterDiscard && len(l.Cards) == 1:
 		d.kind, d.cards = KindCounter, l.Cards
 		d.start = b.backCounter(d.start, floor, owner, l.Cards[0])
-	case effect && (strings.HasSuffix(l.Text, ": Activate Counter") || counterEffect.MatchString(l.Text)):
+	case l.Kind == simlog.LineCounter:
 		d.kind, d.cards = KindCounter, []string{source}
 		d.start = b.backCounter(d.start, floor, owner, source)
-	case effect && source != st.source:
+	case source != "" && source != st.source:
 		named := l.Cards[1:]
 		d.kind, d.cards = KindBattleEffect, []string{source}
 		d.start = b.back(d.start, b.lastLine(d.start, floor), owner, func(m simlog.Move) bool {
@@ -353,18 +346,6 @@ func (b *builder) battleStep(d *draft, l simlog.Line, floor int, st *cutState) b
 	a := st.attack
 	d.battle = &a
 	return true
-}
-
-// effectSource is the card a "Card [CODE]: effect" line comes from.
-func effectSource(l simlog.Line) (string, bool) {
-	if len(l.Cards) == 0 {
-		return "", false
-	}
-	head, _, ok := strings.Cut(l.Text, ": ")
-	if !ok || !strings.HasSuffix(head, "["+l.Cards[0]+"]") {
-		return "", false
-	}
-	return l.Cards[0], true
 }
 
 // setupEnd is the first event of turn 1: its first DON, or its first line.
@@ -392,7 +373,8 @@ func (b *builder) back(p, floor, owner int, key func(simlog.Move) bool) int {
 	if key != nil {
 		for i := floor + 1; i < p; i++ {
 			e := b.events[i]
-			if e.move >= 0 && b.g.Moves[e.move].Owner == owner && key(b.g.Moves[e.move]) {
+			if e.move >= 0 && b.g.Moves[e.move].Owner == owner && key(b.g.Moves[e.move]) &&
+				!b.namedBefore(i, p, b.g.Moves[e.move].Card) {
 				q = i
 				break
 			}
@@ -411,6 +393,20 @@ func (b *builder) back(p, floor, owner int, key func(simlog.Move) bool) int {
 		q--
 	}
 	return q
+}
+
+// namedBefore reports whether an effect line between the events at i and p names the card. A
+// move of it then belongs to that effect, such as "Y: Deploy X", rather than to the line at p.
+func (b *builder) namedBefore(i, p int, code string) bool {
+	for ; i < p; i++ {
+		if e := b.events[i]; e.line >= 0 {
+			l := b.g.Lines[e.line]
+			if l.Source != "" && slices.Contains(l.Cards, code) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // backCounter finds where a counter step that starts on the line at p begins: at the card's move
@@ -482,7 +478,7 @@ func (b *builder) backRefresh(p, floor, owner int) int {
 			if m.Owner != owner || m.From != simlog.ZoneDonAttached {
 				break
 			}
-		} else if !snapshot(b.g.Lines[e.line]) {
+		} else if b.g.Lines[e.line].Kind != simlog.LinePrintout {
 			break
 		}
 		q--
@@ -492,18 +488,7 @@ func (b *builder) backRefresh(p, floor, owner int) int {
 
 // quiet lines don't start or end anything: draws, which come just before their move, and the
 // sim's board printouts.
-func quiet(l simlog.Line) bool {
-	return strings.HasPrefix(l.Text, "Drew card from deck: ") || snapshot(l)
-}
-
-func snapshot(l simlog.Line) bool {
-	for _, p := range []string{"Hand: ", "Board: ", "Trash: ", "Life: "} {
-		if strings.HasPrefix(l.Text, p) {
-			return true
-		}
-	}
-	return false
-}
+func quiet(l simlog.Line) bool { return l.Kind == simlog.LineDraw || l.Kind == simlog.LinePrintout }
 
 // play walks the events through the board, checking it as it goes, and fills each step.
 func (b *builder) play() {
@@ -513,7 +498,7 @@ func (b *builder) play() {
 	b.steps = make([]Step, len(b.drafts))
 	for i, d := range b.drafts {
 		b.steps[i] = Step{
-			Turn: d.turn, Kind: d.kind, Phase: phaseOf(d.kind), Player: d.player, Cards: d.cards,
+			Turn: d.turn, Kind: d.kind, Player: d.player, Cards: d.cards,
 			starter: d.starter,
 		}
 		if d.battle != nil {
@@ -547,13 +532,13 @@ func (b *builder) play() {
 			continue
 		}
 		l := b.g.Lines[e.line]
-		if refresh != 0 && l.Text != "End Turn" && !snapshot(l) {
+		if refresh != 0 && l.Kind != simlog.LineEndTurn && l.Kind != simlog.LinePrintout {
 			b.refresh(refresh)
 			refresh = 0
 		}
 		st.Lines = append(st.Lines, e.line)
 		b.line(si, e.line, l)
-		if l.Player == "" {
+		if l.Player == "" && !l.Local {
 			b.vsLine(si, l)
 		}
 	}
@@ -578,21 +563,6 @@ func (b *builder) finishStep(i int) {
 	b.steps[i].Board = b.board.clone()
 }
 
-func phaseOf(k Kind) Phase {
-	switch k {
-	case KindLobby, KindOpeningHand, KindMulligan, KindLife:
-		return PhaseSetup
-	case KindTurnStart:
-		return PhaseStart
-	case KindAttack, KindBlock, KindCounter, KindDamage, KindBattleEffect:
-		return PhaseBattle
-	case KindConcede, KindDeckOut:
-		return PhaseEnd
-	default:
-		return PhaseMain
-	}
-}
-
 func (b *builder) move(step int, m simlog.Move) {
 	s := b.board.Side(m.Owner)
 	if s == nil {
@@ -607,6 +577,10 @@ func (b *builder) move(step int, m simlog.Move) {
 	if m.From == simlog.ZoneCharacter && m.FromSlot >= 0 && m.FromSlot < len(s.Characters) &&
 		s.Characters[m.FromSlot].ID == b.defenderID {
 		b.left = s.Characters[m.FromSlot]
+		if bt := b.steps[step].Battle; bt != nil {
+			left := b.left
+			bt.Left, bt.LeftSlot = &left, m.FromSlot
+		}
 	}
 	for _, d := range s.apply(m) {
 		b.issues = append(b.issues, Issue{Kind: IssueMove, Step: step, Seq: m.Seq, Line: -1, Owner: m.Owner, Detail: d})
@@ -634,24 +608,23 @@ func (b *builder) line(step, li int, l simlog.Line) {
 	issue := func(kind IssueKind, d string) {
 		b.issues = append(b.issues, Issue{Kind: kind, Step: step, Line: li, Owner: owner, Detail: d})
 	}
-	if snapshot(l) {
-		if d, ok := snapshotIssue(mine, l.Text); ok && d != "" {
+	if l.Kind == simlog.LinePrintout {
+		if d := snapshotIssue(mine, l); d != "" {
 			issue(IssueSnapshot, d)
 		}
 		return
 	}
-	_, effect := effectSource(l)
 	switch {
-	case l.Text == "End Turn":
+	case l.Kind == simlog.LineEndTurn:
 		b.endTurn(l.Turn)
-	case strings.Contains(l.Text, " attacking ") && len(l.Cards) >= 2 && !effect:
+	case l.Kind == simlog.LineAttack && len(l.Cards) >= 2:
 		b.attack(l, l.Turn, mine, theirs, issue)
-	case strings.HasSuffix(l.Text, " Blocks") && len(l.Cards) == 1:
+	case l.Kind == simlog.LineBlock && len(l.Cards) == 1:
 		if c := b.pick(l.Cards[0], false, mine); c != nil {
 			c.Rested = true
 			b.defenderID = c.ID
 		}
-	case effect && len(l.Cards) >= 2:
+	case l.Source != "" && len(l.Cards) >= 2:
 		b.effect(l, mine, theirs)
 	}
 	b.statusLine(step, l)
@@ -716,7 +689,7 @@ func (b *builder) chooseAttacker(code string, turn int, s *Side) *Card {
 // other side, and the other the own side. A copy that can't be rested is never the one rested.
 func (b *builder) effect(l simlog.Line, mine, theirs *Side) {
 	target := l.Cards[len(l.Cards)-1]
-	_, rest, _ := strings.Cut(l.Text, ": ")
+	rest := l.EffectText()
 	switch {
 	case strings.HasPrefix(rest, "Rest "):
 		if c := b.choose(target, guess{}, func(c *Card) bool { return !c.Rested && !c.has(StatusNoRest) }, nil, theirs, mine); c != nil {
@@ -808,128 +781,4 @@ func (b *builder) blameStatus(code string, owner int, kind StatusKind) bool {
 		return true
 	}
 	return false
-}
-
-// describe writes a step's title and, for attacks, how the attack ended.
-func (b *builder) describe(s *Step) (title, result string) {
-	g := b.g
-	name := func(code string) string {
-		if n, ok := g.CardNames[code]; ok {
-			return n
-		}
-		return code
-	}
-	if t, ok := fixedTitles[s.Kind]; ok {
-		return t, ""
-	}
-	switch s.Kind {
-	case KindTurnStart:
-		return b.turnStartTitle(s, name), ""
-	case KindPlay:
-		return "Played " + name(s.Cards[0]), ""
-	case KindAttach:
-		n := "1"
-		if m := attachText.FindStringSubmatch(g.Lines[s.starter].Text); m != nil {
-			n = m[1]
-		}
-		return "Gave " + name(s.Cards[0]) + " " + n + " DON", ""
-	case KindAttack:
-		return name(s.Cards[0]) + " attacked " + name(s.Cards[1]), ""
-	case KindBlock:
-		return "Blocked with " + name(s.Cards[0]), ""
-	case KindCounter:
-		return b.counterTitle(s, name), ""
-	case KindDamage:
-		bt := s.Battle
-		return fmt.Sprintf("%s %d vs %s %d", name(bt.Attacker), bt.AttackerPower, name(bt.Defender()), bt.TargetPower),
-			b.attackResult(s, name)
-	case KindEffect:
-		return b.effectTitle(s, name), ""
-	case KindBattleEffect:
-		return b.battleEffectTitle(s, name), ""
-	}
-	return "", ""
-}
-
-var fixedTitles = map[Kind]string{
-	KindLobby:       "Lobby",
-	KindOpeningHand: "Drew an opening hand",
-	KindMulligan:    "Mulliganed",
-	KindLife:        "Life cards placed",
-	KindConcede:     "Conceded",
-	KindDeckOut:     "Ran out of cards",
-}
-
-func (b *builder) turnStartTitle(s *Step, name func(string) string) string {
-	var drew []string
-	don := 0
-	owner := b.owner[s.Player]
-	for _, mi := range s.Moves {
-		m := b.g.Moves[mi]
-		if m.Owner != owner {
-			continue
-		}
-		switch {
-		case m.From == simlog.ZoneDeck && m.To == simlog.ZoneHand:
-			drew = append(drew, name(m.Card))
-		case m.From == simlog.ZoneDonDeck && m.To == simlog.ZoneDonField:
-			don++
-		}
-		if don > 0 && m.From != simlog.ZoneDonDeck {
-			break
-		}
-	}
-	var parts []string
-	if len(drew) > 0 {
-		parts = append(parts, "Drew "+strings.Join(drew, ", "))
-	}
-	if don > 0 {
-		parts = append(parts, "+"+strconv.Itoa(don)+" DON")
-	}
-	if len(parts) == 0 {
-		return "Turn " + strconv.Itoa(s.Turn)
-	}
-	return strings.Join(parts, " · ")
-}
-
-func (b *builder) attackResult(s *Step, name func(string) string) string {
-	var parts []string
-	for _, li := range s.Lines {
-		l := b.g.Lines[li]
-		switch {
-		case l.Text == "Attack Fails":
-			parts = append(parts, "Attack failed")
-		case strings.HasSuffix(l.Text, " Destroyed") && len(l.Cards) == 1:
-			parts = append(parts, name(l.Cards[0])+" K.O.'d")
-		default:
-			if m := hitText.FindStringSubmatch(l.Text); m != nil {
-				parts = append(parts, "Hit for "+m[2])
-			}
-		}
-	}
-	return strings.Join(parts, " · ")
-}
-
-func (b *builder) counterTitle(s *Step, name func(string) string) string {
-	for _, li := range s.Lines {
-		if m := counterText.FindStringSubmatch(b.g.Lines[li].Text); m != nil {
-			return "Countered with " + name(s.Cards[0]) + " +" + m[1]
-		}
-	}
-	n := 0
-	for _, l := range b.sourceLines(s) {
-		_, rest, _ := strings.Cut(l.Text, ": ")
-		if e, ok := parseEffect(rest); ok && e.kind == StatusPower {
-			n += e.n
-		}
-	}
-	if n > 0 {
-		return "Countered with " + name(s.Cards[0]) + " +" + strconv.Itoa(n)
-	}
-	return "Countered with " + name(s.Cards[0])
-}
-
-// LineText is a readable line without card codes, as "Kyo: Draw 1 Card".
-func LineText(l simlog.Line) string {
-	return codeTag.ReplaceAllString(l.Text, "")
 }

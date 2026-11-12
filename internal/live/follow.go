@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/VTGare/logpose/internal/sim"
+	"github.com/VTGare/logpose/internal/simfile"
 )
 
 // Follower reads Player.log as the sim writes it. It opens the file for each read and closes it
@@ -68,7 +68,7 @@ func (f *Follower) poll() {
 }
 
 func (f *Follower) read() {
-	file, err := sim.OpenShared(f.Path)
+	file, err := simfile.Open(f.Path)
 	if err != nil {
 		f.restart(nil)
 		return
@@ -101,7 +101,6 @@ func (f *Follower) restart(info os.FileInfo) {
 	f.offset, f.info, f.partial = 0, info, nil
 }
 
-// feed passes complete lines to the tracker and keeps a trailing partial line for the next read.
 func (f *Follower) feed(data []byte) {
 	data = append(f.partial, data...)
 	for {

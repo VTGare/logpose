@@ -16,16 +16,9 @@ import (
 // game again.
 const parserVersion = simlog.Version*1000 + deck.Version
 
-var kindNames = map[deck.EventKind]string{
-	deck.Drew: "drew", deck.FromLife: "from_life", deck.PaidPlay: "paid_play", deck.EffectPlay: "effect_play",
-	deck.Counter: "counter", deck.Trigger: "trigger", deck.OwnLines: "own_lines", deck.Discard: "discard",
-}
-
 func kindFromName(s string) (deck.EventKind, error) {
-	for k, name := range kindNames {
-		if name == s {
-			return k, nil
-		}
+	if k, ok := deck.ParseEventKind(s); ok {
+		return k, nil
 	}
 	return 0, fmt.Errorf("store: unknown card event %q", s)
 }
@@ -59,7 +52,7 @@ func writeFact(ctx context.Context, tx *sql.Tx, fp string, f deck.Facts) error {
 	for i, e := range f.Events {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO game_card_events (fingerprint, player, seq, card, turn, kind) VALUES (?, ?, ?, ?, ?, ?)`,
-			fp, f.Player, i, e.Card, e.Turn, kindNames[e.Kind]); err != nil {
+			fp, f.Player, i, e.Card, e.Turn, e.Kind.String()); err != nil {
 			return err
 		}
 	}
@@ -179,7 +172,6 @@ func (s *Store) DeckFacts(ctx context.Context, players ...string) (map[string]de
 	return out, err
 }
 
-// each runs a query on the read connection and calls scan for every row.
 func (s *Store) each(ctx context.Context, query string, args []any, scan func(*sql.Rows) error) error {
 	rows, err := s.read.QueryContext(ctx, query, args...)
 	if err != nil {

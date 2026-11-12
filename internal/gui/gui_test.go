@@ -29,6 +29,11 @@ var _ = Describe("app.load", func() {
 			})
 		}
 		wg.Wait()
-		Expect(snaps[0].Cards).NotTo(BeIdenticalTo(snaps[1].Cards))
+		snaps[0].Cards.Name("ZZ-001", "Only in the first")
+		later, err := a.load(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		for _, s := range append(snaps[1:], later) {
+			Expect(s.Cards.Card("ZZ-001").Name).NotTo(Equal("Only in the first"))
+		}
 	})
 })

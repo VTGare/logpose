@@ -31,11 +31,7 @@ type Move struct {
 	FromSlot int
 	To       Zone
 	ToSlot   int
-	VP, VE   int
 	Rested   bool
-	Power    int
-	Cost     int
-	Instance int
 	// Line is the index in Game.Lines of the next readable line, which places the move in the
 	// timeline.
 	Line int
@@ -66,28 +62,53 @@ func Closed(text string) bool {
 	return strings.HasPrefix(text, endPrefix) || strings.Contains(text, "\n"+endPrefix)
 }
 
-func (b *builder) addRZ(line string) {
-	parts := strings.Split(line, "|")
-	if len(parts) < 2 {
-		return
+// RZKind is the kind of an RZ1 line, such as "PLY", "CHK" or "END", or a move's sequence
+// number. It is "" for a line that isn't RZ1.
+func RZKind(line string) string {
+	rest, ok := strings.CutPrefix(line, "RZ1|")
+	if !ok {
+		return ""
 	}
-	switch parts[1] {
+	kind, _, _ := strings.Cut(rest, "|")
+	return kind
+}
+
+func (b *builder) addRZ(line string) {
+	switch RZKind(line) {
 	case "HDR":
 		b.headers++
 	case "PLY":
-		b.addRZPlayer(parts)
+		if pl, ok := ParsePlayer(line); ok {
+			p := b.player(pl.ID())
+			p.Owner = pl.Owner
+			if p.Leader == "" {
+				p.Leader = pl.Leader
+			}
+		}
 	case "META":
-		// META|replay id|OPBounty match number, 0 outside a match the sim's ranked panel set up.
-		if len(parts) == 4 {
-			b.game.Match, _ = strconv.Atoi(parts[3])
+		if match, ok := ParseMeta(line); ok {
+			b.game.Match = match
 		}
 	case "END":
 		b.game.Closed = true
-		b.addSeal(parts)
+		b.addSeal(strings.Split(line, "|"))
 	case "CHK":
-		b.addCheck(parts)
+		if c, ok := ParseCheck(line); ok {
+			c.Line = len(b.game.Lines)
+			b.ends.lifeByOwner[c.Owner] = c.Life
+			b.game.Checks = append(b.game.Checks, c)
+		}
 	default:
-		b.addMove(parts)
+		if m, ok := ParseMove(line); ok {
+			m.Line = len(b.game.Lines)
+			if m.From == ZoneLife && m.To != ZoneLife {
+				b.ends.lifeTaken[m.Owner] = true
+			}
+			b.game.Moves = append(b.game.Moves, m)
+			if len(b.print) < fingerprintMoves {
+				b.print = append(b.print, line)
+			}
+		}
 	}
 }
 
@@ -136,7 +157,6 @@ func (b *builder) sealedEnd(g *Game) End {
 	return end
 }
 
-// lastDeck is the owner's deck size at their latest check, or -1 without one.
 func (b *builder) lastDeck(owner int) int {
 	for _, c := range slices.Backward(b.game.Checks) {
 		if c.Owner == owner {
@@ -146,67 +166,64 @@ func (b *builder) lastDeck(owner int) int {
 	return -1
 }
 
-func (b *builder) addRZPlayer(parts []string) {
-	// The sim writes an empty PLY line per seat before the named one.
-	if len(parts) != 5 || parts[3] == "" {
-		return
+// ParseMeta reads an RZ1 META line: META|replay id|OPBounty match number. The number is 0
+// outside a match the sim's ranked panel set up.
+func ParseMeta(line string) (match int, ok bool) {
+	parts := strings.Split(line, "|")
+	if len(parts) != 4 || parts[1] != "META" {
+		return 0, false
+	}
+	match, _ = strconv.Atoi(parts[3])
+	return match, true
+}
+
+// ParsePlayer reads an RZ1 PLY line: PLY|owner|name#tag|leader. The sim writes an empty PLY
+// line per seat before the named one, which reads as no player.
+func ParsePlayer(line string) (Player, bool) {
+	parts := strings.Split(line, "|")
+	if len(parts) != 5 || parts[1] != "PLY" || parts[3] == "" {
+		return Player{}, false
 	}
 	owner, err := strconv.Atoi(parts[2])
 	if err != nil {
-		return
+		return Player{}, false
 	}
-	name, tag, _ := strings.Cut(parts[3], "\u200b#")
-	if tag == "" {
-		name, tag, _ = strings.Cut(parts[3], "#")
-	}
-	p := b.player(name + "#" + tag)
-	p.Owner = owner
-	if p.Leader == "" {
-		p.Leader = parts[4]
-	}
+	name, tag := SplitID(parts[3])
+	return Player{Name: name, Tag: tag, Owner: owner, Leader: parts[4]}, true
 }
 
-func (b *builder) addMove(parts []string) {
+// ParseMove reads an RZ1 move line. Its Line is left 0.
+func ParseMove(line string) (Move, bool) {
+	parts := strings.Split(line, "|")
 	if len(parts) != 13 && len(parts) != 14 {
-		return
+		return Move{}, false
 	}
 	n, ok := ints(parts, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12)
 	if !ok {
-		return
+		return Move{}, false
 	}
 	m := Move{
 		Seq: n[0], Owner: n[1], Card: parts[3],
 		From: Zone(n[2]), FromSlot: n[3], To: Zone(n[4]), ToSlot: n[5],
-		VP: n[6], VE: n[7], Rested: n[8] != 0, Power: n[9], Cost: n[10],
-		Line: len(b.game.Lines),
+		Rested: n[8] != 0,
 	}
-	if len(parts) == 14 {
-		m.Instance, _ = strconv.Atoi(parts[13])
-	}
-	if m.From == ZoneLife && m.To != ZoneLife {
-		b.ends.lifeTaken[m.Owner] = true
-	}
-	b.game.Moves = append(b.game.Moves, m)
-	if len(b.print) < fingerprintMoves {
-		b.print = append(b.print, strings.Join(parts, "|"))
-	}
+	return m, true
 }
 
-func (b *builder) addCheck(parts []string) {
-	if len(parts) != 14 {
-		return
+// ParseCheck reads an RZ1 CHK line. Its Line is left 0.
+func ParseCheck(line string) (Check, bool) {
+	parts := strings.Split(line, "|")
+	if len(parts) != 14 || parts[1] != "CHK" {
+		return Check{}, false
 	}
 	n, ok := ints(parts, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
 	if !ok {
-		return
+		return Check{}, false
 	}
-	c := Check{
+	return Check{
 		Seq: n[0], Owner: n[1], Deck: n[2], Hand: n[3], Character: n[4], Life: n[5],
 		DonDeck: n[6], DonField: n[7], Trash: n[8], Stage: n[9], Leader: n[10], DonAttached: n[11],
-		Line: len(b.game.Lines),
-	}
-	b.ends.lifeByOwner[c.Owner] = c.Life
-	b.game.Checks = append(b.game.Checks, c)
+	}, true
 }
 
 // inferOwners links players to RZ1 owners in logs without PLY lines. A player's hand before the

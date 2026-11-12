@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 )
 
-// Place is a folder a shortcut can go in.
 type Place int
 
 const (
@@ -17,19 +16,17 @@ const (
 	Desktop
 )
 
-// Places lists every Place.
 var Places = []Place{StartMenu, Desktop}
 
 // Link is what a shortcut starts.
 type Link struct {
 	Name        string // the shortcut's file name without ".lnk", which Windows shows
-	Target      string // the program
+	Target      string
 	Args        []string
-	Dir         string // the folder it starts in
+	Dir         string
 	Description string // the shortcut's tooltip
 }
 
-// Path is where the shortcut named name goes in place.
 func Path(place Place, name string) (string, error) {
 	dir, err := folder(place)
 	if err != nil {
@@ -38,7 +35,6 @@ func Path(place Place, name string) (string, error) {
 	return filepath.Join(dir, name+".lnk"), nil
 }
 
-// Exists reports whether place has a shortcut named name.
 func Exists(place Place, name string) bool {
 	path, err := Path(place, name)
 	if err != nil {

@@ -39,15 +39,77 @@ func by(player, text string) string { return "[" + player + "] " + text }
 
 func logOf(lines ...string) string { return strings.Join(lines, "\r\n") + "\r\n" }
 
-func titles(r *Replay, from, to int) []string {
+var outcomeWords = map[OutcomeKind]string{OutcomeFailed: "failed", OutcomeKO: "ko", OutcomeHit: "hit"}
+
+var kindWords = map[Kind]string{
+	KindLobby: "lobby", KindOpeningHand: "opening", KindMulligan: "mulligan", KindLife: "life",
+	KindTurnStart: "turn", KindPlay: "play", KindAttach: "attach", KindAttack: "attack", KindBlock: "block",
+	KindCounter: "counter", KindDamage: "damage", KindBattleEffect: "battle effect", KindEffect: "effect",
+	KindConcede: "concede", KindDeckOut: "deck out",
+}
+
+// summary is a step as "T3 Bob: attack OP17-039 OP13-001", with what else the step holds.
+func summary(s Step) string {
+	name, _, _ := strings.Cut(s.Player, "#")
+	parts := append([]string{"T" + strconv.Itoa(s.Turn) + " " + name + ": " + kindWords[s.Kind]}, s.Cards...)
+	if len(s.Drew) > 0 {
+		parts = append(parts, "drew "+strings.Join(s.Drew, ","))
+	}
+	if s.Don > 0 {
+		parts = append(parts, "don "+strconv.Itoa(s.Don))
+	}
+	if s.Counter > 0 {
+		parts = append(parts, "+"+strconv.Itoa(s.Counter))
+	}
+	if s.Battle != nil && s.Kind == KindDamage {
+		parts = append(parts, strconv.Itoa(s.Battle.AttackerPower)+" vs "+strconv.Itoa(s.Battle.TargetPower))
+	}
+	for _, o := range s.Outcome {
+		parts = append(parts, outcomeWords[o.Kind]+strings.TrimSuffix(" "+o.Card, " "))
+		if o.Kind == OutcomeHit {
+			parts = append(parts, strconv.Itoa(o.N))
+		}
+	}
+	if s.Lethal {
+		parts = append(parts, "lethal")
+	}
+	if e := s.Effect; e != nil {
+		if e.Head != "" {
+			parts = append(parts, "head "+e.Head)
+		}
+		for _, d := range e.Did {
+			switch d.Kind {
+			case DidText:
+				parts = append(parts, strconv.Quote(d.Text))
+			case DidCount:
+				parts = append(parts, d.Count.Verb+" "+strconv.Itoa(d.Count.N)+" "+d.Count.Object)
+			case DidPower:
+				parts = append(parts, "power "+d.Card+" "+strconv.Itoa(d.N))
+			case DidTrash:
+				parts = append(parts, "trash "+d.Card)
+			}
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// stepAt is the index of the one step whose summary starts with prefix.
+func stepAt(r *Replay, prefix string) int {
+	at := -1
+	for i, s := range r.Steps {
+		if strings.HasPrefix(summary(s), prefix) {
+			Expect(at).To(Equal(-1), "two steps start with "+prefix)
+			at = i
+		}
+	}
+	Expect(at).NotTo(Equal(-1), "no step starts with "+prefix)
+	return at
+}
+
+func summaries(r *Replay, from, to int) []string {
 	var out []string
 	for _, s := range r.Steps[from:to] {
-		name, _, _ := strings.Cut(s.Player, "#")
-		t := "T" + strconv.Itoa(s.Turn) + " " + name + ": " + s.Title
-		if s.Result != "" {
-			t += " → " + s.Result
-		}
-		out = append(out, t)
+		out = append(out, summary(s))
 	}
 	return out
 }
@@ -68,14 +130,6 @@ func looks(cards []Card) []string {
 	out := make([]string, 0, len(cards))
 	for _, c := range cards {
 		out = append(out, look(c))
-	}
-	return out
-}
-
-func codes(cards []Card) []string {
-	out := make([]string, 0, len(cards))
-	for _, c := range cards {
-		out = append(out, c.Code)
 	}
 	return out
 }
@@ -110,76 +164,76 @@ var _ = Describe("Build on a real game", func() {
 	})
 
 	It("cuts the game into actions, and attacks into their sim steps", func() {
-		Expect(titles(r, 0, 29)).To(Equal([]string{
-			"T0 Alice: Drew an opening hand",
-			"T0 Bob: Drew an opening hand",
-			"T0 Bob: Life cards placed",
-			"T0 Alice: Life cards placed",
-			"T1 Bob: +1 DON",
-			"T2 Alice: Drew Trafalgar Law · +2 DON",
-			"T2 Alice: Played Kin'emon",
-			"T3 Bob: Drew Rocks D. Xebec · +2 DON",
-			"T3 Bob: Played Kyo",
-			"T3 Bob: Gave Rocks D. Xebec 1 DON",
-			"T3 Bob: Rocks D. Xebec attacked Monkey D. Luffy",
-			"T3 Bob: Rocks D. Xebec 6000 vs Monkey D. Luffy 5000 → Hit for 1",
-			"T4 Alice: Drew Emporio Ivankov · +2 DON",
-			"T4 Alice: Played Monkey D. Garp",
-			"T4 Alice: You Can Be My Samurai!!!: Rest Monkey D. Garp",
-			"T4 Alice: Gave Monkey D. Luffy 1 DON",
-			"T4 Alice: Monkey D. Luffy attacked Rocks D. Xebec",
-			"T4 Alice: Monkey D. Luffy 6000 vs Rocks D. Xebec 5000 → Hit for 1",
-			"T5 Bob: Drew Shiki · +2 DON",
-			"T5 Bob: Rocks D. Xebec attacked Monkey D. Garp",
-			"T5 Bob: Rocks D. Xebec 5000 vs Monkey D. Garp 2000 → Monkey D. Garp K.O.'d",
-			"T5 Bob: Played Charlotte Linlin",
-			"T6 Alice: Drew Kawamatsu · +2 DON",
-			"T6 Alice: Played Jewelry Bonney",
-			"T6 Alice: Gave Monkey D. Luffy 1 DON",
-			"T6 Alice: Monkey D. Luffy attacked Rocks D. Xebec",
-			"T6 Bob: Charlotte Linlin: +1000 to Rocks D. Xebec (trashed Wang Zhi)",
-			"T6 Bob: Countered with Buckin +1000",
-			"T6 Alice: Monkey D. Luffy 6000 vs Rocks D. Xebec 7000 → Attack failed",
+		Expect(summaries(r, 0, 29)).To(Equal([]string{
+			"T0 Alice: opening",
+			"T0 Bob: opening",
+			"T0 Bob: life",
+			"T0 Alice: life",
+			"T1 Bob: turn don 1",
+			"T2 Alice: turn drew OP13-031 don 2",
+			"T2 Alice: play ST32-001",
+			"T3 Bob: turn drew OP17-118 don 2",
+			"T3 Bob: play OP17-045",
+			"T3 Bob: attach OP17-039 don 1",
+			"T3 Bob: attack OP17-039 OP13-001",
+			"T3 Bob: damage OP17-039 OP13-001 6000 vs 5000 hit 1",
+			"T4 Alice: turn drew ST30-004 don 2",
+			"T4 Alice: play OP13-016",
+			`T4 Alice: effect OP01-055 head You Can Be My Samurai!!! [OP01-055] "Rest Monkey D. Garp [OP13-016]"`,
+			"T4 Alice: attach OP13-001 don 1",
+			"T4 Alice: attack OP13-001 OP17-039",
+			"T4 Alice: damage OP13-001 OP17-039 6000 vs 5000 hit 1",
+			"T5 Bob: turn drew OP17-048 don 2",
+			"T5 Bob: attack OP17-039 OP13-016",
+			"T5 Bob: damage OP17-039 OP13-016 5000 vs 2000 ko OP13-016",
+			"T5 Bob: play OP17-049",
+			"T6 Alice: turn drew OP12-023 don 2",
+			"T6 Alice: play EB05-001",
+			"T6 Alice: attach OP13-001 don 1",
+			"T6 Alice: attack OP13-001 OP17-039",
+			"T6 Bob: battle effect OP17-049 trash OP17-041 power OP17-039 1000",
+			"T6 Bob: counter OP08-051 +1000",
+			"T6 Alice: damage OP13-001 OP17-039 6000 vs 7000 failed",
 		}))
 	})
 
 	It("takes the life card and the K.O. the sim moves before the vs line into the damage step", func() {
-		Expect(moveSeqs(g, r.Steps[11])).To(Equal([]int{135}))
-		Expect(r.Steps[10].Board.Side(1).Life).To(HaveLen(4))
-		Expect(r.Steps[11].Board.Side(1).Life).To(HaveLen(3))
-		Expect(moveSeqs(g, r.Steps[20])).To(Equal([]int{159}))
+		hit, ko := stepAt(r, "T3 Bob: damage"), stepAt(r, "T5 Bob: damage")
+		Expect(moveSeqs(g, r.Steps[hit])).To(Equal([]int{135}))
+		Expect(r.Steps[hit-1].Board.Side(1).Life).To(HaveLen(4))
+		Expect(r.Steps[hit].Board.Side(1).Life).To(HaveLen(3))
+		Expect(moveSeqs(g, r.Steps[ko])).To(Equal([]int{159}))
 	})
 
 	It("gives every step of an attack its cards, and the damage step their powers", func() {
-		bt := r.Steps[19].Battle
+		bt := r.Steps[stepAt(r, "T5 Bob: attack")].Battle
 		Expect([]string{bt.Attacker, bt.Target, bt.Blocker}).To(Equal([]string{"OP17-039", "OP13-016", ""}))
 		Expect(bt.AttackerOwner).To(Equal(2))
 		Expect(bt.AttackerPower).To(Equal(0))
-		bt = r.Steps[20].Battle
+		bt = r.Steps[stepAt(r, "T5 Bob: damage")].Battle
 		Expect([]int{bt.AttackerPower, bt.TargetPower}).To(Equal([]int{5000, 2000}))
 		Expect([]int{bt.Attack.Value, bt.Defense.Value}).To(Equal([]int{5000, 2000}))
-		Expect(r.Steps[26].Kind).To(Equal(KindBattleEffect))
-		Expect(r.Steps[27].Kind).To(Equal(KindCounter))
-		Expect(r.Steps[27].Player).To(Equal(bobID))
-		Expect(r.Steps[27].Battle.Attacker).To(Equal("OP13-001"))
-		Expect(r.Steps[21].Battle).To(BeNil())
+		counter := r.Steps[stepAt(r, "T6 Bob: counter")]
+		Expect(counter.Player).To(Equal(bobID))
+		Expect(counter.Battle.Attacker).To(Equal("OP13-001"))
+		Expect(r.Steps[stepAt(r, "T5 Bob: play OP17-049")].Battle).To(BeNil())
 	})
 
 	It("takes the moves the local player's line comes after into its step, with the DON that paid", func() {
-		Expect(moveSeqs(g, r.Steps[6])).To(Equal([]int{117, 118, 119, 120, 121, 122}))
+		Expect(moveSeqs(g, r.Steps[stepAt(r, "T2 Alice: play ST32-001")])).To(Equal([]int{117, 118, 119, 120, 121, 122}))
 	})
 
 	It("takes the moves after the opponent's line into its step", func() {
-		Expect(moveSeqs(g, r.Steps[8])).To(Equal([]int{126, 127, 128, 129}))
+		Expect(moveSeqs(g, r.Steps[stepAt(r, "T3 Bob: play OP17-045")])).To(Equal([]int{126, 127, 128, 129}))
 	})
 
 	It("keeps a deploy's effect chain in one step", func() {
-		s := r.Steps[23].Board.Side(1)
+		s := r.Steps[stepAt(r, "T6 Alice: play EB05-001")].Board.Side(1)
 		Expect(codes(s.Characters)).To(Equal([]string{"ST32-001", "EB05-001", "ST30-004", "ST32-002"}))
 	})
 
 	It("shows the board after an attack", func() {
-		b := r.Steps[11].Board
+		b := r.Steps[stepAt(r, "T3 Bob: damage")].Board
 		me, them := b.Side(1), b.Side(2)
 		Expect(me.Life).To(HaveLen(3))
 		Expect(me.Hand).To(HaveLen(7))
@@ -188,45 +242,33 @@ var _ = Describe("Build on a real game", func() {
 		Expect(them.DonActive()).To(Equal(0))
 		Expect(them.DonRested()).To(Equal(2))
 		Expect(them.DonAttached()).To(Equal(1))
-		Expect(them.DeckCount()).To(Equal(36))
+		Expect(len(them.Deck())).To(Equal(36))
 		Expect(codes(them.Trash)).To(Equal([]string{"OP17-040"}))
 	})
 
 	It("rests the characters an effect names", func() {
-		Expect(looks(r.Steps[14].Board.Side(1).Characters)).To(Equal([]string{"ST32-001(R)", "OP13-016(R)"}))
+		Expect(looks(r.Steps[stepAt(r, "T4 Alice: effect OP01-055")].Board.Side(1).Characters)).To(Equal([]string{"ST32-001(R)", "OP13-016(R)"}))
 	})
 
 	It("returns attached DON and stands cards up in the owner's refresh", func() {
-		before, after := r.Steps[17].Board.Side(2), r.Steps[18].Board.Side(2)
+		refresh := r.FirstOfTurn(5)
+		before, after := r.Steps[refresh-1].Board.Side(2), r.Steps[refresh].Board.Side(2)
 		Expect(before.Leader.Rested).To(BeTrue())
 		Expect(look(after.Leader)).To(Equal("OP17-039"))
 		Expect(after.DonActive()).To(Equal(5))
 		Expect(after.DonAttached()).To(Equal(0))
-		Expect(r.Steps[18].Board.Side(1).Leader.Rested).To(BeTrue())
+		Expect(r.Steps[refresh].Board.Side(1).Leader.Rested).To(BeTrue())
 	})
 
-	It("gives each step its turn, phase and player", func() {
-		s := r.Steps[19]
-		Expect(s.Turn).To(Equal(5))
-		Expect(s.Phase).To(Equal(PhaseBattle))
-		Expect(s.Kind).To(Equal(KindAttack))
-		Expect(s.Player).To(Equal(bobID))
-		Expect(s.Cards).To(Equal([]string{"OP17-039", "OP13-016"}))
-		Expect(r.Steps[0].Phase).To(Equal(PhaseSetup))
-		Expect(r.Steps[5].Phase).To(Equal(PhaseStart))
-		Expect(r.Steps[6].Phase).To(Equal(PhaseMain))
+	It("gives each step its player's ID", func() {
+		Expect(r.Steps[stepAt(r, "T5 Bob: attack")].Player).To(Equal(bobID))
 	})
 
 	It("finds the step of a line and the first step of a turn", func() {
-		Expect(r.StepAtLine(r.Steps[19].Lines[0])).To(Equal(19))
-		Expect(r.FirstOfTurn(5)).To(Equal(18))
+		attack := stepAt(r, "T5 Bob: attack")
+		Expect(r.StepAtLine(r.Steps[attack].Lines[0])).To(Equal(attack))
+		Expect(r.FirstOfTurn(5)).To(Equal(stepAt(r, "T5 Bob: turn")))
 		Expect(r.FirstOfTurn(99)).To(Equal(-1))
-	})
-
-	It("writes lines without card codes", func() {
-		Expect(LineText(g.Lines[r.Steps[14].Lines[0]])).To(Equal("You Can Be My Samurai!!!: Rest Monkey D. Garp"))
-		Expect(LineText(simlog.Line{Text: "Rocks D. Xebec [OP17-039][6000] vs Monkey D. Luffy [OP13-001][5000]"})).
-			To(Equal("Rocks D. Xebec[6000] vs Monkey D. Luffy[5000]"))
 	})
 })
 
@@ -260,7 +302,7 @@ var _ = Describe("Build", func() {
 		r := build(logOf(lines...))
 		Expect(r.Issues).To(BeEmpty())
 		Expect(r.Steps[0].Moves).NotTo(ContainElement(0))
-		Expect(r.Steps[len(r.Steps)-1].Title).To(Equal("Conceded"))
+		Expect(r.Steps[len(r.Steps)-1].Kind).To(Equal(KindConcede))
 	})
 
 	It("works out whose card an effect rested from a later attack on it", func() {
@@ -360,8 +402,8 @@ var _ = Describe("Build", func() {
 		}
 		Expect(kinds).To(Equal([]Kind{KindAttack, KindBlock, KindDamage}))
 		Expect(damage.Battle.Defender()).To(Equal("ST32-001"))
-		Expect(damage.Title).To(Equal("Monkey D. Luffy 5000 vs Kin'emon 6000"))
-		Expect(damage.Result).To(Equal("Attack failed"))
+		Expect([]int{damage.Battle.AttackerPower, damage.Battle.TargetPower}).To(Equal([]int{5000, 6000}))
+		Expect(damage.Outcome).To(Equal([]Outcome{{Kind: OutcomeFailed}}))
 	})
 
 	It("marks the attack that ended a lethal game", func() {
@@ -377,6 +419,6 @@ var _ = Describe("Build", func() {
 		r := build(logOf(lines...))
 		last := r.Steps[len(r.Steps)-1]
 		Expect(last.Kind).To(Equal(KindAttack))
-		Expect(last.Result).To(Equal("Lethal"))
+		Expect(last.Lethal).To(BeTrue())
 	})
 })

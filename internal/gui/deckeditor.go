@@ -19,10 +19,11 @@ type buildEdit struct {
 	core   []string
 	name   string
 	search string
+	// shown is the preview for the leader and core in shownFor, over shownSnap's games.
+	shown     editPreview
+	shownFor  string
+	shownSnap *snapshot
 }
-
-// newBuildID stands in for the ID of a build not saved yet when the games are assigned.
-const newBuildID = -1
 
 func (v *view) startEdit(b store.Build) {
 	s := &v.decks
@@ -30,58 +31,33 @@ func (v *view) startEdit(b store.Build) {
 	s.tab, s.renaming, s.suggesting = tabList, false, false
 }
 
-// leaderGames are every game of the leader with what the deck did, oldest first, whatever the
-// filters, since a build's core is about every list played.
-func (v *view) leaderGames(leader string) []stats.DeckGame {
-	var all []stats.DeckGame
-	for _, g := range v.snap.Decks {
-		if g.Me.Leader == leader {
-			all = append(all, g)
-		}
-	}
-	slices.SortFunc(all, func(a, b stats.DeckGame) int { return a.PlayedAt.Compare(b.PlayedAt) })
-	return all
-}
-
-// editPreview is where the leader's games go now and with the edited core.
+// editPreview is where the leader's games go now and with the edited core. base is the list the
+// editor lays out: the build's latest, or the leader's.
 type editPreview struct {
-	all          []stats.DeckGame
-	now, after   map[string]bool
-	others       map[string]bool
-	conflicts    int
-	before, with stats.Record
+	stats.BuildEdit
+	all  []stats.DeckGame
+	base map[string]int
 }
 
+// preview is made again only when the leader, the core or the games change.
 func (v *view) preview(d leaderDecks, e *buildEdit) editPreview {
-	p := editPreview{all: v.leaderGames(d.leader), now: make(map[string]bool), after: make(map[string]bool), others: make(map[string]bool)}
-	id := e.build.ID
-	if id == 0 {
-		id = newBuildID
-	}
-	var builds []store.Build
-	for _, b := range d.builds {
-		if b.ID != e.build.ID {
-			builds = append(builds, b)
-		}
-	}
-	for _, g := range stats.Assign(p.all, d.builds).Builds[e.build.ID] {
-		p.now[g.Fingerprint] = true
-		p.before.Add(g.Result)
+	key := d.leader + " " + strings.Join(e.core, ",")
+	if e.shownSnap == v.snap && e.shownFor == key {
+		return e.shown
 	}
 	edited := e.build
-	edited.ID, edited.Core = id, e.core
-	a := stats.Assign(p.all, append(builds, edited))
-	for bid, gs := range a.Builds {
-		for _, g := range gs {
-			if bid == id {
-				p.after[g.Fingerprint] = true
-				p.with.Add(g.Result)
-			} else {
-				p.others[g.Fingerprint] = true
-			}
+	edited.Core = e.core
+	p := editPreview{BuildEdit: stats.EditBuild(d.all, d.builds, edited), all: d.all}
+	if len(p.all) > 0 {
+		p.base = p.all[0].Facts.List
+	}
+	for _, g := range p.all {
+		if p.Now[g.Fingerprint] {
+			p.base = g.Facts.List
+			break
 		}
 	}
-	p.conflicts = len(a.Conflicts)
+	e.shown, e.shownFor, e.shownSnap = p, key, v.snap
 	return p
 }
 
@@ -95,20 +71,7 @@ func (v *view) coreEditor(c *ui.Context, d leaderDecks) {
 		v.decks.edit = nil
 		return
 	}
-	freq := make(map[string]int)
-	for _, g := range p.all {
-		for code := range g.Facts.List {
-			freq[code]++
-		}
-	}
-	staples := stats.Staples(p.all)
-	base := p.all[len(p.all)-1].Facts.List
-	for i := len(p.all) - 1; i >= 0; i-- {
-		if p.now[p.all[i].Fingerprint] {
-			base = p.all[i].Facts.List
-			break
-		}
-	}
+	freq, base := p.Games, p.base
 	root := panel(c).Gap(16).Padding(16, 20, 20, 20)
 	if root.OverlayShortcut(0, ui.KeyEscape) {
 		v.decks.edit = nil
@@ -116,13 +79,13 @@ func (v *view) coreEditor(c *ui.Context, d leaderDecks) {
 	}
 	root.Children(func() {
 		v.editorHeader(c, d, e)
-		editorPreview(c, e, p)
+		v.editorPreview(c, e, p)
 		ui.Box(c).Height(1).Background(t.Border.Alpha(0.6))
 		ui.Column(c).Gap(12).Children(func() {
 			ui.Text(c, "Latest list").FontWeight(600)
 			ui.Row(c).Gap(10).Wrap().AlignItems(ui.Start).Children(func() {
 				for _, code := range v.listOrder(base) {
-					v.editStack(c.Key(code), e, code, base[code], freq[code], len(p.all), slices.Contains(staples, code))
+					v.editStack(c.Key(code), e, code, base[code], freq[code], len(p.all), slices.Contains(p.Staples, code))
 				}
 			})
 		})
@@ -164,8 +127,8 @@ func (v *view) editorHeader(c *ui.Context, d leaderDecks, e *buildEdit) {
 		if save.Clicked() && missing == "" {
 			b := e.build
 			b.Name, b.Core = name, slices.Clone(e.core)
-			v.do(func(a actions) { a.SaveBuild(b) })
-			v.decks.saved, v.decks.edit = name, nil
+			v.do(func(a actions) { a.SaveBuild(b, v.chooseSaved) })
+			v.decks.edit = nil
 		}
 	})
 	if e.build.ID == 0 {
@@ -175,18 +138,18 @@ func (v *view) editorHeader(c *ui.Context, d leaderDecks, e *buildEdit) {
 
 // editorPreview is the games the core gets, and how that differs from the saved core once it
 // does.
-func editorPreview(c *ui.Context, e *buildEdit, p editPreview) {
+func (v *view) editorPreview(c *ui.Context, e *buildEdit, p editPreview) {
 	t := c.Theme()
 	ui.Column(c).Gap(8).Children(func() {
 		ui.Row(c).Gap(10).AlignItems(ui.End).Children(func() {
 			joins, leaves := 0, 0
-			for fp := range p.after {
-				if !p.now[fp] {
+			for fp := range p.After {
+				if !p.Now[fp] {
 					joins++
 				}
 			}
-			for fp := range p.now {
-				if !p.after[fp] {
+			for fp := range p.Now {
+				if !p.After[fp] {
 					leaves++
 				}
 			}
@@ -194,34 +157,34 @@ func editorPreview(c *ui.Context, e *buildEdit, p editPreview) {
 			case len(e.core) == 0:
 				ui.Text(c, "Pick a core card to see its games").FontSize(14).FontWeight(600).TextColor(t.TextMuted)
 			case e.build.ID == 0 || joins+leaves == 0:
-				ui.Text(c, games(len(p.after))+" · "+record(p.with)).FontSize(14).FontWeight(600)
+				ui.Text(c, games(len(p.After))+" · "+record(p.With)).FontSize(14).FontWeight(600)
 			default:
-				ui.Text(c, fmt.Sprintf("%s → %s · %s → %s", games(len(p.now)), games(len(p.after)), record(p.before), record(p.with))).
+				ui.Text(c, fmt.Sprintf("%s → %s · %s → %s", games(len(p.Now)), games(len(p.After)), record(p.Before), record(p.With))).
 					FontSize(14).FontWeight(600)
 				ui.Text(c, fmt.Sprintf("+%d joining, −%d leaving", joins, leaves)).FontSize(12).TextColor(t.TextMuted)
 			}
-			if p.conflicts > 0 {
-				ui.Text(c, games(p.conflicts)+" fit two builds").FontSize(12).TextColor(warnColor)
+			if p.Conflicts > 0 {
+				ui.Text(c, games(p.Conflicts)+" fit two builds").FontSize(12).TextColor(warnColor)
 			}
 		})
-		gameStrip(c, p)
+		v.gameStrip(c, p)
 	})
 }
 
 // gameStrip is a mark per game of the leader, oldest first, with a gap between days: in the
 // build, joining or leaving it with the edit, in another build, or in none.
-func gameStrip(c *ui.Context, p editPreview) {
+func (v *view) gameStrip(c *ui.Context, p editPreview) {
 	t := c.Theme()
 	ui.Column(c).Gap(6).Children(func() {
 		ui.Row(c).Gap(2).Wrap().AlignItems(ui.Center).Children(func() {
 			last := ""
-			for i, g := range p.all {
+			for i, g := range slices.Backward(p.all) {
 				day := g.PlayedAt.Format("Jan 2")
 				if last != "" && day != last {
 					ui.Box(c.Key(fmt.Sprint("gap", i))).Width(5)
 				}
 				last = day
-				mark := ui.Box(c.Key(i)).Size(8, 14).Radius(2).Tooltip(g.PlayedAt.Format("Jan 2 15:04"))
+				mark := ui.Box(c.Key(i)).Size(8, 14).Radius(2).Tooltip(v.dateTime(g.PlayedAt))
 				fill, edge := stripMark(t, p, g.Fingerprint)
 				mark.Background(fill).Border(1.5, edge)
 			}
@@ -235,7 +198,7 @@ func gameStrip(c *ui.Context, p editPreview) {
 			}
 			legend("in this build", t.Accent, t.Accent)
 			legend("joins", ui.Transparent, t.Accent)
-			legend("leaves", ui.Transparent, lossColor)
+			legend("leaves", ui.Transparent, lossColor(t))
 			legend("in another build", warnColor, warnColor)
 			legend("in no build", t.Border, t.Border)
 		})
@@ -244,13 +207,13 @@ func gameStrip(c *ui.Context, p editPreview) {
 
 func stripMark(t *ui.Theme, p editPreview, fp string) (fill, edge ui.Color) {
 	switch {
-	case p.after[fp] && p.now[fp]:
+	case p.After[fp] && p.Now[fp]:
 		return t.Accent, t.Accent
-	case p.after[fp]:
+	case p.After[fp]:
 		return ui.Transparent, t.Accent
-	case p.now[fp]:
-		return ui.Transparent, lossColor
-	case p.others[fp]:
+	case p.Now[fp]:
+		return ui.Transparent, lossColor(t)
+	case p.Others[fp]:
 		return warnColor, warnColor
 	}
 	return t.Border, t.Border
@@ -282,7 +245,6 @@ func coreMark(c *ui.Context, core, hovered, staple bool) {
 	ui.Text(c, label).FontSize(11).FontWeight(600).TextColor(col)
 }
 
-// toggleLook styles a card toggle by whether the card is in the core.
 func toggleLook(c *ui.Context, b ui.Element, core bool) {
 	t := c.Theme()
 	b.Radius(8).Border(1, ui.Transparent).Background(ui.Transparent)
@@ -298,7 +260,7 @@ func toggleLook(c *ui.Context, b ui.Element, core bool) {
 // games ran it. Staples are faded, since they can't tell builds apart.
 func (v *view) editStack(c *ui.Context, e *buildEdit, code string, n, in, total int, staple bool) {
 	core := slices.Contains(e.core, code)
-	h := float32(stackW * 7 / 5)
+	h := cardHeight(stackW)
 	b := ui.ButtonBase(c).Label(v.snap.card(code).Name).Column().Gap(4).Padding(4)
 	toggleLook(c, b, core)
 	if b.Clicked() {
@@ -312,7 +274,7 @@ func (v *view) editStack(c *ui.Context, e *buildEdit, code string, n, in, total 
 		}
 		art.Children(func() {
 			for i := range n {
-				v.cardArt(c.Key(i), code, stackW, h).Absolute().Left(float32(i) * stackStepX).Top(float32(i) * stackStepY)
+				v.card(c.Key(i), code, stackW).Absolute().Left(float32(i) * stackStepX).Top(float32(i) * stackStepY)
 			}
 			pill(c, fmt.Sprintf("×%d", n), 11).Absolute().Right(4).Bottom(4)
 		})
@@ -366,7 +328,7 @@ func (v *view) otherCards(c *ui.Context, e *buildEdit, base, freq map[string]int
 			}
 			hovered := b.Hovered()
 			b.Children(func() {
-				v.cardArt(c, code, 24, 34)
+				v.card(c, code, 24)
 				ui.Column(c).Gap(1).Grow(1).MinWidth(0).Children(func() {
 					ui.Text(c, card.Name).FontSize(13).SingleLine()
 					ui.Text(c, code).FontSize(11).TextColor(faintColor(t))

@@ -7,7 +7,6 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/stats"
-	"github.com/VTGare/logpose/internal/store"
 )
 
 // filters is what the filter bar sets. It stays set while moving between pages.
@@ -53,17 +52,6 @@ const (
 
 // startUnpicked is the format pages start on until the user picks one under "Start on".
 const startUnpicked = formatAll
-
-// startFormatFrom reads store.SettingStartFormat.
-func startFormatFrom(s string) int64 {
-	switch s {
-	case store.StartLatestFormat:
-		return formatCurrent
-	case store.StartAllFormats:
-		return formatAll
-	}
-	return startUnpicked
-}
 
 // cleared is where Clear puts the filters: every one off and the format at the default.
 func (v *view) cleared() filters { return filters{format: v.prefs.startFormat} }
@@ -116,12 +104,7 @@ func (v *view) startFormatName() string {
 
 // setStartFormat saves the format pages start on. It leaves the format picked now alone.
 func (v *view) setStartFormat(format int64) {
-	v.prefs.startFormat = format
-	value := store.StartAllFormats
-	if format == formatCurrent {
-		value = store.StartLatestFormat
-	}
-	v.do(func(a actions) { a.SetSetting(store.SettingStartFormat, value) })
+	prefStartFormat.set(v, format)
 }
 
 // startOnMenu is the two defaults as radio items.
@@ -150,13 +133,12 @@ func (v *view) currentScope() stats.Scope {
 	return s
 }
 
-// scopeAnyPeriod is the filters as a stats.Scope, without the period.
 func (v *view) scopeAnyPeriod() stats.Scope {
 	f := v.filter
 	s := stats.Scope{Type: stats.GameType(f.gameType), Turn: f.turn, Deck: f.deck, Opp: f.opp, OppLeader: f.oppLeader}
 	if fr, ok := v.formatRange(); ok {
-		s.Since, s.Until = fr.Start, fr.End
-		s.Type = stats.RankedGames
+		fs := fr.Scope()
+		s.Type, s.Since, s.Until = fs.Type, fs.Since, fs.Until
 	}
 	return s
 }
@@ -173,18 +155,16 @@ func (v *view) formatMenu(m *ui.Menu) {
 	for i := len(fs) - 1; i >= 0; i-- {
 		f := fs[i]
 		on := v.filter.format == f.ID || v.filter.format == formatCurrent && i == len(fs)-1
-		label := fmt.Sprintf("%s · since %s", f.Name, f.Start.Format("Jan 2"))
+		label := fmt.Sprintf("%s · since %s", f.Name, v.date(f.Start))
 		if m.Item(label).Radio(on).Chosen() {
 			v.filter.format = f.ID
 			if i == len(fs)-1 {
 				v.filter.format = formatCurrent
 			}
-			v.resetPoints()
 		}
 	}
 	if m.Item("All formats").Radio(len(fs) == 0 || v.filter.format == formatAll).Chosen() && len(fs) > 0 {
 		v.filter.format = formatAll
-		v.resetPoints()
 	}
 	m.Separator()
 	if len(fs) > 0 {
@@ -196,10 +176,13 @@ func (v *view) formatMenu(m *ui.Menu) {
 }
 
 // scoped is the snapshot's matches in the filters' scope, with what the pages build from them.
-// It's built again only when the snapshot or the filters change.
+// It's built again only when the snapshot, the filters or the day change, and gen counts the
+// builds for the caches made from it.
 type scoped struct {
 	snap    *snapshot
 	filters filters
+	day     time.Time
+	gen     int
 
 	matches  []stats.Match
 	overview stats.Overview
@@ -211,13 +194,15 @@ type scoped struct {
 
 func (v *view) scoped() *scoped {
 	sc := &v.scope
-	if sc.snap == v.snap && sc.filters == v.filter {
+	now := v.now()
+	day := stats.DayStart(now)
+	if sc.snap == v.snap && sc.filters == v.filter && sc.day.Equal(day) {
 		return sc
 	}
-	*sc = scoped{snap: v.snap, filters: v.filter}
+	*sc = scoped{snap: v.snap, filters: v.filter, day: day, gen: sc.gen + 1}
 	s := v.currentScope()
 	sc.matches = s.Apply(v.snap.Matches)
-	sc.overview = stats.BuildOverview(sc.matches, v.snap.Now)
+	sc.overview = stats.BuildOverview(sc.matches, now)
 	s.Deck = ""
 	sc.anyDeck = s.Apply(v.snap.Matches)
 	sc.decks = stats.Leaders(sc.anyDeck)
@@ -248,17 +233,11 @@ func (v *view) deckMenu(m *ui.Menu) {
 
 func (v *view) setDeck(code string) {
 	v.filter.deck = code
-	v.resetPoints()
-}
-
-func (v *view) resetPoints() {
-	v.leaderPoint = -1
 }
 
 func (v *view) clearFilters() {
 	v.filter = v.cleared()
 	v.matches.result = anyResult
-	v.resetPoints()
 }
 
 // setTurn sets the turn order filter, or clears it when it's already set to t.
@@ -267,30 +246,26 @@ func (v *view) setTurn(t stats.TurnOrderFilter) {
 		t = stats.EitherTurn
 	}
 	v.filter.turn = t
-	v.resetPoints()
 }
 
 func (v *view) turnMenu(m *ui.Menu) {
 	for i, l := range turnLabels {
 		if m.Item(l).Radio(int(v.filter.turn) == i).Chosen() {
 			v.filter.turn = stats.TurnOrderFilter(i)
-			v.resetPoints()
 		}
 	}
 }
 
 // removablePill is a set filter shown as a tinted pill that clears it when clicked.
-func (v *view) removablePill(c *ui.Context, key, label string, clear func()) {
+func removablePill(c *ui.Context, key, label string, clear func()) {
 	t := c.Theme()
-	el := ui.ButtonBase(c.Key(key)).Label("Remove the filter "+label).Padding(6, 12).Radius(16).
-		Background(t.Accent.Alpha(0.18)).Border(1, t.Accent)
+	el := tinted(ui.ButtonBase(c.Key(key)).Label("Remove the filter "+label).Padding(6, 12).Radius(16), t)
 	el.Gap(6).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, label).FontSize(13)
 		ui.Icon(c, iconClose).FontSize(13)
 	})
 	if el.Clicked() {
 		clear()
-		v.resetPoints()
 	}
 }
 
@@ -308,7 +283,7 @@ func filterPill(c *ui.Context, label string, on bool) ui.Element {
 	t := c.Theme()
 	el := ui.ButtonBase(c).Label(label).Padding(5, 12).Radius(16).Border(1, t.Border).Background(ui.Transparent)
 	if on {
-		el = el.Background(t.Accent.Alpha(0.18)).Border(1, t.Accent)
+		el = tinted(el, t)
 	}
 	return el.Gap(6).AlignItems(ui.Center).Children(func() {
 		col := t.TextMuted
@@ -344,7 +319,6 @@ func (v *view) filterBar(c *ui.Context) {
 				for i, l := range gameTypeLabels {
 					if m.Item(l).Radio(v.filter.gameType == i).Chosen() {
 						v.filter.gameType = i
-						v.resetPoints()
 					}
 				}
 			}, v.clearPillMenu("Clear game type", v.filter.gameType == 0, func() { v.filter.gameType = 0 }))
@@ -353,10 +327,10 @@ func (v *view) filterBar(c *ui.Context) {
 			v.clearPillMenu("Clear turn order", v.filter.turn == stats.EitherTurn, func() { v.filter.turn = stats.EitherTurn }))
 		// The opponent filters have no menu of their own, so they show only while set.
 		if v.filter.opp != "" {
-			v.removablePill(c, "opp", "vs "+v.oppName(v.filter.opp), func() { v.filter.opp = "" })
+			removablePill(c, "opp", "vs "+v.oppName(v.filter.opp), func() { v.filter.opp = "" })
 		}
 		if v.filter.oppLeader != "" {
-			v.removablePill(c, "oppLeader", "vs "+v.snap.card(v.filter.oppLeader).Name, func() { v.filter.oppLeader = "" })
+			removablePill(c, "oppLeader", "vs "+v.snap.card(v.filter.oppLeader).Name, func() { v.filter.oppLeader = "" })
 		}
 		if v.canClear() && ui.Text(c, "Clear").FontSize(13).TextColor(t.Accent).Padding(6, 4).Clicked() {
 			v.clearFilters()

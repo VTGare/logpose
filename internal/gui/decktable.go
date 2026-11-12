@@ -9,7 +9,7 @@ import (
 	"github.com/VTGare/logpose/internal/stats"
 )
 
-// The builds table's columns, in DIPs. The build column takes the rest.
+// The build column takes the rest.
 const (
 	gamesColW   = 44
 	rateColTW   = 96
@@ -31,14 +31,14 @@ type scopeRow struct {
 func (d leaderDecks) scopeRows() []scopeRow {
 	var rows []scopeRow
 	add := func(name string, core []string, sc deckScope) {
-		ms := reversed(d.scopedMatches(sc, d.matches))
-		rows = append(rows, scopeRow{name: name, core: core, scope: sc, stats: stats.ForLeader(ms, d.leader)})
+		ms := d.scopedMatches(sc, d.matches)
+		rows = append(rows, scopeRow{name: name, core: core, scope: sc, stats: stats.ForLeader(ms, d.leader, stats.EitherTurn)})
 	}
 	for _, b := range d.builds {
 		add(b.Name, b.Core, buildScope(b.ID))
 	}
 	if d.unbuilt > 0 {
-		add("No build", nil, deckScope{kind: scopeNoBuild})
+		add(noBuild, nil, deckScope{kind: scopeNoBuild})
 	}
 	return rows
 }
@@ -46,50 +46,13 @@ func (d leaderDecks) scopeRows() []scopeRow {
 // buildsTable compares the leader's builds and the games in no build. Clicking a row chooses it.
 func (v *view) buildsTable(c *ui.Context, d leaderDecks) {
 	t := c.Theme()
-	rows := d.scopeRows()
-	tv := v.arrangeTable("decks.builds", tableGap, []tableCol{
-		{id: "build", title: "Build", asc: true},
-		{id: "games", title: "Games", width: gamesColW},
-		{id: "rate", title: "Win rate", width: rateColTW},
-		{id: "first", title: "Going first", width: turnColW},
-		{id: "second", title: "Going second", width: turnColW},
-		{id: "last", title: "Last 20", width: lastColW, tip: "The win rate of the latest 20 games."},
-		{id: "played", title: "Played", width: playedColTW},
-	}, "", false)
-	rate := func(r stats.Record) float64 {
-		x, _ := r.Rate()
-		return x
-	}
-	last := func(l stats.Leader) float64 {
-		if len(l.Rolling) == 0 {
-			return -1
-		}
-		return l.Rolling[len(l.Rolling)-1].Rate
-	}
-	few := func(r stats.Record) bool { return r.Games() < stats.MinGames }
-	sortRows(rows, tv.sort, tv.desc, map[string]func(a, b scopeRow) int{
-		"build": func(a, b scopeRow) int { return cmp.Compare(a.name, b.name) },
-		"games": func(a, b scopeRow) int { return cmp.Compare(a.stats.Record.Games(), b.stats.Record.Games()) },
-		"rate":  func(a, b scopeRow) int { return cmp.Compare(rate(a.stats.Record), rate(b.stats.Record)) },
-		"first": func(a, b scopeRow) int {
-			return cmp.Compare(rate(a.stats.TurnOrder.First), rate(b.stats.TurnOrder.First))
-		},
-		"second": func(a, b scopeRow) int {
-			return cmp.Compare(rate(a.stats.TurnOrder.Second), rate(b.stats.TurnOrder.Second))
-		},
-		"last":   func(a, b scopeRow) int { return cmp.Compare(last(a.stats), last(b.stats)) },
-		"played": func(a, b scopeRow) int { return a.stats.Last.Compare(b.stats.Last) },
-	}, map[string]func(scopeRow) bool{
-		"rate":   func(r scopeRow) bool { return few(r.stats.Record) },
-		"first":  func(r scopeRow) bool { return few(r.stats.TurnOrder.First) },
-		"second": func(r scopeRow) bool { return few(r.stats.TurnOrder.Second) },
-		"last":   func(r scopeRow) bool { return len(r.stats.Rolling) == 0 },
-	}, nil)
+	tv := arrangeTable(v, "decks.builds", tableGap, v.buildCols(t), "", false)
+	rows := tv.sorted(d.rows)
 	v.foldTile(c, "decks.builds", foldHead{label: "Builds of " + v.snap.card(d.leader).Name}, func() {
 		ui.Text(c, "Click a row to see only its games. With about 30 games each, gaps under 10 points are likely luck.").
 			FontSize(12).TextColor(t.TextMuted).Wrap()
 		ui.Column(c).Children(func() {
-			v.tableHeader(c, tv, 8)
+			tv.header(c, 8)
 			for _, r := range rows {
 				v.scopeTableRow(c.Key(r.name), tv, d, r)
 			}
@@ -97,9 +60,76 @@ func (v *view) buildsTable(c *ui.Context, d leaderDecks) {
 	})
 }
 
-func (v *view) scopeTableRow(c *ui.Context, tv tableView, d leaderDecks, r scopeRow) {
+func (v *view) buildCols(t *ui.Theme) []tableCol[scopeRow] {
+	last := func(l stats.Leader) float64 {
+		if len(l.Rolling) == 0 {
+			return -1
+		}
+		return l.Rolling[len(l.Rolling)-1].Rate
+	}
+	text := func(c *ui.Context, s string, muted bool) {
+		col := t.Text
+		if muted {
+			col = faintColor(t)
+		}
+		ui.Text(c, s).FontSize(13).TextColor(col).SingleLine()
+	}
+	rate := func(id, title string, width float32, rec func(scopeRow) stats.Record) tableCol[scopeRow] {
+		return tableCol[scopeRow]{
+			id: id, title: title, width: width,
+			by:   func(a, b scopeRow) int { return cmp.Compare(sortRate(rec(a)), sortRate(rec(b))) },
+			few:  func(r scopeRow) bool { return !rec(r).Enough() },
+			cell: func(c *ui.Context, r scopeRow) { rateCell(c, rec(r)) },
+		}
+	}
+	return []tableCol[scopeRow]{
+		{
+			id: "build", title: "Build", asc: true,
+			by: func(a, b scopeRow) int { return cmp.Compare(a.name, b.name) },
+			cell: func(c *ui.Context, r scopeRow) {
+				ui.Row(c).MinWidth(0).Gap(8).AlignItems(ui.Center).Children(func() {
+					v.coreThumbs(c, r.core)
+					ui.Text(c, r.name).FontSize(13).FontWeight(600).SingleLine().Tooltip(r.name)
+				})
+			},
+		},
+		{
+			id: "games", title: "Games", width: gamesColW,
+			by:   func(a, b scopeRow) int { return cmp.Compare(a.stats.Record.Games(), b.stats.Record.Games()) },
+			cell: func(c *ui.Context, r scopeRow) { text(c, fmt.Sprint(r.stats.Record.Games()), false) },
+		},
+		rate("rate", "Win rate", rateColTW, func(r scopeRow) stats.Record { return r.stats.Record }),
+		rate("first", "Going first", turnColW, func(r scopeRow) stats.Record { return r.stats.TurnOrder.First }),
+		rate("second", "Going second", turnColW, func(r scopeRow) stats.Record { return r.stats.TurnOrder.Second }),
+		{
+			id: "last", title: fmt.Sprintf("Last %d", stats.RollingWindow), width: lastColW,
+			tip: fmt.Sprintf("The win rate of the latest %d games.", stats.RollingWindow),
+			by:  func(a, b scopeRow) int { return cmp.Compare(last(a.stats), last(b.stats)) },
+			few: func(r scopeRow) bool { return len(r.stats.Rolling) == 0 },
+			cell: func(c *ui.Context, r scopeRow) {
+				s := "–"
+				if len(r.stats.Rolling) > 0 {
+					s = pct(last(r.stats))
+				}
+				text(c, s, s == "–")
+			},
+		},
+		{
+			id: "played", title: "Played", width: playedColTW,
+			by: func(a, b scopeRow) int { return a.stats.Last.Compare(b.stats.Last) },
+			cell: func(c *ui.Context, r scopeRow) {
+				s := "–"
+				if !r.stats.First.IsZero() {
+					s = span(v.date(r.stats.First), v.date(r.stats.Last))
+				}
+				text(c, s, true)
+			},
+		},
+	}
+}
+
+func (v *view) scopeTableRow(c *ui.Context, tv tableView[scopeRow], d leaderDecks, r scopeRow) {
 	t := c.Theme()
-	l := r.stats
 	row := ui.ButtonBase(c).Label("Show "+r.name).Row().Gap(tv.gap).Padding(9, 8).AlignItems(ui.Center).
 		Background(ui.Transparent).Radius(6)
 	if b, ok := d.chosen(r.scope.build); ok && r.scope.kind == scopeBuild {
@@ -111,51 +141,6 @@ func (v *view) scopeTableRow(c *ui.Context, tv tableView, d leaderDecks, r scope
 	if row.Clicked() {
 		v.decks.scope, v.decks.suggesting = r.scope, false
 	}
-	rate := func(rec stats.Record) {
-		ui.Row(c).Gap(5).AlignItems(ui.End).Children(func() {
-			ui.Text(c, rateOrTooFew(rec)).FontSize(13).FontWeight(600).SingleLine()
-			ui.Text(c, record(rec)).FontSize(12).TextColor(faintColor(t)).SingleLine()
-		})
-	}
-	text := func(s string, muted bool) {
-		col := t.Text
-		if muted {
-			col = faintColor(t)
-		}
-		ui.Text(c, s).FontSize(13).TextColor(col).SingleLine()
-	}
-	row.Children(func() {
-		for _, col := range tv.cols {
-			tv.cell(c, col, func() {
-				switch col.id {
-				case "build":
-					ui.Row(c).MinWidth(0).Gap(8).AlignItems(ui.Center).Children(func() {
-						v.coreThumbs(c, r.core)
-						ui.Text(c, r.name).FontSize(13).FontWeight(600).SingleLine().Tooltip(r.name)
-					})
-				case "games":
-					text(fmt.Sprint(l.Record.Games()), false)
-				case "rate":
-					rate(l.Record)
-				case "first":
-					rate(l.TurnOrder.First)
-				case "second":
-					rate(l.TurnOrder.Second)
-				case "last":
-					s := "–"
-					if len(l.Rolling) > 0 {
-						s = pct(l.Rolling[len(l.Rolling)-1].Rate)
-					}
-					text(s, s == "–")
-				case "played":
-					s := "–"
-					if !l.First.IsZero() {
-						s = l.First.Format("Jan 2") + " – " + l.Last.Format("Jan 2")
-					}
-					text(s, true)
-				}
-			})
-		}
-	})
+	row.Children(func() { tv.cells(c, r) })
 	ui.Box(c).Height(1).Background(t.Border.Alpha(0.3))
 }

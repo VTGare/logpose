@@ -74,9 +74,15 @@ var _ = Describe("Builds", func() {
 		builds, err := st.Builds(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(builds).To(BeEmpty())
-		var cards int
-		Expect(st.read.QueryRowContext(ctx, `SELECT count(*) FROM build_cards`).Scan(&cards)).To(Succeed())
-		Expect(cards).To(BeZero())
+
+		// SQLite gives the next build the deleted one's ID, so cards left behind would show up in it.
+		next, err := st.SaveBuild(ctx, Build{Leader: "OP13-001", Name: "Egghead", Core: []string{"B-1"}})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(next).To(Equal(id))
+		builds, err = st.Builds(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(builds).To(HaveLen(1))
+		Expect(builds[0].Core).To(Equal([]string{"B-1"}))
 	})
 
 	It("says when the build to change or delete isn't stored", func() {

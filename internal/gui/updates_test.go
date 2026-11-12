@@ -6,8 +6,6 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"github.com/VTGare/logpose/internal/store"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -53,17 +51,18 @@ var _ = Describe("updates", func() {
 	})
 
 	It("downloads a version found when the user downloads updates themselves", func() {
-		v, tt, fa := sidebar(updateState{can: true, current: "0.1.0", phase: updateFound, next: "0.1.1"})
+		_, tt, fa := sidebar(updateState{can: true, current: "0.1.0", phase: updateFound, next: "0.1.1"})
 		Expect(tt.HasText("0.1.1 is out")).To(BeTrue())
 		Expect(tt.Click("Get it")).To(Succeed())
 		tt.Frame()
 		Expect(fa.calls).To(Equal([]string{"install update"}))
-		Expect(v.upd.phase).To(Equal(updateDownloading))
+		Expect(tt.HasText("Getting 0.1.1 · 0%")).To(BeTrue())
+		Expect(tt.HasText("Get it")).To(BeFalse())
 	})
 
 	It("shows an icon on the rail", func() {
 		v, tt, fa := sidebar(ready)
-		v.prefs.sideWidth = sideRail
+		v.setPrefs(prefsFrom(map[string]string{keySidebarWidth: "90"}))
 		tt.Frame()
 		Expect(tt.Click("0.1.1 is ready")).To(Succeed())
 		tt.Frame()
@@ -72,7 +71,7 @@ var _ = Describe("updates", func() {
 
 	It("tints the rail's update button blue, unlike the grey of the current page", func() {
 		v, tt, _ := sidebar(ready)
-		v.prefs.sideWidth = sideRail
+		v.setPrefs(prefsFrom(map[string]string{keySidebarWidth: "90"}))
 		v.page = pageFormats
 		tt.Frame()
 		fill := func(label string) color.RGBA {
@@ -93,10 +92,9 @@ var _ = Describe("updates", func() {
 		Expect(st.has("Version 0.1.0")).To(BeTrue())
 		Expect(st.has("Up to date · checked yesterday at 19:00")).To(BeTrue())
 		st.click("Check now")
-		Expect(st.v.upd.phase).To(Equal(updateChecking))
 		Expect(st.has("Checking…")).To(BeTrue())
 		st.click("Download updates by itself")
-		Expect(st.fa.calls).To(Equal([]string{"check update", store.SettingUpdateManual + "=1"}))
+		Expect(st.fa.calls).To(Equal([]string{"check update", keyUpdateManual + "=1"}))
 	})
 
 	It("says when this copy can't update itself", func() {
@@ -108,8 +106,7 @@ var _ = Describe("updates", func() {
 
 	It("doesn't offer shortcuts to a copy its installer put in place", func() {
 		v, tt := tester(testSnapshot(10))
-		v.prefs.canShortcut = true
-		v.prefs.installed = true
+		v.setSystem(systemState{canShortcut: true, installed: true})
 		tt.Frame()
 		Expect(tt.HasText(offerTitle)).To(BeFalse())
 	})

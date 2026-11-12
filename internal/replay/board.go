@@ -24,20 +24,17 @@ type Card struct {
 	played, attacked int
 }
 
-// Side is one player's half of the board.
 type Side struct {
 	// Player is the player's ID, or "" when the log doesn't link the owner to a player.
 	Player     string
 	Owner      int
 	Leader     Card
 	Characters []Card
-	// Stage holds the stage card, when there is one.
-	Stage []Card
-	Hand  []Card
+	Stage      []Card
+	Hand       []Card
 	// Life is the life cards with the top one last.
-	Life  []Card
-	Trash []Card
-	// DonDeck is how many DON!! cards are left in the DON deck.
+	Life    []Card
+	Trash   []Card
 	DonDeck int
 	// Don is the cost area, one entry per DON!! card, true when it is rested.
 	Don []bool
@@ -45,9 +42,6 @@ type Side struct {
 	deck []Card
 }
 
-func (s *Side) DeckCount() int { return len(s.deck) }
-
-// Deck is the deck with its top card last. A card the log hasn't named has no code.
 func (s *Side) Deck() []Card { return s.deck }
 
 func (s *Side) DonActive() int {
@@ -62,7 +56,6 @@ func (s *Side) DonActive() int {
 
 func (s *Side) DonRested() int { return len(s.Don) - s.DonActive() }
 
-// DonAttached is every DON!! card given to the leader and characters.
 func (s *Side) DonAttached() int {
 	n := s.Leader.Don
 	for _, c := range s.Characters {
@@ -71,8 +64,7 @@ func (s *Side) DonAttached() int {
 	return n
 }
 
-// Codes is the cards' codes, in order.
-func Codes(cards []Card) []string {
+func codes(cards []Card) []string {
 	out := make([]string, 0, len(cards))
 	for _, c := range cards {
 		out = append(out, c.Code)
@@ -252,8 +244,8 @@ func (s *Side) donTarget(slot int) *Card {
 	return &s.Characters[t]
 }
 
-// takeCard removes the card at slot. Hidden zones like the deck hold cards without a code
-// until the log names them, which match any card.
+// Hidden zones like the deck hold cards without a code until the log names them, which match
+// any card.
 func takeCard(list []Card, slot int, code string, hidden bool, note func(string, ...any), zone string) ([]Card, Card) {
 	i := slot
 	if i < 0 || i >= len(list) {
@@ -300,7 +292,6 @@ func (s *Side) refresh() {
 	}
 }
 
-// all is the side's leader, characters and stage with the code.
 func (s *Side) all(code string) []*Card {
 	var out []*Card
 	if s.Leader.Code == code {
@@ -330,7 +321,6 @@ func (s *Side) find(code string, rested bool) *Card {
 	return nil
 }
 
-// byID finds the side's leader, character or stage with the ID.
 func (s *Side) byID(id int) *Card {
 	if s.Leader.ID == id {
 		return &s.Leader
@@ -345,7 +335,6 @@ func (s *Side) byID(id int) *Card {
 	return nil
 }
 
-// cards is every card on the side's board, for walking their statuses.
 func (s *Side) cards() []*Card {
 	out := []*Card{&s.Leader}
 	for _, list := range [][]Card{s.Characters, s.Stage} {

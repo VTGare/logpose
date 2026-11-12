@@ -65,15 +65,14 @@ var _ = Describe("Version", func() {
 	})
 })
 
-var _ = Describe("OpenShared", func() {
-	It("lets the sim rename a log while it's open", func() {
-		dir := GinkgoT().TempDir()
-		partial := filepath.Join(dir, "game.partial.log")
-		Expect(os.WriteFile(partial, []byte("RZ1|HDR|1.44a|2|RZ1\n"), 0o600)).To(Succeed())
-		f, err := sim.OpenShared(partial)
-		Expect(err).NotTo(HaveOccurred())
-		DeferCleanup(f.Close)
-
-		Expect(os.Rename(partial, filepath.Join(dir, "game.log"))).To(Succeed())
+var _ = Describe("Newer", func() {
+	It("picks the later sim version", func() {
+		Expect(sim.Newer("1.44a", "1.45a")).To(Equal("1.45a"))
+		Expect(sim.Newer("1.45a", "1.44a.24")).To(Equal("1.45a"))
+		Expect(sim.Newer("1.44a.24", "1.44a")).To(Equal("1.44a.24"))
+		Expect(sim.Newer("1.42c", "1.42a")).To(Equal("1.42c"))
+		Expect(sim.Newer("1.9a", "1.10a")).To(Equal("1.10a"))
+		Expect(sim.Newer("", "1.45a")).To(Equal("1.45a"))
+		Expect(sim.Newer("1.44a", "")).To(Equal("1.44a"))
 	})
 })

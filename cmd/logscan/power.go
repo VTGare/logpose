@@ -2,12 +2,14 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/replay"
 	"github.com/VTGare/logpose/internal/sim"
+	"github.com/VTGare/logpose/internal/simlog"
 )
 
 // printedPower loads card data as the app does: the sim's OPBounty pack, a cached catalog over
@@ -16,31 +18,21 @@ func printedPower(simDir, catalog, library string) (func(string) int, error) {
 	if simDir == "" && catalog == "" && library == "" {
 		return nil, nil
 	}
-	db := cards.NewDB()
+	var pack *cards.DB
 	if simDir != "" {
 		install, err := sim.Open(simDir)
 		if err != nil {
 			return nil, err
 		}
-		if db, err = cards.LoadPack(install.OPBountyPack()); err != nil {
+		if pack, err = cards.LoadPack(install.OPBountyPack()); err != nil {
 			return nil, err
 		}
 	}
-	if catalog != "" {
-		cat, err := cards.LoadCatalog(catalog)
-		if err != nil {
-			return nil, err
-		}
-		cat.Apply(db)
+	l, err := cards.Load(pack, catalog, library)
+	if err != nil {
+		return nil, err
 	}
-	if library != "" {
-		lib, err := cards.LoadLibrary(library)
-		if err != nil {
-			return nil, err
-		}
-		lib.Apply(db)
-	}
-	return func(code string) int { return db.Card(code).Power }, nil
+	return func(code string) int { return l.DB.Card(code).Power }, nil
 }
 
 var durationNames = map[string]replay.Duration{
@@ -48,20 +40,21 @@ var durationNames = map[string]replay.Duration{
 	"opp": replay.OpponentsNextTurn, "combat": replay.Combat, "refresh": replay.UntilRefresh,
 }
 
-// setDurations overrides how long phrases last, to test readings against the "vs" lines.
-func setDurations(spec string) error {
+// lastings overrides how long phrases last, to test readings against the "vs" lines.
+func lastings(spec string) ([]replay.Option, error) {
 	if spec == "" {
-		return nil
+		return nil, nil
 	}
-	for _, item := range strings.Split(spec, ";") {
+	var opts []replay.Option
+	for item := range strings.SplitSeq(spec, ";") {
 		phrase, name, ok := strings.Cut(item, "=")
 		d, known := durationNames[name]
-		if _, listed := replay.Durations[replay.Phrase(phrase)]; !ok || !known || !listed {
-			return fmt.Errorf("bad duration %q", item)
+		if !ok || !known || !slices.Contains(replay.Phrases(), phrase) {
+			return nil, fmt.Errorf("bad duration %q", item)
 		}
-		replay.Durations[replay.Phrase(phrase)] = d
+		opts = append(opts, replay.Lasting(phrase, d))
 	}
-	return nil
+	return opts, nil
 }
 
 // powerReport counts how often the worked-out power matches the sim's "vs" lines, and sorts
@@ -78,7 +71,13 @@ func newPowerReport() *powerReport {
 	return &powerReport{byDiff: make(map[int]int), byCard: make(map[string]int), bySide: make(map[string]int)}
 }
 
-func (p *powerReport) add(r *replay.Replay, game string) {
+func (p *powerReport) add(g *simlog.Game, r *replay.Replay, game string) {
+	name := func(code string) string {
+		if n, ok := g.CardNames[code]; ok {
+			return n
+		}
+		return code
+	}
 	p.compared += r.PowerCompared
 	p.guesses += r.PowerGuesses
 	p.corrected += r.PowerCorrected
@@ -89,7 +88,7 @@ func (p *powerReport) add(r *replay.Replay, game string) {
 		}
 		p.missed++
 		p.byDiff[c.Want-c.Got]++
-		p.byCard[fmt.Sprintf("%s %s %+d", c.Code, r.Name(c.Code), c.Want-c.Got)]++
+		p.byCard[fmt.Sprintf("%s %s %+d", c.Code, name(c.Code), c.Want-c.Got)]++
 		if r.Steps[c.Step].Board.Side(c.Owner).Leader.Code == c.Code {
 			p.bySide["leader"]++
 		} else {
@@ -102,7 +101,7 @@ func (p *powerReport) add(r *replay.Replay, game string) {
 		p.bySide[side]++
 		if len(p.examples) < 25 {
 			p.examples = append(p.examples, fmt.Sprintf("%s step %d %s %s: vs %d, worked out %d",
-				game, c.Step, side, r.Name(c.Code), c.Want, c.Got))
+				game, c.Step, side, name(c.Code), c.Want, c.Got))
 		}
 	}
 }

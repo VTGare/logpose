@@ -2,13 +2,10 @@ package gui
 
 import (
 	"cmp"
-	"encoding/json"
 	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
-
-	"github.com/VTGare/logpose/internal/store"
 )
 
 // tableLayout is how the user arranged a hand-built table: its sort, the order of its columns
@@ -20,24 +17,23 @@ type tableLayout struct {
 	Widths map[string]float32 `json:"widths,omitempty"`
 }
 
-func tablesFrom(s string) map[string]*tableLayout {
-	out := make(map[string]*tableLayout)
-	if s != "" {
-		_ = json.Unmarshal([]byte(s), &out)
-	}
-	return out
-}
-
-// tableCol is a column of a hand-built table. The first column holds the row's name, stays
-// first and takes the room the others leave.
-type tableCol struct {
+// tableCol is a column of a table of T rows. In a hand-built table the first column holds the
+// row's name, stays first and takes the room the others leave.
+type tableCol[T any] struct {
 	id, title, tip string
 	width          float32
 	end            bool
 	// asc sorts ascending on the first click, for text. Numbers start with the most.
-	asc    bool
-	noSort bool
+	asc bool
+	// by compares two rows ascending. A column without it doesn't sort.
+	by func(a, b T) int
+	// few reports a row with too few games for the column's number. Those rows sort last
+	// either way.
+	few  func(T) bool
+	cell func(c *ui.Context, r T)
 }
+
+func (col tableCol[T]) sortable() bool { return col.by != nil }
 
 // Column limits, in DIPs.
 const (
@@ -48,15 +44,18 @@ const (
 	sortIconSz = 10
 )
 
-// tableView is a table's columns as the user arranged them.
-type tableView struct {
+// tableView is a hand-built table's columns as the user arranged them.
+type tableView[T any] struct {
+	v    *view
 	id   string
 	gap  float32
-	cols []tableCol
+	cols []tableCol[T]
 	lay  *tableLayout
 	// sort and desc are the sort in force: the user's, or the table's default.
 	sort string
 	desc bool
+	// tie orders rows the sort finds equal. Without it they keep their order.
+	tie func(a, b T) int
 	// trail is room after the columns for a row's own control, such as a chevron.
 	trail float32
 }
@@ -64,24 +63,24 @@ type tableView struct {
 // arrangeTable puts cols in the user's order with their widths, and picks the sort. Columns the
 // layout doesn't know keep their place and default width, and IDs it has that cols don't are
 // ignored.
-func (v *view) arrangeTable(id string, gap float32, cols []tableCol, sort string, desc bool) tableView {
+func arrangeTable[T any](v *view, id string, gap float32, cols []tableCol[T], sort string, desc bool) tableView[T] {
 	lay := v.prefs.tables[id]
 	if lay == nil {
 		lay = &tableLayout{}
 	}
-	tv := tableView{id: id, gap: gap, lay: lay, sort: sort, desc: desc}
-	if lay.Sort != "" && slices.ContainsFunc(cols, func(c tableCol) bool { return c.id == lay.Sort && !c.noSort }) {
+	tv := tableView[T]{v: v, id: id, gap: gap, lay: lay, sort: sort, desc: desc}
+	if lay.Sort != "" && slices.ContainsFunc(cols, func(c tableCol[T]) bool { return c.id == lay.Sort && c.sortable() }) {
 		tv.sort, tv.desc = lay.Sort, lay.Desc
 	}
 	rest := slices.Clone(cols[1:])
-	pos := func(c tableCol) int {
+	pos := func(c tableCol[T]) int {
 		if i := slices.Index(lay.Order, c.id); i >= 0 {
 			return i
 		}
 		return len(lay.Order)
 	}
-	slices.SortStableFunc(rest, func(a, b tableCol) int { return cmp.Compare(pos(a), pos(b)) })
-	tv.cols = append([]tableCol{cols[0]}, rest...)
+	slices.SortStableFunc(rest, func(a, b tableCol[T]) int { return cmp.Compare(pos(a), pos(b)) })
+	tv.cols = append([]tableCol[T]{cols[0]}, rest...)
 	for i := range tv.cols {
 		if w, ok := lay.Widths[tv.cols[i].id]; ok && i > 0 {
 			tv.cols[i].width = min(max(w, colMinW), colMaxW)
@@ -90,46 +89,42 @@ func (v *view) arrangeTable(id string, gap float32, cols []tableCol, sort string
 	return tv
 }
 
-// cell holds a column's content at the column's width.
-func (tableView) cell(c *ui.Context, col tableCol, body func()) {
-	el := ui.Row(c.Key(col.id)).AlignItems(ui.Center).MinWidth(0).Clip()
-	if col.end {
-		el.Justify(ui.End)
+func (tv tableView[T]) cells(c *ui.Context, r T) {
+	for _, col := range tv.cols {
+		el := colBox(c, col.id, col.width).Clip()
+		if col.end {
+			el.Justify(ui.End)
+		}
+		el.Children(func() { col.cell(c, r) })
 	}
-	if col.width == 0 {
-		el.Grow(1).Basis(0).MinWidth(nameMinW)
-	} else {
-		el.Width(col.width)
-	}
-	el.Children(body)
 }
 
-// colDrag is a column being dragged to a new place.
+func colBox(c *ui.Context, id string, width float32) ui.Element {
+	el := ui.Row(c.Key(id)).AlignItems(ui.Center).MinWidth(0)
+	if width == 0 {
+		return el.Grow(1).Basis(0).MinWidth(nameMinW)
+	}
+	return el.Width(width)
+}
+
 type colDrag struct{ table, col string }
 
-// tableHeader is the header row. Clicking a title sorts by it and a second click turns the
-// sort around, dragging a title moves the column, and dragging the edge after it resizes it.
-// A double click on the edge undoes that width, and Reset columns in the menu undoes it all.
-func (v *view) tableHeader(c *ui.Context, tv tableView, pad float32) {
+// header is the header row. Clicking a title sorts by it and a second click turns the sort
+// around, dragging a title moves the column, and dragging the edge after it resizes it. A double
+// click on the edge undoes that width, and Reset columns in the menu undoes it all.
+func (tv tableView[T]) header(c *ui.Context, pad float32) {
 	t := c.Theme()
 	ui.Row(c).Gap(tv.gap).Padding(8, pad).AlignItems(ui.Center).PopoverMenu(func(m *ui.Menu) {
 		if m.Item("Reset columns").Disabled(len(tv.lay.Order) == 0 && len(tv.lay.Widths) == 0 && tv.lay.Sort == "").Chosen() {
 			*tv.lay = tableLayout{}
-			v.saveTable(tv)
+			tv.save()
 		}
 	}).Children(func() {
 		for i, col := range tv.cols {
-			sorted := col.id == tv.sort
-			box := ui.Row(c.Key(col.id)).AlignItems(ui.Center).MinWidth(0)
-			if col.width == 0 {
-				box.Grow(1).Basis(0).MinWidth(nameMinW)
-			} else {
-				box.Width(col.width)
-			}
-			box.Children(func() {
-				v.headerTitle(c, tv, i, col, sorted)
+			colBox(c, col.id, col.width).Children(func() {
+				tv.headerTitle(c, i, col)
 				if i > 0 {
-					v.colGrip(c, tv, col)
+					tv.colGrip(c, col)
 				}
 			})
 		}
@@ -140,10 +135,10 @@ func (v *view) tableHeader(c *ui.Context, tv tableView, pad float32) {
 	ui.Box(c).Height(1).Background(t.Border.Alpha(0.6))
 }
 
-func (v *view) headerTitle(c *ui.Context, tv tableView, i int, col tableCol, sorted bool) {
+func (tv tableView[T]) headerTitle(c *ui.Context, i int, col tableCol[T]) {
 	t := c.Theme()
 	label := "Sort by " + col.title
-	if col.noSort {
+	if !col.sortable() {
 		label = col.title
 	}
 	b := ui.ButtonBase(c).Label(label).Row().Gap(4).AlignItems(ui.Center).
@@ -156,22 +151,22 @@ func (v *view) headerTitle(c *ui.Context, tv tableView, i int, col tableCol, sor
 	if i > 0 {
 		b.Drag(colDrag{tv.id, col.id})
 		if d, ok := ui.Drop[colDrag](b); ok && d.table == tv.id {
-			v.moveColumn(tv, d.col, col.id)
+			tv.moveColumn(d.col, col.id)
 		}
 		if d, ok := ui.DragOver[colDrag](b); ok && d.table == tv.id && d.col != col.id {
 			b.BorderStartWidth(2).BorderColor(t.Accent)
 		}
 	}
-	b.Tooltip(headerTip(col, i > 0))
-	if b.Clicked() && !col.noSort {
+	b.Tooltip(headerTip(col.tip, col.sortable(), i > 0))
+	if b.Clicked() && col.sortable() {
 		desc := !col.asc
 		if tv.sort == col.id {
 			desc = !tv.desc
 		}
 		tv.lay.Sort, tv.lay.Desc = col.id, desc
-		v.saveTable(tv)
+		tv.save()
 	}
-	sortTitle(c, b, col.title, col.end, sorted, tv.desc, !col.noSort)
+	sortTitle(c, b, col.title, col.end, col.id == tv.sort, tv.desc, col.sortable())
 }
 
 // sortTitle draws a header title into b, with the accent chevron when its column is sorted and
@@ -201,9 +196,9 @@ func sortTitle(c *ui.Context, b ui.Element, title string, end, sorted, desc, sor
 	})
 }
 
-func headerTip(col tableCol, movable bool) string {
+func headerTip(colTip string, sortable, movable bool) string {
 	var how []string
-	if !col.noSort {
+	if sortable {
 		how = append(how, "click to sort")
 	}
 	if movable {
@@ -213,14 +208,14 @@ func headerTip(col tableCol, movable bool) string {
 	if tip != "" {
 		tip = strings.ToUpper(tip[:1]) + tip[1:] + "."
 	}
-	if col.tip != "" {
-		tip = strings.TrimSpace(col.tip + " " + tip)
+	if colTip != "" {
+		tip = strings.TrimSpace(colTip + " " + tip)
 	}
 	return tip
 }
 
 // colGrip is the edge after a column, which resizes it.
-func (v *view) colGrip(c *ui.Context, tv tableView, col tableCol) {
+func (tv tableView[T]) colGrip(c *ui.Context, col tableCol[T]) {
 	t := c.Theme()
 	g := ui.Box(c).Width(colGripW).Height(18).Margin(0, -colGripW/2, 0, 0).Cursor(ui.CursorResizeEW).Label("Resize " + col.title)
 	line := t.Border.Alpha(0.6)
@@ -233,16 +228,16 @@ func (v *view) colGrip(c *ui.Context, tv tableView, col tableCol) {
 			tv.lay.Widths = make(map[string]float32)
 		}
 		tv.lay.Widths[col.id] = min(max(col.width+dx, colMinW), colMaxW)
-		v.saveTable(tv)
+		tv.save()
 	}
 	if g.DoubleClicked() {
 		delete(tv.lay.Widths, col.id)
-		v.saveTable(tv)
+		tv.save()
 	}
 }
 
 // moveColumn puts the column from where the column to is, shifting the ones between.
-func (v *view) moveColumn(tv tableView, from, to string) {
+func (tv tableView[T]) moveColumn(from, to string) {
 	ids := make([]string, 0, len(tv.cols)-1)
 	for _, c := range tv.cols[1:] {
 		ids = append(ids, c.id)
@@ -253,49 +248,42 @@ func (v *view) moveColumn(tv tableView, from, to string) {
 	}
 	ids = slices.Insert(slices.Delete(ids, i, i+1), j, from)
 	tv.lay.Order = ids
-	v.saveTable(tv)
+	tv.save()
 }
 
-// saveTable keeps the table's layout, and stores every table's once the changes stop for a
-// moment, since a resize changes it on each frame of the drag.
-func (v *view) saveTable(tv tableView) {
-	if v.prefs.tables == nil {
-		v.prefs.tables = make(map[string]*tableLayout)
-	}
+// save keeps the table's layout, and stores every table's once the changes stop for a moment,
+// since a resize changes it on each frame of the drag.
+func (tv tableView[T]) save() {
+	v := tv.v
 	v.prefs.tables[tv.id] = tv.lay
-	v.tableSaves++
-	n := v.tableSaves
-	v.do(func(a actions) {
-		a.After(sideSaveDelay, func() {
-			if n != v.tableSaves {
-				return
-			}
-			b, err := json.Marshal(v.prefs.tables)
-			if err == nil {
-				v.do(func(a actions) { a.SetSetting(store.SettingTables, string(b)) })
-			}
-		})
-	})
+	v.later(keyTables, func() { v.savePref(prefTables) })
 }
 
-// sortRows sorts rows by the column key names, using by's comparison, ascending. Rows few says
-// have too few games for their number go last either way, and ties keep tie's order.
-func sortRows[T any](rows []T, key string, desc bool, by map[string]func(a, b T) int, few map[string]func(T) bool, tie func(a, b T) int) {
-	f, ok := by[key]
-	if !ok {
+// sorted is a sorted copy of rows, by the sort in force.
+func (tv tableView[T]) sorted(rows []T) []T {
+	rows = slices.Clone(rows)
+	if i := slices.IndexFunc(tv.cols, func(col tableCol[T]) bool { return col.id == tv.sort }); i >= 0 {
+		sortRows(rows, tv.cols[i], tv.desc, tv.tie)
+	}
+	return rows
+}
+
+// sortRows sorts rows by col, ascending unless desc. Rows with too few games for col's number go
+// last either way, and ties keep tie's order.
+func sortRows[T any](rows []T, col tableCol[T], desc bool, tie func(a, b T) int) {
+	if col.by == nil {
 		return
 	}
-	isFew := few[key]
 	slices.SortStableFunc(rows, func(a, b T) int {
-		if isFew != nil {
-			if fa, fb := isFew(a), isFew(b); fa != fb {
+		if col.few != nil {
+			if fa, fb := col.few(a), col.few(b); fa != fb {
 				if fa {
 					return 1
 				}
 				return -1
 			}
 		}
-		r := f(a, b)
+		r := col.by(a, b)
 		if desc {
 			r = -r
 		}

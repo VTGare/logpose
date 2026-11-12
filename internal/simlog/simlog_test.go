@@ -123,6 +123,18 @@ var _ = Describe("Parse", func() {
 		Expect(Lobby{}.InRoom()).To(BeFalse())
 	})
 
+	It("reads the room letter only from a code made in a room", func() {
+		Expect(Lobby{Code: "XNJ8M66"}.Room()).To(Equal(byte('X')))
+		Expect(Lobby{Code: "XNJ8M6"}.Room()).To(BeZero())
+		Expect(Lobby{}.Room()).To(BeZero())
+	})
+
+	It("splits player IDs with or without the zero-width space", func() {
+		Expect(PlayerID(alice)).To(Equal("Alice#1111"))
+		name, tag := SplitID("Alice#1111")
+		Expect([]string{name, tag}).To(Equal([]string{"Alice", "1111"}))
+	})
+
 	It("reads the host's room code", func() {
 		lines := append([]string{"Waiting for a Connection with Room ID:UHJ6MGP"}, lobby("")[1:]...)
 		games := parse(logOf(append(lines, opening()...)...))
@@ -143,6 +155,36 @@ var _ = Describe("Parse", func() {
 		Expect(lines[len(lines)-1].Text).To(Equal("gg"))
 	})
 
+	It("says what each line is", func() {
+		games := parse(logOf(append(lobby("XNJ8M66"), append(opening(),
+			by(alice, card("Kawamatsu", "OP12-023")+" attacking "+kid),
+			"[You] "+card("Otama", "OP07-022")+" Blocks",
+			by(bob, "Discard "+card("Nami", "OP14-031")+" for Counter 2000"),
+			by(bob, card("Nami", "OP14-031")+": Activate Counter"),
+			"Eustass\"Captain\"Kid [OP17-058] hit for 1 damage",
+			by(alice, card("Otama", "OP07-022")+": Activate Trigger"),
+			by(alice, card("Nami", "OP14-031")+": Draw 1 Card"),
+			by(alice, "Attach 2 Rested Don to "+luffy),
+			by(alice, "Life: 4"),
+			by(bob, "Concedes!"),
+		)...)...))
+		lines := games[0].Lines
+		lines = lines[len(lines)-10:]
+		var kinds []LineKind
+		for _, l := range lines {
+			kinds = append(kinds, l.Kind)
+		}
+		Expect(kinds).To(Equal([]LineKind{
+			LineAttack, LineBlock, LineCounterDiscard, LineCounter, LineHit, LineTrigger, LineEffect,
+			LineAttach, LinePrintout, LineConcede,
+		}))
+		Expect(lines[1].Local).To(BeTrue())
+		Expect(lines[1].Player).To(BeEmpty())
+		Expect([]int{lines[2].N, lines[4].N, lines[7].N}).To(Equal([]int{2000, 1, 2}))
+		Expect(lines[6].Source).To(Equal("OP14-031"))
+		Expect(lines[6].EffectText()).To(Equal("Draw 1 Card"))
+	})
+
 	It("learns card names without the verbs before them", func() {
 		games := parse(logOf(append(lobby("XNJ8M66"), append(opening(),
 			by(alice, card("Jewelry Bonney", "EB05-001")+": Deploy "+card("Nami", "OP14-031")),
@@ -159,14 +201,19 @@ var _ = Describe("Parse", func() {
 
 	It("puts the lobby and mulligan in turn 0", func() {
 		games := parse(logOf(append(lobby("XNJ8M66"), opening()...)...))
+		pregame, don := 0, 0
 		for _, l := range games[0].Lines {
 			if strings.HasPrefix(l.Text, "Hand before Mulligan") || strings.HasPrefix(l.Text, "Leader is") {
 				Expect(l.Turn).To(Equal(0), l.Text)
+				pregame++
 			}
 			if l.Text == "Draw 1 Don" {
 				Expect(l.Turn).To(Equal(1))
+				don++
 			}
 		}
+		Expect(pregame).To(BeNumerically(">", 0))
+		Expect(don).To(BeNumerically(">", 0))
 	})
 
 	It("reads RZ1 moves and checks", func() {
@@ -326,13 +373,14 @@ var _ = Describe("Parse", func() {
 
 		It("keeps each game's text, which parses to the same game", func() {
 			games := parse(logOf(append(append(first, rematchLine), second...)...))
+			Expect(games).To(HaveLen(2))
 			for _, g := range games {
-				again := parse(g.Text)
-				Expect(again).To(HaveLen(1))
-				Expect(again[0].Fingerprint).To(Equal(g.Fingerprint))
-				Expect(again[0].Lobby).To(Equal(g.Lobby))
-				Expect(again[0].End).To(Equal(g.End))
-				Expect(again[0].Text).To(Equal(g.Text))
+				again, err := ParseOne(g.Text)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(again.Fingerprint).To(Equal(g.Fingerprint))
+				Expect(again.Lobby).To(Equal(g.Lobby))
+				Expect(again.End).To(Equal(g.End))
+				Expect(again.Text).To(Equal(g.Text))
 			}
 			Expect(games[1].Text).NotTo(ContainSubstring(rematchLine))
 		})

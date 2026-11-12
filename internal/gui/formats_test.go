@@ -1,7 +1,6 @@
 package gui
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -12,67 +11,6 @@ import (
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
 )
-
-type fakeActions struct {
-	added     []store.Format
-	dismissed []string
-	loaded    []string
-	types     []string
-	notes     []string
-	bookmarks []string
-	replays   []string
-	timers    []func()
-	calls     []string
-	// usageLoads counts LoadArtUsage, which entering Settings calls on its own.
-	usageLoads int
-	// artLoads holds each LoadArts as "<code> <gen>". Showing a card calls it on its own.
-	artLoads   []string
-	builds     []store.Build
-	deleted    []int64
-	dismissals []store.Dismissal
-}
-
-func (f *fakeActions) SaveBuild(b store.Build) { f.builds = append(f.builds, b) }
-
-func (f *fakeActions) DeleteBuild(id int64) { f.deleted = append(f.deleted, id) }
-
-func (f *fakeActions) DismissSuggestion(d store.Dismissal) { f.dismissals = append(f.dismissals, d) }
-
-func (f *fakeActions) SetBookmark(fingerprint string, on bool) {
-	f.bookmarks = append(f.bookmarks, fmt.Sprintf("%s=%t", fingerprint, on))
-}
-
-func (f *fakeActions) AddFormat(name string, start time.Time) {
-	f.added = append(f.added, store.Format{Name: name, Start: start})
-}
-func (*fakeActions) UpdateFormat(store.Format) {}
-func (*fakeActions) DeleteFormat(int64)        {}
-func (f *fakeActions) DismissSet(set string)   { f.dismissed = append(f.dismissed, set) }
-
-func (f *fakeActions) OpenReplay(fingerprint string) { f.replays = append(f.replays, fingerprint) }
-
-// After keeps the timer for a spec to fire with fire.
-func (f *fakeActions) After(_ time.Duration, fn func()) { f.timers = append(f.timers, fn) }
-
-func (f *fakeActions) fire() {
-	timers := f.timers
-	f.timers = nil
-	for _, fn := range timers {
-		fn()
-	}
-}
-
-func (f *fakeActions) LoadTimeline(fingerprint, _, _ string) {
-	f.loaded = append(f.loaded, fingerprint)
-}
-
-func (f *fakeActions) SetGameNote(fingerprint, note string) {
-	f.notes = append(f.notes, fingerprint+"="+note)
-}
-
-func (f *fakeActions) SetGameType(fingerprint string, t store.GameType) {
-	f.types = append(f.types, fingerprint+"="+fmt.Sprint(t))
-}
 
 var _ = Describe("formats", func() {
 	// withFormats splits the 10 test games, an hour apart, at 4 hours ago.
@@ -85,36 +23,36 @@ var _ = Describe("formats", func() {
 		return s
 	}
 
-	// latestFirst is a view whose pages start on the latest format.
-	latestFirst := func(s *snapshot) (*view, *ui.Tester) {
+	latestFirst := func(s *snapshot) *ui.Tester {
 		v, tt := tester(s)
-		v.prefs.startFormat, v.filter.format = formatCurrent, formatCurrent
+		v.setPrefs(prefsFrom(map[string]string{keyStartFormat: startLatest}))
 		tt.Frame()
-		return v, tt
+		return tt
 	}
 
 	It("starts on the current format and can show the older one or all", func() {
-		v, tt := latestFirst(withFormats())
-		Expect(tt.HasText("New format")).To(BeTrue())
+		tt := latestFirst(withFormats())
 		Expect(tt.HasText("All of New format")).To(BeTrue())
-		Expect(v.scoped().matches).To(HaveLen(4))
-		v.filter.format = 1
-		Expect(v.scoped().matches).To(HaveLen(6))
-		v.filter.format = formatAll
-		Expect(v.scoped().matches).To(HaveLen(10))
+		Expect(tt.Texts()).To(ContainElements("New format", "4 games"))
+		Expect(tt.Click("New format")).To(Succeed())
+		Expect(choose(tt, "Old format · since Nov 4")).To(Succeed())
+		Expect(tt.Texts()).To(ContainElement("6 games"))
+		Expect(tt.Click("Old format")).To(Succeed())
+		Expect(choose(tt, "All formats")).To(Succeed())
+		Expect(tt.Texts()).To(ContainElement("10 games"))
 	})
 
 	It("counts ranked games only in a format, with the type fixed to ranked", func() {
 		s := withFormats()
 		s.Matches[0].Ranked = false
-		v, tt := latestFirst(s)
-		v.filter.gameType = int(stats.CasualGames)
-		Expect(v.scoped().matches).To(HaveLen(3))
-		tt.Frame()
-		Expect(tt.HasText("Ranked")).To(BeTrue())
-		Expect(tt.HasText("Casual")).To(BeFalse())
-		v.filter.format = formatAll
-		Expect(v.scoped().matches).To(HaveLen(1))
+		_, tt := tester(s)
+		Expect(tt.Click("All games")).To(Succeed())
+		Expect(choose(tt, "Casual")).To(Succeed())
+		Expect(tt.Texts()).To(ContainElement("1 game"))
+		Expect(tt.Click("All formats")).To(Succeed())
+		Expect(choose(tt, "New format · since Nov 6")).To(Succeed())
+		Expect(tt.Texts()).To(ContainElements("Ranked", "3 games"))
+		Expect(tt.Texts()).NotTo(ContainElement("Casual"))
 	})
 
 	It("lists formats with their games, and the games before the first", func() {
@@ -134,7 +72,8 @@ var _ = Describe("formats", func() {
 		Expect(tt.Click("Add")).To(Succeed())
 		Expect(tt.HasText("Give the format a name.")).To(BeTrue())
 		Expect(fa.added).To(BeEmpty())
-		v.formats.name = " OP18 "
+		Expect(tt.Click("Format name")).To(Succeed())
+		tt.Type(" OP18 ")
 		Expect(tt.Click("Add")).To(Succeed())
 		Expect(fa.added).To(HaveLen(1))
 		Expect(fa.added[0].Name).To(Equal("OP18"))

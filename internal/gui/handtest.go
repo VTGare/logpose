@@ -11,12 +11,10 @@ import (
 	"github.com/VTGare/logpose/internal/stats"
 )
 
-// Opening hand size, the most DON!! a player has, and the last turn the tester draws to.
+// Opening hand size and the last turn the tester draws to.
 const (
-	handSize  = 5
-	maxDon    = 10
-	lastTurn  = 8
-	firstDons = 1
+	handSize = 5
+	lastTurn = 8
 )
 
 // handTest is a practice deal from a list: the hand, what's left of the deck, the hand sent back
@@ -67,30 +65,19 @@ func (h *handTest) mulligan(r *rand.Rand) {
 
 func (h *handTest) canMulligan() bool { return !h.mulliganed && h.turn == 0 }
 
-// next starts the player's next turn and draws, except on the first turn going first.
+// next starts the player's next turn and draws.
 func (h *handTest) next() {
 	if h.turn >= lastTurn {
 		return
 	}
 	h.turn++
-	if (h.second || h.turn > 1) && len(h.deck) > 0 {
+	if stats.Draws(h.turn, !h.second) > stats.Draws(h.turn-1, !h.second) && len(h.deck) > 0 {
 		h.hand = append(h.hand, h.deck[0])
 		h.deck = h.deck[1:]
 	}
 }
 
-// don is the DON!! the player has on their turn: 1 then 2 more a turn going first, 2 more a turn
-// going second, up to 10.
-func (h *handTest) don() int {
-	if h.turn == 0 {
-		return 0
-	}
-	d := 2 * h.turn
-	if !h.second {
-		d -= firstDons
-	}
-	return min(d, maxDon)
-}
+func (h *handTest) don() int { return stats.Don(h.turn, !h.second) }
 
 // testerCardW is a card's width in the tester, and testerSmallW its width once the hand has
 // grown past what fits.
@@ -104,14 +91,13 @@ const (
 
 // handTester deals from the scope's latest list and plays it out turn by turn, with each card's
 // record from the games it was dealt in.
-func (v *view) handTester(c *ui.Context, d leaderDecks, dealt []stats.DealtCard) {
+func (v *view) handTester(c *ui.Context, gs []stats.DeckGame, dealt []stats.DealtCard) {
 	t := c.Theme()
 	s := &v.decks
-	gs := d.scopedGames(s.scope)
 	if len(gs) == 0 {
 		return
 	}
-	list := gs[len(gs)-1].Facts.List
+	list := gs[0].Facts.List
 	if s.rng == nil {
 		s.rng = rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
 	}
@@ -156,7 +142,7 @@ func (v *view) handTester(c *ui.Context, d leaderDecks, dealt []stats.DealtCard)
 		hide := s.hideNumbers && !h.mulliganed && h.turn == 0
 		ui.Row(c).Gap(10).Wrap().Children(func() {
 			for i, code := range h.hand {
-				v.testerCard(c.Key(i), code, byCard[code], w, hide, h.turn > 0 && max(v.snap.card(code).Cost, 0) <= h.don())
+				v.testerCard(c.Key(i), code, byCard[code], w, hide, h.turn > 0 && v.snap.card(code).PaidCost() <= h.don())
 			}
 		})
 		hint := "Keep, or mulligan once."
@@ -218,20 +204,21 @@ func (v *view) testerCard(c *ui.Context, code string, dc stats.DealtCard, w floa
 	card := v.snap.card(code)
 	edge := ui.Transparent
 	if payable {
-		edge = winColor
+		edge = winColor(t)
 	}
 	ui.Column(c).Width(w + 6).Gap(3).Children(func() {
-		ui.Box(c).Padding(2).Radius(8).Border(2, edge).Children(func() { v.cardArt(c, code, w, w*7/5) })
+		ui.Box(c).Padding(2).Radius(8).Border(2, edge).Children(func() { v.card(c, code, w) })
 		ui.Text(c, card.Name).FontSize(13).FontWeight(600).SingleLine()
-		ui.Text(c, fmt.Sprintf("Cost %d", max(card.Cost, 0))).FontSize(12).TextColor(faintColor(t))
+		ui.Text(c, fmt.Sprintf("Cost %d", card.PaidCost())).FontSize(12).TextColor(faintColor(t))
 		switch {
 		case hide:
 			ui.Text(c, "Choose first").FontSize(12).TextColor(faintColor(t))
 		case dc.Dealt() == 0:
 			ui.Text(c, "Never dealt in your games").FontSize(12).TextColor(faintColor(t)).Wrap()
 		default:
+			// "Sent back" leaves no room for "too few" or a narrower card.
 			sent := "Sent back"
-			if w < testerCardW {
+			if few := dc.SentBack.Games() > 0 && !dc.SentBack.Enough(); w < testerCardW || few {
 				sent = "Sent"
 			}
 			recordLine(c.Key("kept"), "Kept", dc.Kept)
@@ -240,7 +227,6 @@ func (v *view) testerCard(c *ui.Context, code string, dc stats.DealtCard, w floa
 	})
 }
 
-// recordLine is a label with a record and its rate, or "few" below MinGames.
 func recordLine(c *ui.Context, label string, r stats.Record) {
 	t := c.Theme()
 	ui.Row(c).Gap(4).AlignItems(ui.End).Children(func() {
@@ -250,10 +236,6 @@ func recordLine(c *ui.Context, label string, r stats.Record) {
 			return
 		}
 		ui.Text(c, record(r)).FontSize(12).FontWeight(600).SingleLine()
-		rate := "few"
-		if x, ok := r.Rate(); ok {
-			rate = pct(x)
-		}
-		ui.Text(c, "· "+rate).FontSize(12).TextColor(t.TextMuted).SingleLine()
+		ui.Text(c, "· "+rateText(r)).FontSize(12).TextColor(t.TextMuted).SingleLine()
 	})
 }

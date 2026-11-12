@@ -2,11 +2,11 @@ package gui
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/live"
+	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
 )
 
@@ -18,9 +18,8 @@ func (v *view) liveStrip(c *ui.Context) {
 	}
 	s := v.live
 	t := c.Theme()
-	ui.Row(c).Margin(16, 20, 0, 20).Padding(12, 16).Gap(20).Radius(12).Background(panelColor(t)).Border(1, t.Border.Alpha(0.6)).
-		Shadow(0, 6, 20, 0, panelShade).AlignItems(ui.Center).Children(func() {
-		ui.Box(c).Size(8, 8).Radius(4).Background(winColor)
+	panel(c).Row().Margin(16, 20, 0, 20).Padding(12, 16).Gap(20).AlignItems(ui.Center).Children(func() {
+		ui.Box(c).Size(8, 8).Radius(4).Background(winColor(t))
 		if s.Phase == live.Lobby {
 			ui.Text(c, lobbyStatus(s)).Bold()
 			ui.Box(c).Grow(1)
@@ -136,6 +135,6 @@ func (*view) liveCounts(c *ui.Context, s live.State) {
 }
 
 func nameOf(id string) string {
-	name, _, _ := strings.Cut(id, "#")
+	name, _ := simlog.SplitID(id)
 	return name
 }

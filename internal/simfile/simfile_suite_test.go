@@ -1,4 +1,4 @@
-package godot
+package simfile_test
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestGodot(t *testing.T) {
+func TestSimfile(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Godot Suite")
+	RunSpecs(t, "Simfile Suite")
 }

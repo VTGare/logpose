@@ -40,7 +40,7 @@ var _ = Describe("right-click menus", func() {
 		Expect(tt.RightClick("Open the match against Opp")).To(Succeed())
 		shows(tt, "Open match", "Watch replay", "Game type", "Add note…", "Bookmark", "Filter to games vs Opp")
 		Expect(choose(tt, "Open match")).To(Succeed())
-		Expect(v.detail.fingerprint).NotTo(BeEmpty())
+		Expect(tt.HasText("Back to overview")).To(BeTrue())
 		Expect(v.page).To(Equal(pageOverview))
 	})
 
@@ -58,7 +58,7 @@ var _ = Describe("right-click menus", func() {
 		shows(tt, "Open on Decks", "Open on Matchups", "Show in Matches", "Open in Cards", "View art")
 		Expect(choose(tt, "Open on Matchups")).To(Succeed())
 		Expect(v.page).To(Equal(pageMatchups))
-		Expect(v.filter.deck).To(Equal("OP13-001"))
+		Expect(tt.Texts()).NotTo(ContainElement("All decks"))
 
 		Expect(tt.RightClick("Show matchups with Monkey D. Luffy")).To(Succeed())
 		Expect(choose(tt, "Show in Matches")).To(Succeed())
@@ -70,13 +70,15 @@ var _ = Describe("right-click menus", func() {
 		Expect(tt.RightClick("Show games vs Kaido")).To(Succeed())
 		shows(tt, "Show in Matches", "Filter to games vs Kaido", "Open in Cards", "View art")
 		Expect(choose(tt, "Filter to games vs Kaido")).To(Succeed())
-		Expect(v.filter.oppLeader).To(Equal("OP17-058"))
+		Expect(tt.Texts()).To(ContainElement("vs Kaido"))
 		Expect(v.page).To(Equal(pageOverview))
 
-		v.filter.oppLeader = ""
+		Expect(tt.Click("Remove the filter vs Kaido")).To(Succeed())
+		tt.Frame()
+		Expect(tt.Texts()).NotTo(ContainElement("vs Kaido"))
 		Expect(tt.RightClick("Show games vs Kaido")).To(Succeed())
 		Expect(choose(tt, "Show in Matches")).To(Succeed())
-		Expect(v.filter.oppLeader).To(Equal("OP17-058"))
+		Expect(tt.Texts()).To(ContainElement("vs Kaido"))
 		Expect(v.page).To(Equal(pageMatches))
 	})
 
@@ -85,20 +87,21 @@ var _ = Describe("right-click menus", func() {
 		v.page = pageMatchups
 		tt.Frame()
 		Expect(tt.Click("Filter to games vs Kaido")).To(Succeed())
-		Expect(v.filter.oppLeader).To(Equal("OP17-058"))
+		tt.Frame()
+		Expect(tt.Texts()).To(ContainElement("vs Kaido"))
 		Expect(v.page).To(Equal(pageMatchups))
 		Expect(tt.Click("Show in Matches")).To(Succeed())
+		tt.Frame()
 		Expect(v.page).To(Equal(pageMatches))
-		Expect(v.filter.deck).To(Equal("OP13-001"))
+		Expect(tt.Texts()).NotTo(ContainElement("All decks"))
 	})
 
 	It("opens a leader in Cards or its art over the page", func() {
 		v, tt := tester(testSnapshot(3))
 		Expect(tt.RightClick("Show games vs Kaido")).To(Succeed())
 		Expect(choose(tt, "View art")).To(Succeed())
-		Expect(v.cardsUI.viewer).To(BeTrue())
-		Expect(v.cardsUI.selected).To(Equal("OP17-058"))
 		Expect(tt.HasText("Close the viewer")).To(BeTrue())
+		Expect(tt.HasText("OP17-058")).To(BeTrue())
 		Expect(v.page).To(Equal(pageOverview))
 		Expect(tt.Click("Close the viewer")).To(Succeed())
 
@@ -106,21 +109,20 @@ var _ = Describe("right-click menus", func() {
 		Expect(choose(tt, "Open in Cards")).To(Succeed())
 		Expect(v.page).To(Equal(pageCards))
 		Expect(v.cardsUI.selected).To(Equal("OP17-058"))
-		Expect(v.cardsUI.viewer).To(BeFalse())
+		Expect(tt.HasText("Close the viewer")).To(BeFalse())
 	})
 
 	It("offers a card on a Decks tab its Cards page and its dealt hands", func() {
-		v, tt := tester(deckSnapshot())
+		v, tt := tester(handsSnapshot())
 		Expect(tt.Click("Decks")).To(Succeed())
-		v.decks.tab = tabCards
-		tt.Frame()
+		openDecks(v, tt, "cards")
 		r, ok := tt.Find("Otama")
 		Expect(ok).To(BeTrue())
 		tt.RightClickAt(r.X+2, r.Y+r.H/2)
 		shows(tt, "Open in Cards", "Show hands with Otama", "Art in the sim", "View art", "Save image…", "Copy image", "Open on Limitless")
 		Expect(choose(tt, "Show hands with Otama")).To(Succeed())
-		Expect(v.decks.tab).To(Equal(tabHands))
-		Expect(v.decks.handsCard).To(Equal("OTA"))
+		Expect(tt.HasText("Keep or mulligan")).To(BeTrue())
+		Expect(tt.HasText("you were dealt Otama")).To(BeTrue())
 	})
 
 	It("gives a build's row in the builds table the build chip's menu", func() {
@@ -132,19 +134,23 @@ var _ = Describe("right-click menus", func() {
 	})
 
 	It("clears one pill or every filter from a pill's menu", func() {
-		v, tt := tester(testSnapshot(3))
-		v.filter.turn = stats.GoingFirst
-		tt.Frame()
+		_, tt := tester(testSnapshot(3))
+		Expect(tt.Click("Either turn")).To(Succeed())
+		Expect(choose(tt, "Going first")).To(Succeed())
 		Expect(tt.RightClick("Going first")).To(Succeed())
 		shows(tt, "Clear turn order", "Clear all filters")
 		Expect(choose(tt, "Clear turn order")).To(Succeed())
-		Expect(v.filter.turn).To(Equal(stats.EitherTurn))
+		Expect(tt.Texts()).To(ContainElement("Either turn"))
 
-		v.filter.turn, v.filter.deck = stats.GoingSecond, "OP13-001"
-		tt.Frame()
+		Expect(tt.Click("All decks")).To(Succeed())
+		Expect(choose(tt, "Monkey D. Luffy · 3 games")).To(Succeed())
+		Expect(tt.Click("Either turn")).To(Succeed())
+		Expect(choose(tt, "Going second")).To(Succeed())
+		Expect(tt.Texts()).NotTo(ContainElements("Either turn", "All decks"))
 		Expect(tt.RightClick("Going second")).To(Succeed())
 		Expect(choose(tt, "Clear all filters")).To(Succeed())
-		Expect(v.filter).To(Equal(v.cleared()))
+		Expect(tt.Texts()).To(ContainElements("Either turn", "All decks"))
+		Expect(tt.Texts()).NotTo(ContainElement("Clear"))
 	})
 })
 
@@ -159,13 +165,13 @@ var _ = Describe("the default format", func() {
 	}
 
 	It("starts on All formats until the user picks, and reads what they picked", func() {
-		Expect(startUnpicked).To(Equal(formatAll))
-		v, tt := tester(withFormats())
-		Expect(v.scoped().matches).To(HaveLen(10))
-		Expect(tt.HasText("Clear")).To(BeFalse())
-		Expect(prefsFrom(nil).startFormat).To(Equal(startUnpicked))
-		Expect(prefsFrom(map[string]string{store.SettingStartFormat: store.StartLatestFormat}).startFormat).To(Equal(formatCurrent))
-		Expect(prefsFrom(map[string]string{store.SettingStartFormat: store.StartAllFormats}).startFormat).To(Equal(formatAll))
+		for stored, pill := range map[string]string{"": "All formats", startLatest: "New format", startAll: "All formats"} {
+			v, tt := tester(withFormats())
+			v.setPrefs(prefsFrom(map[string]string{keyStartFormat: stored}))
+			tt.Frame()
+			Expect(tt.Texts()).To(ContainElement(pill), stored)
+			Expect(tt.HasText("Clear")).To(BeFalse(), stored)
+		}
 	})
 
 	It("saves the choice under Start on without changing the format picked", func() {
@@ -174,9 +180,8 @@ var _ = Describe("the default format", func() {
 		v.act = fa
 		Expect(tt.Click("All formats")).To(Succeed())
 		Expect(choose(tt, "Start on", "Latest format, now New format")).To(Succeed())
-		Expect(v.prefs.startFormat).To(Equal(formatCurrent))
-		Expect(fa.calls).To(Equal([]string{store.SettingStartFormat + "=" + store.StartLatestFormat}))
-		Expect(v.filter.format).To(Equal(formatAll))
+		Expect(fa.calls).To(Equal([]string{keyStartFormat + "=" + startLatest}))
+		Expect(tt.Texts()).To(ContainElement("All formats"))
 		Expect(tt.HasText("Clear")).To(BeTrue(), "All formats is away from the default now")
 	})
 
@@ -189,42 +194,52 @@ var _ = Describe("the default format", func() {
 		Expect(tt.HasText("Pages start on")).To(BeTrue())
 		Expect(tt.Click("Latest format")).To(Succeed())
 		tt.Frame()
-		Expect(v.prefs.startFormat).To(Equal(formatCurrent))
-		Expect(fa.calls).To(Equal([]string{store.SettingStartFormat + "=" + store.StartLatestFormat}))
+		Expect(fa.calls).To(Equal([]string{keyStartFormat + "=" + startLatest}))
 	})
 
 	It("goes back to the default from Clear and from the format pill's menu", func() {
 		v, tt := tester(withFormats())
-		v.prefs.startFormat = formatCurrent
-		v.filter.format = 1
+		v.setPrefs(prefsFrom(map[string]string{keyStartFormat: startLatest}))
 		tt.Frame()
+		Expect(tt.Click("New format")).To(Succeed())
+		Expect(choose(tt, "Old format · since Nov 4")).To(Succeed())
 		Expect(tt.Click("Clear")).To(Succeed())
-		Expect(v.filter.format).To(Equal(formatCurrent))
 		tt.Frame()
+		Expect(tt.Texts()).To(ContainElement("New format"))
 		Expect(tt.HasText("Clear")).To(BeFalse())
 
-		v.filter.format = formatAll
-		tt.Frame()
+		Expect(tt.Click("New format")).To(Succeed())
+		Expect(choose(tt, "All formats")).To(Succeed())
 		Expect(tt.RightClick("All formats")).To(Succeed())
 		shows(tt, "Back to New format", "Clear all filters")
 		Expect(choose(tt, "Back to New format")).To(Succeed())
-		Expect(v.filter.format).To(Equal(formatCurrent))
+		Expect(tt.Texts()).To(ContainElement("New format"))
+		Expect(tt.Texts()).NotTo(ContainElement("All formats"))
 	})
 
 	It("greys out Back at the default", func() {
-		v, tt := tester(withFormats())
+		_, tt := tester(withFormats())
 		Expect(tt.RightClick("All formats")).To(Succeed())
 		shows(tt, "Back to All formats")
 		Expect(choose(tt, "Back to All formats")).To(Succeed())
-		Expect(v.filter.format).To(Equal(formatAll))
+		Expect(tt.Texts()).To(ContainElement("All formats"))
+	})
+
+	It("counts the latest format picked by its ID as the default", func() {
+		v, tt := tester(withFormats())
+		v.setPrefs(prefsFrom(map[string]string{keyStartFormat: startLatest}))
 		v.filter.format = 2
-		Expect(v.atStartFormat()).To(BeFalse())
-		v.prefs.startFormat = formatCurrent
-		Expect(v.atStartFormat()).To(BeTrue(), "the latest format picked by its ID is the default")
+		tt.Frame()
+		Expect(tt.Texts()).To(ContainElement("New format"))
+		Expect(tt.HasText("Clear")).To(BeFalse())
+		v.filter.format = 1
+		tt.Frame()
+		Expect(tt.HasText("Clear")).To(BeTrue())
 	})
 
 	It("counts the latest format and All formats as the same with no formats saved", func() {
 		v, tt := tester(testSnapshot(3))
+		v.setPrefs(prefsFrom(map[string]string{keyStartFormat: startAll}))
 		v.filter.format = formatCurrent
 		tt.Frame()
 		Expect(tt.HasText("Clear")).To(BeFalse())

@@ -127,9 +127,25 @@ var _ = Describe("Tracker", func() {
 		var t live.Tracker
 		t.Line("Joined relay KF669D")
 		Expect(t.State().Ranked()).To(BeFalse())
-		Expect(t.Line("[ReplaySync] RZ1|META|f4a4|7849575")).To(BeTrue())
+		t.Line("[ReplaySync] RZ1|META|f4a4|7849575")
 		Expect(t.State().Match).To(Equal(7849575))
 		Expect(t.State().Ranked()).To(BeTrue())
+	})
+
+	It("skips the empty PLY line the sim writes for each seat", func() {
+		var t live.Tracker
+		for _, l := range []string{
+			"Joined relay QWERTY",
+			"shuffle deck for A\u200b#1",
+			"[ReplaySync] RZ1|PLY|2||",
+			"[ReplaySync] RZ1|PLY|2|B\u200b#2|OP17-039",
+		} {
+			t.Line(l)
+		}
+		Expect(t.State().Players).To(ConsistOf(
+			gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{"ID": Equal("A#1")}),
+			gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{"ID": Equal("B#2"), "Owner": Equal(2), "Leader": Equal("OP17-039")}),
+		))
 	})
 
 	It("starts over when the move numbers do", func() {

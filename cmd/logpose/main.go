@@ -14,7 +14,6 @@ import (
 
 	"github.com/VTGare/logpose/internal/gui"
 	"github.com/VTGare/logpose/internal/importer"
-	"github.com/VTGare/logpose/internal/sim"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
 )
@@ -61,7 +60,7 @@ func dbFlag(fs *flag.FlagSet) *string {
 	return fs.String("db", "", "database file (default: logpose.db in the user config folder)")
 }
 
-// dbPath is the database file: path, or logpose.db in the user config folder.
+// dbPath falls back to the working folder when Windows has no user config folder.
 func dbPath(path string) string {
 	if path != "" {
 		return path
@@ -74,7 +73,6 @@ func dbPath(path string) string {
 }
 
 func openStore(ctx context.Context, path string) (*store.Store, error) {
-	path = dbPath(path)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
@@ -86,7 +84,7 @@ func runApp(ctx context.Context, args []string) (err error) {
 	db := dbFlag(fs)
 	simDir := fs.String("sim", "", "OPTCGSim's folder, the one with OPTCGSim.exe (default: found from the running sim)")
 	dev := fs.Bool("dev", false, "run as a test copy next to the real logpose, with -db pointing at a scratch database")
-	page := fs.String("page", "", "the page to open on, for screenshots of a test copy: "+strings.Join(gui.Pages(), ", ")+", cards/<code>")
+	page := fs.String("page", "", "the page to open on, for screenshots of a test copy: "+strings.Join(gui.Pages(), ", "))
 	_ = fs.Parse(args)
 	if *page != "" && !gui.IsPage(*page) {
 		return fmt.Errorf("-page: no page %q", *page)
@@ -95,23 +93,27 @@ func runApp(ctx context.Context, args []string) (err error) {
 		return nil
 	}
 
-	st, err := openStore(ctx, *db)
+	path := dbPath(*db)
+	st, err := openStore(ctx, path)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, st.Close()) }()
 
+	// Everything logpose keeps goes next to the database, so a test copy run with -db leaves the
+	// installed app's files alone.
+	dir := filepath.Dir(path)
 	opts := gui.Options{
-		Store: st, Log: logger(), Dev: *dev, Page: *page,
-		DBPath:      dbPath(*db),
-		CatalogPath: filepath.Join(filepath.Dir(dbPath(*db)), "cards.json"),
-		LibraryPath: filepath.Join(filepath.Dir(dbPath(*db)), "library.json"),
-		ArtDir:      filepath.Join(filepath.Dir(dbPath(*db)), "art"),
-		BandaiPath:  filepath.Join(filepath.Dir(dbPath(*db)), "bandai.json"),
-		GridDir:     filepath.Join(filepath.Dir(dbPath(*db)), "art", "grids-1"),
+		Store: st, Log: logger(dir), Dev: *dev, Page: *page,
+		DBPath:      path,
+		CatalogPath: filepath.Join(dir, "cards.json"),
+		LibraryPath: filepath.Join(dir, "library.json"),
+		ArtDir:      filepath.Join(dir, "art"),
+		BandaiPath:  filepath.Join(dir, "bandai.json"),
+		SimArtDir:   filepath.Join(dir, "sim-art"),
 		SimFlag:     *simDir != "",
 	}
-	if in, err := locateSim(ctx, st, *simDir); err == nil {
+	if in, err := gui.LocateSim(ctx, st, *simDir); err == nil {
 		opts.Install = &in
 	} else {
 		opts.Log.Warn("sim not found", "err", err)
@@ -119,36 +121,9 @@ func runApp(ctx context.Context, args []string) (err error) {
 	return gui.Run(ctx, opts)
 }
 
-// locateSim finds the sim from -sim, the folder the user chose, the running process, the usual
-// folders, then the folder it was last found in, and remembers where it found it.
-func locateSim(ctx context.Context, st *store.Store, dir string) (sim.Install, error) {
-	if dir != "" {
-		return sim.Open(dir)
-	}
-	if chosen, err := st.Setting(ctx, store.SettingSimDirChosen); err == nil && chosen != "" {
-		if in, err := sim.Open(chosen); err == nil {
-			return in, nil
-		}
-	}
-	in, err := sim.Locate()
-	if err != nil {
-		if saved, serr := st.Setting(ctx, store.SettingSimDir); serr == nil && saved != "" {
-			in, err = sim.Open(saved)
-		}
-	}
-	if err != nil {
-		return sim.Install{}, err
-	}
-	return in, st.SetSetting(ctx, store.SettingSimDir, in.Root)
-}
-
-// logger writes to logpose.log next to the database, since the Windows build has no console.
-func logger() *slog.Logger {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return slog.Default()
-	}
-	f, err := os.OpenFile(filepath.Join(dir, "logpose", "logpose.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+// logger writes to logpose.log in dir, since the Windows build has no console.
+func logger(dir string) *slog.Logger {
+	f, err := os.OpenFile(filepath.Join(dir, "logpose.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return slog.Default()
 	}
@@ -163,7 +138,7 @@ func runImport(ctx context.Context, args []string) (err error) {
 	if *dir == "" {
 		return errors.New("import needs -dir")
 	}
-	st, err := openStore(ctx, *db)
+	st, err := openStore(ctx, dbPath(*db))
 	if err != nil {
 		return err
 	}
@@ -174,12 +149,8 @@ func runImport(ctx context.Context, args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	reparsed, err := st.Reparse(ctx)
-	if err != nil {
-		return err
-	}
 	fmt.Printf("%d files, %d games, %d new, %d parsed again, in %s\n",
-		r.Files, r.Games, r.New, reparsed, time.Since(start).Round(time.Millisecond))
+		r.Files, r.Games, r.New, r.Reparsed, time.Since(start).Round(time.Millisecond))
 	return nil
 }
 
@@ -187,7 +158,7 @@ func runGames(ctx context.Context, args []string) (err error) {
 	fs := flag.NewFlagSet("games", flag.ExitOnError)
 	db := dbFlag(fs)
 	_ = fs.Parse(args)
-	st, err := openStore(ctx, *db)
+	st, err := openStore(ctx, dbPath(*db))
 	if err != nil {
 		return err
 	}
@@ -201,28 +172,32 @@ func runGames(ctx context.Context, args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	wins := 0
 	ms := stats.Matches(games, me...)
 	for _, m := range ms {
-		result := "W"
-		if m.Result == stats.Loss {
+		result := "?"
+		switch m.Result {
+		case stats.Win:
+			result = "W"
+		case stats.Loss:
 			result = "L"
-		} else {
-			wins++
 		}
-		order := "2nd"
-		if m.WentFirst {
-			order = "1st"
+		order := "?"
+		if m.TurnOrderKnown {
+			order = "2nd"
+			if m.WentFirst {
+				order = "1st"
+			}
 		}
 		kind := "casual"
 		if m.Ranked {
 			kind = "ranked"
 		}
-		fmt.Printf("%s  %s  %-8s vs %-8s %-22s %s  T%-2d %-8s %s\n", m.PlayedAt.Format("2006-01-02 15:04"), result,
+		fmt.Printf("%s  %s  %-8s vs %-8s %-22s %-3s  T%-2d %-8s %s\n", m.PlayedAt.Format("2006-01-02 15:04"), result,
 			m.Me.Leader, m.Opp.Leader, m.Opp.ID, order, m.Turns, m.End.Kind, kind)
 	}
 	if len(ms) > 0 {
-		fmt.Printf("%d games as %s, %d–%d\n", len(ms), strings.Join(me, ", "), wins, len(ms)-wins)
+		r := stats.RecordOf(ms)
+		fmt.Printf("%d games as %s, %d–%d\n", len(ms), strings.Join(me, ", "), r.Wins, r.Losses)
 	}
 	return nil
 }

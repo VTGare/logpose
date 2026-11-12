@@ -7,6 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
@@ -38,7 +39,6 @@ type detailState struct {
 	replay *replayState
 }
 
-// matchTimeline is what the match page reads from a game's log.
 type matchTimeline struct {
 	Fingerprint string
 	// Me and Opp are life by turn, as simlog.Game.LifeByTurn gives it, and the rest hand and
@@ -50,6 +50,10 @@ type matchTimeline struct {
 	Marks             []simlog.Mark
 	// Replayable is false for logs from sim versions without the RZ1 move stream.
 	Replayable bool
+	// Game is the parsed log, which the replay is built from, or nil when Err says why it
+	// couldn't be read.
+	Game *simlog.Game
+	Err  error
 }
 
 func (v *view) openMatch(m stats.Match) {
@@ -58,10 +62,9 @@ func (v *view) openMatch(m stats.Match) {
 		fingerprint: m.Fingerprint, from: v.page, gameType: int(m.Type), lifePoint: -1,
 		note: m.Note, savedNote: m.Note,
 	}
-	v.act.LoadTimeline(m.Fingerprint, m.Me.ID, m.Opp.ID)
+	v.do(func(a actions) { a.LoadTimeline(m.Fingerprint, m.Me.ID, m.Opp.ID) })
 }
 
-// closeMatch goes back to the page the match opened on and saves the note being typed.
 func (v *view) closeMatch() {
 	v.saveNote()
 	v.detail = detailState{}
@@ -74,13 +77,13 @@ func (v *view) saveNote() {
 		return
 	}
 	d.savedNote = note
-	v.act.SetGameNote(d.fingerprint, note)
+	v.do(func(a actions) { a.SetGameNote(d.fingerprint, note) })
 }
 
-// setTimeline shows a match's life once its log is read, unless another match opened meanwhile.
 func (v *view) setTimeline(l matchTimeline) {
 	if v.detail.fingerprint == l.Fingerprint {
 		v.detail.timeline = &l
+		v.buildReplay()
 	}
 }
 
@@ -118,12 +121,12 @@ func (v *view) matchPage(c *ui.Context) {
 					ui.Text(c, from).TextColor(t.TextMuted)
 				})
 				ui.Text(c, "/").TextColor(faintColor(t))
-				ui.Text(c, m.PlayedAt.Format("Mon Jan 2, 15:04")).Bold()
+				ui.Text(c, v.weekday(m.PlayedAt)+", "+m.PlayedAt.Format("15:04")).Bold()
 				ui.Spacer(c)
 				if stats.CanBeRanked(m.Game) {
 					v.typeSelect(c, m)
 				}
-				if !v.noteShown() && iconButton(c, iconNote, "Add note", false).Label("Add note").Clicked() {
+				if !v.noteShown() && iconButton(c, iconNote, "Add note").Label("Add note").Clicked() {
 					v.detail.noteOpen = true
 					v.detail.focusNote = true
 				}
@@ -135,35 +138,32 @@ func (v *view) matchPage(c *ui.Context) {
 			if v.noteShown() {
 				v.noteTile(c)
 			}
-			v.timeline(c, m)
+			v.flowTile(c, m)
+			v.momentsTile(c, m)
 		})
 	})
 }
 
-// noteShown is whether the match page shows the note box: when the match has a note, or the
-// user asked to add one.
 func (v *view) noteShown() bool {
 	d := v.detail
 	return d.noteOpen || d.focusNote || strings.TrimSpace(d.note) != "" || d.savedNote != ""
 }
 
-// faceOff is both leaders' art coming in from the ends, each lit by its colors, with the names
-// on it and the result between them.
 func (v *view) faceOff(c *ui.Context, m stats.Match) {
 	t := c.Theme()
 	mine, theirs := v.art.get(m.Me.Leader, artFaceMine), v.art.get(m.Opp.Leader, artFaceTheirs)
 	myCols, theirCols := colorsOf(v.snap.card(m.Me.Leader)), colorsOf(v.snap.card(m.Opp.Leader))
 	base := panelColor(t)
-	side := func(p store.GamePlayer, who string, me bool) {
+	you := mySide(m)
+	column := func(p store.GamePlayer, s side) {
 		align := ui.Start
-		col := youColor
-		if !me {
-			align, col = ui.End, oppColor
+		if !s.mine {
+			align = ui.End
 		}
 		ui.Column(c).Gap(1).AlignItems(align).Children(func() {
-			ui.Text(c, who).FontSize(12).Bold().TextColor(col)
+			ui.Text(c, s.name()).FontSize(12).Bold().TextColor(s.color())
 			ui.Text(c, v.snap.card(p.Leader).Name).FontSize(26).Bold()
-			ui.Text(c, setOf(p.Leader)+" · "+orderWord(m, me)).FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, cards.SetOf(p.Leader)+" · "+orderWord(m, s.mine)).FontSize(12).TextColor(t.TextMuted)
 		})
 	}
 	ui.Row(c).Height(180).Radius(12).Clip().Background(base).Border(1, t.Border.Alpha(0.6)).
@@ -181,12 +181,12 @@ func (v *view) faceOff(c *ui.Context, m stats.Match) {
 			{At: 0, Color: base.Alpha(0.94)}, {At: 0.4, Color: base.Alpha(0.5)}, {At: 0.7, Color: base.Alpha(0)},
 		}}, 0)
 	}).Children(func() {
-		side(m.Me, "You", true)
+		column(m.Me, you)
 		ui.Column(c).Grow(1).Gap(2).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, resultWord(m.Result)).FontSize(44).Bold().TextColor(resultColor(m.Result))
+			ui.Text(c, resultWord(m.Result)).FontSize(44).Bold().TextColor(resultColor(t, m.Result))
 			ui.Text(c, fmt.Sprintf("%s · %s · %s", turns(m.Turns), endWord(m.End.Kind), gameType(m))).FontSize(13)
 		})
-		side(m.Opp, m.Opp.Name, false)
+		column(m.Opp, you.other())
 	})
 }
 
@@ -201,37 +201,25 @@ func orderWord(m stats.Match, mine bool) string {
 	}
 }
 
-// typeSelect is the game type as a drop-down, its first option saying what the guess gives,
-// with why the game counts as it does on hover.
 func (v *view) typeSelect(c *ui.Context, m stats.Match) ui.Element {
 	opts := v.typeOptions(m)
 	v.detail.typeChoice = opts[v.detail.gameType]
 	sel := ui.Select(c, &v.detail.typeChoice, opts).Label("Game type").Tooltip(v.typeNote(m))
 	if i := slices.Index(opts, v.detail.typeChoice); i >= 0 && i != v.detail.gameType {
 		v.detail.gameType = i
-		v.act.SetGameType(m.Fingerprint, store.GameType(i))
+		v.do(func(a actions) { a.SetGameType(m.Fingerprint, store.GameType(i)) })
 	}
 	return sel
 }
 
 // typeOptions labels the game types in store.GameType order, the first saying what the guess
 // gives.
-func (v *view) typeOptions(m stats.Match) []string {
+func (*view) typeOptions(m stats.Match) []string {
 	guess := "Auto: Friendly"
-	if m.Match > 0 || v.lobbyGames(m) == 1 {
+	if m.RankedGuess {
 		guess = "Auto: Ranked"
 	}
 	return []string{guess, "Ranked", "Friendly"}
-}
-
-func (v *view) lobbyGames(m stats.Match) int {
-	n := 0
-	for _, o := range v.snap.Matches {
-		if o.Lobby.Code == m.Lobby.Code {
-			n++
-		}
-	}
-	return n
 }
 
 func (v *view) typeNote(m stats.Match) string {
@@ -241,19 +229,13 @@ func (v *view) typeNote(m stats.Match) string {
 	case store.TypeFriendly:
 		return "Counted as a friendly, as you set it."
 	}
-	if m.Match > 0 {
+	switch {
+	case m.Match > 0:
 		return fmt.Sprintf("Counted as ranked, since the sim logged it as OPBounty match %d.", m.Match)
-	}
-	n := 0
-	for _, o := range v.snap.Matches {
-		if o.Lobby.Code == m.Lobby.Code {
-			n++
-		}
-	}
-	if n == 1 {
+	case m.RankedGuess:
 		return "Counted as ranked, since it's the only game in its lobby."
 	}
-	return fmt.Sprintf("Counted as a friendly, since its lobby has %s.", games(n))
+	return fmt.Sprintf("Counted as a friendly, since its lobby has %s.", games(m.LobbyGames))
 }
 
 // noteTile saves the note when the user leaves the box, and closeMatch saves it when they leave
@@ -274,7 +256,6 @@ func (v *view) noteTile(c *ui.Context) ui.Element {
 	})
 }
 
-// replayButton opens the replay once the log is read and has the moves a replay needs.
 func (v *view) replayButton(c *ui.Context, m stats.Match) {
 	l := v.detail.timeline
 	switch {
@@ -293,7 +274,6 @@ func (v *view) replayButton(c *ui.Context, m stats.Match) {
 	}
 }
 
-// bookmarkButton bookmarks the match, or removes its bookmark.
 func (v *view) bookmarkButton(c *ui.Context, m stats.Match) {
 	var b ui.Element
 	if m.Bookmarked {
@@ -302,9 +282,9 @@ func (v *view) bookmarkButton(c *ui.Context, m stats.Match) {
 			ui.Text(c, "Bookmarked").SingleLine()
 		})
 	} else {
-		b = iconButton(c, iconStar, "Bookmark", false).Label("Bookmark")
+		b = iconButton(c, iconStar, "Bookmark").Label("Bookmark")
 	}
 	if b.Clicked() {
-		v.act.SetBookmark(m.Fingerprint, !m.Bookmarked)
+		v.do(func(a actions) { a.SetBookmark(m.Fingerprint, !m.Bookmarked) })
 	}
 }

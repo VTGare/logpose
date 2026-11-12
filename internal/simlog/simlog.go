@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"slices"
 	"strings"
@@ -17,6 +18,21 @@ const (
 	RoleJoin
 )
 
+var roleNames = map[LobbyRole]string{RoleHost: "host", RoleJoin: "join"}
+
+// String is the role's stored name, or "" for RoleUnknown.
+func (r LobbyRole) String() string { return roleNames[r] }
+
+// ParseLobbyRole reads a stored name. An unknown name reads as RoleUnknown.
+func ParseLobbyRole(name string) LobbyRole {
+	for r, n := range roleNames {
+		if n == name {
+			return r
+		}
+	}
+	return RoleUnknown
+}
+
 type Lobby struct {
 	Code string
 	Role LobbyRole
@@ -26,6 +42,20 @@ type Lobby struct {
 // Standard. Their codes are 7 characters, starting with the room's letter, and the sim's open
 // lobbies have 6. OPBounty's ranked lobbies are in rooms, and so are friendlies hosted there.
 func (l Lobby) InRoom() bool { return len(l.Code) == 7 }
+
+// Room is the letter of the room the lobby was made in, such as 'X' for Spoiler, or 0 for a
+// lobby outside a room. A joiner's code from the sim's ranked panel lacks the letter.
+func (l Lobby) Room() byte {
+	if !l.InRoom() {
+		return 0
+	}
+	return l.Code[0]
+}
+
+// CouldBeRanked reports whether a game in the lobby with OPBounty's match number could have been
+// ranked. The joiner's log has the room code without its room letter when the sim's ranked panel
+// joined, so the match number counts too.
+func CouldBeRanked(l Lobby, match int) bool { return l.InRoom() || match > 0 }
 
 type Player struct {
 	Name string
@@ -38,6 +68,22 @@ type Player struct {
 }
 
 func (p Player) ID() string { return p.Name + "#" + p.Tag }
+
+// SplitID reads a player ID as "name#tag". The sim writes a zero-width space before the '#',
+// which neither part keeps.
+func SplitID(id string) (name, tag string) {
+	name, tag, ok := strings.Cut(id, "\u200b#")
+	if !ok {
+		name, tag, _ = strings.Cut(id, "#")
+	}
+	return name, tag
+}
+
+// PlayerID is the ID of a player as the sim writes them, with a zero-width space before the '#'.
+func PlayerID(s string) string {
+	name, tag := SplitID(s)
+	return Player{Name: name, Tag: tag}.ID()
+}
 
 type Mulligan struct {
 	Before     []string
@@ -52,19 +98,35 @@ const (
 	EndConcede
 	EndDeckOut
 	EndLethal
+	endKindCount
 )
 
-func (k EndKind) String() string {
-	switch k {
-	case EndConcede:
-		return "concede"
-	case EndDeckOut:
-		return "deck out"
-	case EndLethal:
-		return "lethal"
-	default:
-		return "unknown"
+var EndKinds = func() []EndKind {
+	out := make([]EndKind, 0, endKindCount)
+	for k := EndUnknown; k < endKindCount; k++ {
+		out = append(out, k)
 	}
+	return out
+}()
+
+var endNames = map[EndKind]string{EndUnknown: "unknown", EndConcede: "concede", EndDeckOut: "deck_out", EndLethal: "lethal"}
+
+// String is the kind's stored name, which the games table's CHECK lists.
+func (k EndKind) String() string {
+	if name, ok := endNames[k]; ok {
+		return name
+	}
+	return endNames[EndUnknown]
+}
+
+// ParseEndKind reads a stored name. An unknown name reads as EndUnknown.
+func ParseEndKind(name string) EndKind {
+	for k, n := range endNames {
+		if n == name {
+			return k
+		}
+	}
+	return EndUnknown
 }
 
 type End struct {
@@ -154,6 +216,18 @@ func Parse(r io.Reader) ([]Game, error) {
 	return games, nil
 }
 
+// ParseOne reads a game's Text, which parses back to exactly that one game.
+func ParseOne(text string) (*Game, error) {
+	games, err := Parse(strings.NewReader(text))
+	if err != nil {
+		return nil, err
+	}
+	if len(games) != 1 {
+		return nil, fmt.Errorf("log parses to %d games", len(games))
+	}
+	return &games[0], nil
+}
+
 // fingerprintMoves is how many RZ1 moves go into a fingerprint. The file saved at the end of a
 // game and a later rematch file can differ after the game, such as in chat, but not in its first
 // moves.
@@ -211,8 +285,8 @@ func (b *builder) add(line string) {
 	b.addText(line)
 }
 
-// finish completes the game. A rematch's log has no lobby line, so it gets the lobby of the game
-// before it, and its text gets the line too, so parsing the text alone finds it.
+// A rematch's log has no lobby line, so it gets the lobby of the game before it, and its text
+// gets the line too, so parsing the text alone finds it.
 func (b *builder) finish(prev Lobby) Game {
 	b.inferOwners()
 	b.handsFromDraws()
@@ -295,7 +369,7 @@ func (b *builder) player(id string) *Player {
 			return &b.game.Players[i]
 		}
 	}
-	name, tag, _ := strings.Cut(id, "#")
+	name, tag := SplitID(id)
 	b.game.Players = append(b.game.Players, Player{Name: name, Tag: tag})
 	return &b.game.Players[len(b.game.Players)-1]
 }

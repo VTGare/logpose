@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"runtime"
 
 	// Registers the "sqlite" driver. It is pure Go, so Windows builds from WSL need no C toolchain.
@@ -16,6 +17,7 @@ import (
 // single writer lock from turning into SQLITE_BUSY errors. Reads go through a separate
 // read-only pool and, with WAL on, don't wait for writes.
 type Store struct {
+	path  string
 	write *sql.DB
 	read  *sql.DB
 }
@@ -38,11 +40,22 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	}
 	read.SetMaxOpenConns(max(4, runtime.NumCPU()))
 
-	s := &Store{write: write, read: read}
+	s := &Store{path: path, write: write, read: read}
 	if err := migrate(ctx, write); err != nil {
 		return nil, errors.Join(err, s.Close())
 	}
 	return s, nil
+}
+
+// Size is the database's size on disk, with the write-ahead log SQLite keeps next to it.
+func (s *Store) Size() int64 {
+	var n int64
+	for _, p := range []string{s.path, s.path + "-wal"} {
+		if fi, err := os.Stat(p); err == nil {
+			n += fi.Size()
+		}
+	}
+	return n
 }
 
 func (s *Store) Close() error {

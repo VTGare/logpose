@@ -4,7 +4,6 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/VTGare/logpose/internal/simlog"
 )
@@ -60,11 +59,9 @@ func (c *Card) drop(gone func(Status) bool) {
 	c.Statuses = out
 }
 
-// Duration is how long a phrase's status lasts.
 type Duration int
 
 const (
-	// UntilLine lasts until a line ends it.
 	UntilLine Duration = iota
 	ThisTurn
 	// NextTurn lasts to the end of the turn after the one it was given in.
@@ -76,55 +73,23 @@ const (
 	UntilRefresh
 )
 
-// Phrase names a readable effect phrase that sets a status.
-type Phrase string
+// goesTo is the card a phrase's status goes to.
+type goesTo int
 
 const (
-	PhraseGrant      Phrase = "Grant X N until next turn end"
-	PhraseGrantOpp   Phrase = "Grant X N until opponent's next turn end"
-	PhraseBuffCombat Phrase = "Buff X N for the Combat"
-	PhraseBuff       Phrase = "Buff X N"
-	PhraseBuffSelf   Phrase = "Buff Self N"
-	// PhraseBasePower reads as a power change: "Set Imu Base Power to 2000" takes Imu from 5000 to
-	// 7000 in the "vs" line.
-	PhraseBasePower   Phrase = "Set X Base Power to N"
-	PhraseCounter     Phrase = "Counter N"
-	PhraseNoRest      Phrase = "X can't be rested until next turn ends"
-	PhraseFrozen      Phrase = "X will not Activate during next Refresh"
-	PhraseNoAttack    Phrase = "X can't attack next turn"
-	PhraseNullify     Phrase = "Nullify effects of X"
-	PhraseProtect     Phrase = "Prevent Effect To X"
-	PhraseRush        Phrase = "Give X Rush"
-	PhraseUnblockable Phrase = "Grant Unblockable to X"
-	PhraseCost        Phrase = "X Cost N"
-	PhraseCostOpp     Phrase = "X Cost N until Opponent's Turn End"
+	toNamed goesTo = iota
+	// toSource is the effect's own card. "Buff Self N" names none.
+	toSource
+	// toDefender is the card the attack in progress lands on. "Counter N" names none.
+	toDefender
 )
-
-// Durations are how long each phrase lasts. The ones the log doesn't spell out were tested
-// against the power the sim prints for every battle across 93 logs: see replays.md.
-var Durations = map[Phrase]Duration{
-	PhraseGrant:       NextTurn,
-	PhraseGrantOpp:    OpponentsNextTurn,
-	PhraseBuffCombat:  Combat,
-	PhraseBuff:        ThisTurn,
-	PhraseBuffSelf:    ThisTurn,
-	PhraseBasePower:   ThisTurn,
-	PhraseCounter:     Combat,
-	PhraseNoRest:      NextTurn,
-	PhraseFrozen:      UntilRefresh,
-	PhraseNoAttack:    NextTurn,
-	PhraseNullify:     ThisTurn,
-	PhraseProtect:     ThisTurn,
-	PhraseRush:        ThisTurn,
-	PhraseUnblockable: ThisTurn,
-	PhraseCost:        ThisTurn,
-	PhraseCostOpp:     OpponentsNextTurn,
-}
 
 // effect is a status a line gives, before its card is found.
 type effect struct {
-	phrase Phrase
+	phrase string
 	kind   StatusKind
+	lasts  Duration
+	to     goesTo
 	n      int
 	target string
 	// own is set when the effect's owner's copy is the likelier target.
@@ -133,29 +98,34 @@ type effect struct {
 
 var (
 	nText = `(-?\d+)`
-	// effectTexts match the part of an effect line after "Source [CODE]: ", with card links
-	// as "Name [CODE]".
+	// effectTexts match the part of an effect line after "Source [CODE]: ", with card links as
+	// "Name [CODE]". How long the statuses the log doesn't spell out last was tested against the
+	// power the sim prints for every battle across 93 logs. "Set X Base Power to
+	// N" reads as a power change: "Set Imu Base Power to 2000" takes Imu from 5000 to 7000 in the
+	// "vs" line.
 	effectTexts = []struct {
+		phrase string
 		re     *regexp.Regexp
-		phrase Phrase
 		kind   StatusKind
+		lasts  Duration
+		to     goesTo
 	}{
-		{regexp.MustCompile(`^Grant .*\[([A-Z0-9-]+)\] ` + nText + ` until next turn end$`), PhraseGrant, StatusPower},
-		{regexp.MustCompile(`^Grant .*\[([A-Z0-9-]+)\] ` + nText + ` until opponent's next turn end$`), PhraseGrantOpp, StatusPower},
-		{regexp.MustCompile(`^Buff .*\[([A-Z0-9-]+)\] ` + nText + ` for the Combat$`), PhraseBuffCombat, StatusPower},
-		{regexp.MustCompile(`^Buff .*\[([A-Z0-9-]+)\] ` + nText + `$`), PhraseBuff, StatusPower},
-		{regexp.MustCompile(`^Buff Self` + `()` + ` ` + nText + `$`), PhraseBuffSelf, StatusPower},
-		{regexp.MustCompile(`^Set .*\[([A-Z0-9-]+)\] Base Power to ` + nText + `$`), PhraseBasePower, StatusPower},
-		{regexp.MustCompile(`^Counter()` + ` ` + nText + `$`), PhraseCounter, StatusPower},
-		{regexp.MustCompile(`^.*\[([A-Z0-9-]+)\] can't be rested until next turn ends()$`), PhraseNoRest, StatusNoRest},
-		{regexp.MustCompile(`^.*\[([A-Z0-9-]+)\] will not Activate during next Refresh()$`), PhraseFrozen, StatusFrozen},
-		{regexp.MustCompile(`^.*\[([A-Z0-9-]+)\] can't attack next turn()$`), PhraseNoAttack, StatusNoAttack},
-		{regexp.MustCompile(`^Nullify effects of .*\[([A-Z0-9-]+)\]()$`), PhraseNullify, StatusNegated},
-		{regexp.MustCompile(`^Prevent Effect To .*\[([A-Z0-9-]+)\]()$`), PhraseProtect, StatusProtected},
-		{regexp.MustCompile(`^Give .*\[([A-Z0-9-]+)\] (?:Character )?Rush()$`), PhraseRush, StatusRush},
-		{regexp.MustCompile(`^Grant Unblockable to .*\[([A-Z0-9-]+)\]()$`), PhraseUnblockable, StatusUnblockable},
-		{regexp.MustCompile(`^.*\[([A-Z0-9-]+)\] Cost (\d+) until Opponent's Turn End$`), PhraseCostOpp, StatusCost},
-		{regexp.MustCompile(`^.*\[([A-Z0-9-]+)\] Cost (\d+)$`), PhraseCost, StatusCost},
+		{"Grant X N until next turn end", regexp.MustCompile(`^Grant .*\[([A-Z0-9-]+)\] ` + nText + ` until next turn end$`), StatusPower, NextTurn, toNamed},
+		{"Grant X N until opponent's next turn end", regexp.MustCompile(`^Grant .*\[([A-Z0-9-]+)\] ` + nText + ` until opponent's next turn end$`), StatusPower, OpponentsNextTurn, toNamed},
+		{"Buff X N for the Combat", regexp.MustCompile(`^Buff .*\[([A-Z0-9-]+)\] ` + nText + ` for the Combat$`), StatusPower, Combat, toNamed},
+		{"Buff X N", regexp.MustCompile(`^Buff .*\[([A-Z0-9-]+)\] ` + nText + `$`), StatusPower, ThisTurn, toNamed},
+		{"Buff Self N", regexp.MustCompile(`^Buff Self` + `()` + ` ` + nText + `$`), StatusPower, ThisTurn, toSource},
+		{"Set X Base Power to N", regexp.MustCompile(`^Set .*\[([A-Z0-9-]+)\] Base Power to ` + nText + `$`), StatusPower, ThisTurn, toNamed},
+		{"Counter N", nil, StatusPower, Combat, toDefender},
+		{"X can't be rested until next turn ends", regexp.MustCompile(`^.*\[([A-Z0-9-]+)\] can't be rested until next turn ends()$`), StatusNoRest, NextTurn, toNamed},
+		{"X will not Activate during next Refresh", regexp.MustCompile(`^.*\[([A-Z0-9-]+)\] will not Activate during next Refresh()$`), StatusFrozen, UntilRefresh, toNamed},
+		{"X can't attack next turn", regexp.MustCompile(`^.*\[([A-Z0-9-]+)\] can't attack next turn()$`), StatusNoAttack, NextTurn, toNamed},
+		{"Nullify effects of X", regexp.MustCompile(`^Nullify effects of .*\[([A-Z0-9-]+)\]()$`), StatusNegated, ThisTurn, toNamed},
+		{"Prevent Effect To X", regexp.MustCompile(`^Prevent Effect To .*\[([A-Z0-9-]+)\]()$`), StatusProtected, ThisTurn, toNamed},
+		{"Give X Rush", regexp.MustCompile(`^Give .*\[([A-Z0-9-]+)\] (?:Character )?Rush()$`), StatusRush, ThisTurn, toNamed},
+		{"Grant Unblockable to X", regexp.MustCompile(`^Grant Unblockable to .*\[([A-Z0-9-]+)\]()$`), StatusUnblockable, ThisTurn, toNamed},
+		{"X Cost N until Opponent's Turn End", regexp.MustCompile(`^.*\[([A-Z0-9-]+)\] Cost (\d+) until Opponent's Turn End$`), StatusCost, OpponentsNextTurn, toNamed},
+		{"X Cost N", regexp.MustCompile(`^.*\[([A-Z0-9-]+)\] Cost (\d+)$`), StatusCost, ThisTurn, toNamed},
 	}
 	// endTexts are lines that end a status early.
 	endTexts = []struct {
@@ -166,19 +136,45 @@ var (
 		{regexp.MustCompile(`\[([A-Z0-9-]+)\] no longer nullified$`), StatusNegated},
 		{regexp.MustCompile(`\[([A-Z0-9-]+)\] cost restored$`), StatusCost},
 	}
-	discardText = regexp.MustCompile(`^Discard .*\[([A-Z0-9-]+)\] for Counter (\d+)$`)
 )
 
-// parseEffect reads the status an effect line gives. Self buffs and counters have no target
-// in the line: the source, and the defender of the attack, take them.
-func parseEffect(rest string) (effect, bool) {
+// Phrases are the effect phrases that set a status, as Lasting names them.
+func Phrases() []string {
+	out := make([]string, 0, len(effectTexts))
 	for _, t := range effectTexts {
-		m := t.re.FindStringSubmatch(rest)
-		if m == nil {
-			continue
+		out = append(out, t.phrase)
+	}
+	return out
+}
+
+type Option func(*builder)
+
+// Lasting makes the statuses a phrase from Phrases sets last d, for testing a reading against
+// the "vs" lines.
+func Lasting(phrase string, d Duration) Option {
+	return func(b *builder) { b.lasts[phrase] = d }
+}
+
+// parseEffect reads the status an effect line gives. Self buffs and counters have no target
+// in the line: the source, and the defender of the attack, take them. The phrase without a
+// pattern is the counter, which simlog reads.
+func parseEffect(l simlog.Line) (effect, bool) {
+	rest := l.EffectText()
+	for _, t := range effectTexts {
+		e := effect{phrase: t.phrase, kind: t.kind, lasts: t.lasts, to: t.to}
+		if t.re == nil {
+			if l.Kind != simlog.LineCounter || l.N == 0 {
+				continue
+			}
+			e.n = l.N
+		} else {
+			m := t.re.FindStringSubmatch(rest)
+			if m == nil {
+				continue
+			}
+			e.target = m[1]
+			e.n, _ = strconv.Atoi(m[2])
 		}
-		e := effect{phrase: t.phrase, kind: t.kind, target: m[1]}
-		e.n, _ = strconv.Atoi(m[2])
 		switch t.kind {
 		case StatusPower:
 			e.own = e.n >= 0
@@ -207,31 +203,29 @@ func (b *builder) statusLine(step int, l simlog.Line) {
 			return
 		}
 	}
-	if m := discardText.FindStringSubmatch(l.Text); m != nil {
-		n, _ := strconv.Atoi(m[2])
-		b.giveDefender(step, Status{Kind: StatusPower, N: n, Source: m[1], Counter: true, ForAttack: true})
+	if l.Kind == simlog.LineCounterDiscard && len(l.Cards) > 0 {
+		b.giveDefender(step, Status{Kind: StatusPower, N: l.N, Source: l.Cards[len(l.Cards)-1], Counter: true, ForAttack: true})
 		return
 	}
-	source, isEffect := effectSource(l)
-	if !isEffect {
+	source := l.Source
+	if source == "" {
 		return
 	}
-	_, rest, _ := strings.Cut(l.Text, ": ")
-	e, ok := parseEffect(rest)
+	e, ok := parseEffect(l)
 	if !ok {
 		return
 	}
 	st := Status{Kind: e.kind, N: e.n, Source: source}
-	b.expire(&st, e.phrase, l.Turn, owner)
+	b.expire(&st, e, l.Turn, owner)
 	if cur := b.steps[step]; cur.Kind == KindCounter && cur.Cards[0] == source && e.kind == StatusPower {
 		st.Counter = true
 	}
-	switch e.phrase {
-	case PhraseCounter:
+	switch e.to {
+	case toDefender:
 		st.Counter = true
 		b.giveDefender(step, st)
 		return
-	case PhraseBuffSelf:
+	case toSource:
 		e.target = source
 	}
 	sides := []*Side{theirs, mine}
@@ -252,7 +246,7 @@ func (b *builder) statusTarget(step int, e effect, sides []*Side) *Card {
 		if c := b.battleCard(step, e.target, sides...); c != nil {
 			return c
 		}
-		return b.pickPower(e.target, e.n, sides...)
+		return b.choose(e.target, guess{kind: guessPower, n: e.n}, nil, nil, sides...)
 	case StatusNoAttack:
 		g := guess{kind: guessStatus, status: StatusNoAttack}
 		return b.choose(e.target, g, nil, func(c *Card) bool { return c.has(StatusNoAttack) }, sides...)
@@ -282,9 +276,13 @@ func (b *builder) battleCard(step int, code string, sides ...*Side) *Card {
 	return nil
 }
 
-// expire sets when a status from a phrase ends, from the turn it was given in.
-func (b *builder) expire(st *Status, p Phrase, turn, owner int) {
-	switch Durations[p] {
+// expire sets when a status from an effect ends, from the turn it was given in.
+func (b *builder) expire(st *Status, e effect, turn, owner int) {
+	lasts := e.lasts
+	if d, ok := b.lasts[e.phrase]; ok {
+		lasts = d
+	}
+	switch lasts {
 	case ThisTurn:
 		st.EndsTurn = turn
 	case NextTurn:
@@ -299,7 +297,6 @@ func (b *builder) expire(st *Status, p Phrase, turn, owner int) {
 	}
 }
 
-// giveDefender adds a counter to the card the attack in progress lands on.
 func (b *builder) giveDefender(step int, st Status) {
 	bt := b.steps[step].Battle
 	if bt == nil {
@@ -312,7 +309,6 @@ func (b *builder) giveDefender(step int, st Status) {
 	}
 }
 
-// endTurn ends the statuses that last until the end of the turn.
 func (b *builder) endTurn(turn int) {
 	for o := 1; o <= 2; o++ {
 		for _, c := range b.board.Side(o).cards() {
@@ -321,7 +317,6 @@ func (b *builder) endTurn(turn int) {
 	}
 }
 
-// endCombat ends the statuses that last for an attack.
 func (b *builder) endCombat() {
 	for o := 1; o <= 2; o++ {
 		for _, c := range b.board.Side(o).cards() {

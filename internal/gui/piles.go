@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/egoist/mygo/ui"
 
@@ -21,10 +20,7 @@ func (sv *stepView) pileName(p pileRef) string {
 	case pileLife:
 		what = "life"
 	}
-	if p.mine {
-		return "Your " + what
-	}
-	return sv.who(sv.them.Player) + "'s " + what
+	return sv.seat(p.mine).possessive() + " " + what
 }
 
 func (sv *stepView) pileSide(p pileRef) *replay.Side {
@@ -34,10 +30,11 @@ func (sv *stepView) pileSide(p pileRef) *replay.Side {
 	return sv.them
 }
 
-// pileView is a deck or trash in the inspector. The deck shows in order, top first, since
-// its order is the order of the draws to come. The trash shows its last cards, then every card
-// in it with how many copies.
-func (v *view) pileView(c *ui.Context, sv *stepView, rs *replayState, width float32) {
+// pileView is a deck, trash or life in the inspector. The deck and life show in order, top
+// first, since that's the order they come off in. The trash shows its last cards, then every
+// card in it with how many copies.
+func (v *view) pileView(c *ui.Context, sv *stepView, width float32) {
+	rs := sv.rs
 	t := c.Theme()
 	s := sv.pileSide(rs.pile)
 	var cards []replay.Card
@@ -67,17 +64,18 @@ func (v *view) pileView(c *ui.Context, sv *stepView, rs *replayState, width floa
 				ui.Text(c, "Top first. 1 is the next to be taken.").FontSize(12).TextColor(faintColor(t))
 			}
 		})
-		v.pileSwitches(c, sv, rs)
+		v.pileSwitches(c, sv)
 		// The scroll bar is drawn over the content's right edge, so the content stops short of it.
 		const bar = 14
 		width -= bar
 		ui.Scroll(c).Grow(1).Basis(0).Children(func() {
-			ui.Column(c).Padding(0, bar, 0, 0).Children(func() { v.pileCards(c, rs, cards, width) })
+			ui.Column(c).Padding(0, bar, 0, 0).Children(func() { v.pileCards(c, sv, cards, width) })
 		})
 	})
 }
 
-func (v *view) pileCards(c *ui.Context, rs *replayState, cards []replay.Card, width float32) {
+func (v *view) pileCards(c *ui.Context, sv *stepView, cards []replay.Card, width float32) {
+	rs := sv.rs
 	t := c.Theme()
 	switch {
 	case len(cards) == 0:
@@ -89,8 +87,8 @@ func (v *view) pileCards(c *ui.Context, rs *replayState, cards []replay.Card, wi
 	}
 }
 
-// pileSwitches pick whose pile and which one.
-func (*view) pileSwitches(c *ui.Context, sv *stepView, rs *replayState) {
+func (*view) pileSwitches(c *ui.Context, sv *stepView) {
+	rs := sv.rs
 	if rs.pile.kind == pileNone {
 		return
 	}
@@ -102,8 +100,8 @@ func (*view) pileSwitches(c *ui.Context, sv *stepView, rs *replayState) {
 	kind := slices.Index(kinds, rs.pile.kind)
 	s := sv.pileSide(rs.pile)
 	ui.Row(c).Gap(8).Wrap().Children(func() {
-		ui.Segmented(c, &whose, "You", sv.who(sv.them.Player)).Label("Whose pile")
-		ui.Segmented(c, &kind, fmt.Sprintf("Deck %d", s.DeckCount()), fmt.Sprintf("Trash %d", len(s.Trash)),
+		ui.Segmented(c, &whose, sv.seat(true).name(), sv.seat(false).name()).Label("Whose pile")
+		ui.Segmented(c, &kind, fmt.Sprintf("Deck %d", len(s.Deck())), fmt.Sprintf("Trash %d", len(s.Trash)),
 			fmt.Sprintf("Life %d", len(s.Life))).Label("Pile")
 	})
 	picked := pileRef{kind: kinds[kind], mine: whose == 0}
@@ -114,12 +112,10 @@ func (*view) pileSwitches(c *ui.Context, sv *stepView, rs *replayState) {
 	}
 }
 
-// deckGrid is a deck or a life pile four to a row, top first and numbered, with the next card
-// to come off marked.
 func (v *view) deckGrid(c *ui.Context, deck []replay.Card, width float32) {
 	const cols, gap = 4, 8
 	w := (width - gap*(cols-1)) / cols
-	h := w * 7 / 5
+	h := cardHeight(w)
 	n := len(deck)
 	ui.Column(c).Gap(gap).Children(func() {
 		for r := 0; r*cols < n; r++ {
@@ -130,7 +126,7 @@ func (v *view) deckGrid(c *ui.Context, deck []replay.Card, width float32) {
 						if card.Code == "" {
 							cardBack(c, w, h).Label("Not named in the log").Tooltip("Not named in the log")
 						} else {
-							v.cardArt(c, card.Code, w, h)
+							v.card(c, card.Code, w)
 						}
 						drawBadge(c, i+1)
 					})
@@ -140,7 +136,6 @@ func (v *view) deckGrid(c *ui.Context, deck []replay.Card, width float32) {
 	})
 }
 
-// drawBadge numbers a deck card by how many draws away it is.
 func drawBadge(c *ui.Context, n int) {
 	t := c.Theme()
 	b := ui.Text(c, fmt.Sprint(n)).FontSize(11).Bold().Padding(1, 6).Radius(9).Absolute().Left(4).Top(4)
@@ -151,8 +146,6 @@ func drawBadge(c *ui.Context, n int) {
 	}
 }
 
-// trashList is the last five cards trashed, newest first, then every card in the trash with
-// its copies, characters first and then by name.
 func (v *view) trashList(c *ui.Context, trash []replay.Card, width float32) {
 	t := c.Theme()
 	const last, gap = 5, 6
@@ -161,7 +154,7 @@ func (v *view) trashList(c *ui.Context, trash []replay.Card, width float32) {
 		ui.Text(c, "Last trashed").FontSize(12).TextColor(t.TextMuted)
 		ui.Row(c).Gap(gap).Margin(0, 0, 8, 0).Children(func() {
 			for i := len(trash) - 1; i >= max(0, len(trash)-last); i-- {
-				ui.Box(c.Key(trash[i].ID)).Children(func() { v.cardArt(c, trash[i].Code, w, w*7/5) })
+				ui.Box(c.Key(trash[i].ID)).Children(func() { v.card(c, trash[i].Code, w) })
 			}
 		})
 		ui.Text(c, fmt.Sprintf("All %d, by card", len(trash))).FontSize(12).TextColor(t.TextMuted)
@@ -204,24 +197,4 @@ func (v *view) byCard(cards []replay.Card) []cardCopies {
 		return cmp.Or(cmp.Compare(typeRank(ca.Type), typeRank(cb.Type)), cmp.Compare(ca.Name, cb.Name))
 	})
 	return out
-}
-
-// typeRank orders cards as a decklist does, with types the card data lacks last.
-func typeRank(kind string) int {
-	switch strings.ToLower(kind) {
-	case "character":
-		return 0
-	case "event":
-		return 1
-	case "stage":
-		return 2
-	}
-	return 3
-}
-
-func cardCount(n int) string {
-	if n == 1 {
-		return "1 card"
-	}
-	return thousands(n) + " cards"
 }

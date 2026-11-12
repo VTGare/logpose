@@ -8,35 +8,6 @@ import (
 	"github.com/VTGare/logpose/internal/simlog"
 )
 
-type Phase int
-
-const (
-	// PhaseSetup is before the first turn: shuffles, opening hands, mulligans and life.
-	PhaseSetup Phase = iota
-	// PhaseStart is a turn's refresh, draw and DON phases.
-	PhaseStart
-	PhaseMain
-	// PhaseBattle is an attack, from its declaration to the effects after its damage.
-	PhaseBattle
-	// PhaseEnd is the game's end: a concession or a deck out.
-	PhaseEnd
-)
-
-func (p Phase) String() string {
-	switch p {
-	case PhaseSetup:
-		return "Setup"
-	case PhaseStart:
-		return "Start"
-	case PhaseMain:
-		return "Main"
-	case PhaseBattle:
-		return "Battle"
-	default:
-		return "End"
-	}
-}
-
 type Kind int
 
 const (
@@ -70,21 +41,24 @@ const (
 
 // Step is one action, with the board after it.
 type Step struct {
-	Turn  int
-	Phase Phase
-	Kind  Kind
-	// Player is the ID of the player who acted.
+	Turn   int
+	Kind   Kind
 	Player string
-	// Title says what happened, with card names, such as "Monkey D. Luffy attacked Rocks D.
-	// Xebec".
-	Title string
-	// Result is how an attack ended, such as "Hit for 1" or "Attack failed", or "".
-	Result string
 	// Cards are the cards the step is about: the card played, the attacker and its target, or
 	// the source of an effect.
-	Cards []string
-	// Battle is set on the steps of an attack.
+	Cards  []string
 	Battle *Battle
+	// Drew is the cards the turn's player drew in a KindTurnStart step. Don is the DON!! they
+	// got in it, or the DON!! given in a KindAttach step.
+	Drew []string
+	Don  int
+	// Counter is the power a KindCounter step gave, or 0 when the log doesn't say.
+	Counter int
+	// Outcome is how the attack ended, on its KindDamage step.
+	Outcome []Outcome
+	// Lethal is set on the last step of the attack that won the game.
+	Lethal bool
+	Effect *Effect
 	// Lines are indexes into simlog.Game.Lines, and Moves into simlog.Game.Moves.
 	Lines []int
 	Moves []int
@@ -96,21 +70,22 @@ type Step struct {
 // Battle is an attack's cards and their power at a step.
 type Battle struct {
 	Attacker, Target string
-	// AttackerOwner is the attacker's RZ1 owner.
-	AttackerOwner int
+	AttackerOwner    int
 	// AttackerID and DefenderID tell the attacking card and the card the attack lands on apart
 	// from other copies, as Card.ID does, or are 0 when not known.
 	AttackerID, DefenderID int
-	// Blocker is the card that blocked, or "".
-	Blocker string
+	Blocker                string
 	// AttackerPower and TargetPower are the powers in the sim's "vs" line, set from the
 	// damage step on.
 	AttackerPower, TargetPower int
 	// Attack and Defense are the attacker's and the defending card's power at the step.
 	Attack, Defense Power
+	// Left is the defender as it was when it left the board in this step, from LeftSlot of its
+	// characters, or nil.
+	Left     *Card
+	LeftSlot int
 }
 
-// Defender is the card the attack lands on: the blocker, or else the target.
 func (bt Battle) Defender() string {
 	if bt.Blocker != "" {
 		return bt.Blocker
@@ -118,7 +93,6 @@ func (bt Battle) Defender() string {
 	return bt.Target
 }
 
-// Replay is a game as steps.
 type Replay struct {
 	Steps  []Step
 	Issues []Issue
@@ -136,23 +110,29 @@ type Replay struct {
 	PowerChecks []PowerCheck
 	// PowerCompared counts the powers compared with "vs" lines.
 	PowerCompared int
-	names         map[string]string
 }
+
+// Version goes up whenever Build gives different steps or boards for the same game, so facts
+// read from them are read again.
+const Version = 2
 
 var ErrNoMoves = errors.New("replay: the game has no RZ1 moves")
 
 // Build replays a parsed game. power gives a card's printed power, or 0 when it isn't known;
 // nil leaves powers to the "vs" lines alone. Games from sim versions without the RZ1 stream
 // can't be replayed.
-func Build(g *simlog.Game, power func(code string) int) (*Replay, error) {
+func Build(g *simlog.Game, power func(code string) int, opts ...Option) (*Replay, error) {
 	if !g.HasRZ() {
 		return nil, ErrNoMoves
 	}
 	b := newBuilder(g, power)
+	for _, o := range opts {
+		o(b)
+	}
 	b.run()
 	r := &Replay{
 		Steps: b.steps, Issues: b.issues, Unverified: -1, PowerChecks: b.powerChecks,
-		PowerCompared: b.powerCompared, names: g.CardNames,
+		PowerCompared: b.powerCompared,
 	}
 	for k, gs := range b.guesses {
 		flipped := b.flips[k] > 0
@@ -191,7 +171,7 @@ func (r *Replay) StepAtLine(line int) int {
 	return max(len(r.Steps)-1, 0)
 }
 
-// FirstOfTurn is the first step of the turn, or -1.
+// FirstOfTurn is -1 when the turn has no step.
 func (r *Replay) FirstOfTurn(turn int) int {
 	for i, s := range r.Steps {
 		if s.Turn == turn {
@@ -199,12 +179,4 @@ func (r *Replay) FirstOfTurn(turn int) int {
 		}
 	}
 	return -1
-}
-
-// Name is a card's name from the log, or its code.
-func (r *Replay) Name(code string) string {
-	if n, ok := r.names[code]; ok {
-		return n
-	}
-	return code
 }

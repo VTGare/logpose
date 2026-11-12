@@ -16,8 +16,9 @@ import (
 
 var ErrNotFound = errors.New("store: not found")
 
-// Source is where a game's log came from.
 type Source struct {
+	// File is the log's base name in the sim's AutoSaved folder. It is also the key that joins a
+	// game to the sim format SetLogFormat stored for its file.
 	File  string
 	Index int
 	// PlayedAt is when the sim began the game's log file, from the file's name.
@@ -78,27 +79,64 @@ func (g Game) Player(id string) (GamePlayer, bool) {
 	return GamePlayer{}, false
 }
 
-// Saved is what SaveGame did with a game.
 type Saved int
 
 const (
 	Kept Saved = iota
 	Added
-	// Replaced means the stored copy was saved before the game ended.
+	// Replaced means a copy of a game still in progress took the stored copy's place.
 	Replaced
+	// Completed means a copy with the sim's END line took the stored copy's place.
+	Completed
 )
 
-// SaveGame stores a parsed game with its log text. A game already stored keeps its copy, unless
-// the new one has more moves, or as many and the sim's END line the stored one lacks. The sim
-// writes a game to a .partial.log while it runs, and a concession at the end adds no move.
+// parsedColumns are the games columns parsed from a game's log, in the order parsedValues and
+// scanParsed use.
+var parsedColumns = []string{
+	"lobby_code", "lobby_role", "sim_version", "first_player", "turns", "end_kind", "loser", "sets", "match_no",
+}
+
+func parsedValues(g *simlog.Game) []any {
+	return []any{
+		g.Lobby.Code, g.Lobby.Role.String(), g.SimVersion, g.First, g.Turns,
+		g.End.Kind.String(), g.End.Loser, strings.Join(g.Sets, ","), g.Match,
+	}
+}
+
+func scanParsed(g *Game) (dest []any, fill func()) {
+	var role, end, sets string
+	dest = []any{&g.Lobby.Code, &role, &g.SimVersion, &g.First, &g.Turns, &end, &g.End.Loser, &sets, &g.Match}
+	return dest, func() {
+		g.Lobby.Role = simlog.ParseLobbyRole(role)
+		g.End.Kind = simlog.ParseEndKind(end)
+		g.Sets = splitCodes(sets)
+	}
+}
+
+var (
+	parsedList   = strings.Join(parsedColumns, ", ")
+	parsedParams = strings.TrimSuffix(strings.Repeat("?, ", len(parsedColumns)), ", ")
+	parsedSet    = strings.Join(parsedColumns, " = ?, ") + " = ?"
+)
+
+// userTables hold what the user set on a game, by fingerprint. rekey moves their rows to the new
+// fingerprint, and ON DELETE CASCADE drops the rows of a table missing here. onConflict is what
+// happens when the new fingerprint has a row too.
+var userTables = []struct{ name, columns, onConflict string }{
+	{"game_types", "ranked", "DO UPDATE SET ranked = excluded.ranked"},
+	{"game_notes", "note", "DO UPDATE SET note = note || char(10) || excluded.note WHERE note <> excluded.note"},
+	{"game_bookmarks", "created_at", "DO NOTHING"},
+}
+
+// SaveGame stores a parsed game with its log text. A game already stored keeps its copy unless
+// the new one is a later copy. The sim writes a game to a .partial.log while it runs.
 func (s *Store) SaveGame(ctx context.Context, g *simlog.Game, src Source) (Saved, error) {
 	log, err := compress(g.Text)
 	if err != nil {
 		return Kept, err
 	}
-	var saved Saved
+	saved := Added
 	err = s.inTx(ctx, func(tx *sql.Tx) error {
-		saved = Replaced
 		var (
 			moves  int
 			stored []byte
@@ -106,33 +144,32 @@ func (s *Store) SaveGame(ctx context.Context, g *simlog.Game, src Source) (Saved
 		err := tx.QueryRowContext(ctx, `SELECT moves, log FROM games WHERE fingerprint = ?`, g.Fingerprint).Scan(&moves, &stored)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
-			saved = Added
 		case err != nil:
 			return err
-		case moves > len(g.Moves):
-			saved = Kept
-			return nil
-		case moves == len(g.Moves):
-			if !g.Closed {
-				saved = Kept
-				return nil
-			}
-			text, err := decompress(stored)
-			if err != nil {
+		default:
+			later, err := laterCopy(newCopy(g), storedCopy(moves, stored))
+			switch {
+			case err != nil:
 				return err
-			}
-			if simlog.Closed(text) {
+			case !later:
 				saved = Kept
 				return nil
+			case g.Closed:
+				saved = Completed
+			default:
+				saved = Replaced
 			}
 		}
+		args := append([]any{
+			g.Fingerprint, log, len(g.Moves), src.File, src.Index, src.PlayedAt.UnixMilli(),
+			time.Now().UnixMilli(), parserVersion,
+		}, parsedValues(g)...)
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO games (fingerprint, log, moves, source_file, source_index, played_at, imported_at,
-				parser_version, lobby_code, lobby_role, sim_version, first_player, turns, end_kind, loser)
-			VALUES (?, ?, ?, ?, ?, ?, ?, 0, '', '', '', '', 0, 'unknown', '')
+				parser_version, `+parsedList+`)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, `+parsedParams+`)
 			ON CONFLICT (fingerprint) DO UPDATE SET log = excluded.log, moves = excluded.moves,
-				source_file = excluded.source_file, source_index = excluded.source_index`,
-			g.Fingerprint, log, len(g.Moves), src.File, src.Index, src.PlayedAt.UnixMilli(), time.Now().UnixMilli(),
+				source_file = excluded.source_file, source_index = excluded.source_index`, args...,
 		); err != nil {
 			return err
 		}
@@ -144,15 +181,9 @@ func (s *Store) SaveGame(ctx context.Context, g *simlog.Game, src Source) (Saved
 	return saved, nil
 }
 
-// writeParsed rewrites everything parsed from a game's log.
 func writeParsed(ctx context.Context, tx *sql.Tx, g *simlog.Game) error {
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE games SET parser_version = ?, lobby_code = ?, lobby_role = ?, sim_version = ?,
-			first_player = ?, turns = ?, end_kind = ?, loser = ?, sets = ?, match_no = ?
-		WHERE fingerprint = ?`,
-		parserVersion, g.Lobby.Code, roleName(g.Lobby.Role), g.SimVersion, g.First, g.Turns,
-		endName(g.End.Kind), g.End.Loser, strings.Join(g.Sets, ","), g.Match, g.Fingerprint,
-	); err != nil {
+	args := append(append([]any{parserVersion}, parsedValues(g)...), g.Fingerprint)
+	if _, err := tx.ExecContext(ctx, `UPDATE games SET parser_version = ?, `+parsedSet+` WHERE fingerprint = ?`, args...); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM game_players WHERE fingerprint = ?`, g.Fingerprint); err != nil {
@@ -184,19 +215,15 @@ func writeParsed(ctx context.Context, tx *sql.Tx, g *simlog.Game) error {
 // Reparse parses again every game stored by an older parser and rewrites what was parsed from
 // it. It returns how many games it parsed.
 func (s *Store) Reparse(ctx context.Context) (int, error) {
-	rows, err := s.read.QueryContext(ctx, `SELECT fingerprint FROM games WHERE parser_version < ?`, parserVersion)
-	if err != nil {
-		return 0, err
-	}
 	var stale []string
-	for rows.Next() {
-		var fp string
-		if err := rows.Scan(&fp); err != nil {
-			return 0, errors.Join(err, rows.Close())
-		}
-		stale = append(stale, fp)
-	}
-	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+	err := s.each(ctx, `SELECT fingerprint FROM games WHERE parser_version < ?`, []any{parserVersion},
+		func(rows *sql.Rows) error {
+			var fp string
+			err := rows.Scan(&fp)
+			stale = append(stale, fp)
+			return err
+		})
+	if err != nil {
 		return 0, err
 	}
 	for i, fp := range stale {
@@ -212,18 +239,14 @@ func (s *Store) reparse(ctx context.Context, fingerprint string) error {
 	if err != nil {
 		return err
 	}
-	games, err := simlog.Parse(strings.NewReader(text))
+	g, err := simlog.ParseOne(text)
 	if err != nil {
 		return err
 	}
-	if len(games) != 1 {
-		return fmt.Errorf("log parses to %d games", len(games))
-	}
-	g := &games[0]
 	// Imports fingerprint the file with the current parser, so a row left under its old
 	// fingerprint gets stored a second time.
 	if g.Fingerprint != fingerprint {
-		if err := s.inTx(ctx, func(tx *sql.Tx) error { return rekey(ctx, tx, fingerprint, g.Fingerprint) }); err != nil {
+		if err := s.inTx(ctx, func(tx *sql.Tx) error { return rekey(ctx, tx, fingerprint, g) }); err != nil {
 			return err
 		}
 		return s.reparse(ctx, g.Fingerprint)
@@ -236,9 +259,11 @@ func (s *Store) reparse(ctx context.Context, fingerprint string) error {
 	})
 }
 
-// rekey moves a game to another fingerprint. When a row is already there, it keeps the copy
-// saved later in the game and takes the old row's type, note and bookmark.
-func rekey(ctx context.Context, tx *sql.Tx, from, to string) error {
+// rekey moves the game stored under from to g's fingerprint. When a row is already there, it
+// keeps the later copy and takes the old row's user data. The row is left for reparse to parse
+// again.
+func rekey(ctx context.Context, tx *sql.Tx, from string, g *simlog.Game) error {
+	to := g.Fingerprint
 	var (
 		toMoves int
 		toLog   []byte
@@ -246,13 +271,12 @@ func rekey(ctx context.Context, tx *sql.Tx, from, to string) error {
 	err := tx.QueryRowContext(ctx, `SELECT moves, log FROM games WHERE fingerprint = ?`, to).Scan(&toMoves, &toLog)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
+		args := append(append([]any{to}, parsedValues(g)...), from)
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO games (fingerprint, log, moves, source_file, source_index, played_at, imported_at,
-				parser_version, lobby_code, lobby_role, sim_version, first_player, turns, end_kind, loser, sets,
-				match_no)
-			SELECT ?, log, moves, source_file, source_index, played_at, imported_at,
-				0, lobby_code, lobby_role, sim_version, first_player, turns, end_kind, loser, sets, match_no
-			FROM games WHERE fingerprint = ?`, to, from); err != nil {
+				parser_version, `+parsedList+`)
+			SELECT ?, log, moves, source_file, source_index, played_at, imported_at, 0, `+parsedParams+`
+			FROM games WHERE fingerprint = ?`, args...); err != nil {
 			return err
 		}
 	case err != nil:
@@ -265,7 +289,7 @@ func rekey(ctx context.Context, tx *sql.Tx, from, to string) error {
 		if err := tx.QueryRowContext(ctx, `SELECT moves, log FROM games WHERE fingerprint = ?`, from).Scan(&fromMoves, &fromLog); err != nil {
 			return err
 		}
-		later, err := laterCopy(fromMoves, fromLog, toMoves, toLog)
+		later, err := laterCopy(storedCopy(fromMoves, fromLog), storedCopy(toMoves, toLog))
 		if err != nil {
 			return err
 		}
@@ -278,15 +302,10 @@ func rekey(ctx context.Context, tx *sql.Tx, from, to string) error {
 			}
 		}
 	}
-	for _, q := range []string{
-		`INSERT INTO game_types (fingerprint, ranked) SELECT ?, ranked FROM game_types WHERE fingerprint = ?
-			ON CONFLICT (fingerprint) DO UPDATE SET ranked = excluded.ranked`,
-		`INSERT INTO game_notes (fingerprint, note) SELECT ?, note FROM game_notes WHERE fingerprint = ?
-			ON CONFLICT (fingerprint) DO UPDATE SET note = note || char(10) || excluded.note WHERE note <> excluded.note`,
-		`INSERT INTO game_bookmarks (fingerprint, created_at) SELECT ?, created_at FROM game_bookmarks WHERE fingerprint = ?
-			ON CONFLICT (fingerprint) DO NOTHING`,
-	} {
-		if _, err := tx.ExecContext(ctx, q, to, from); err != nil {
+	for _, t := range userTables {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO `+t.name+` (fingerprint, `+t.columns+`) SELECT ?, `+t.columns+` FROM `+t.name+`
+			WHERE fingerprint = ? ON CONFLICT (fingerprint) `+t.onConflict, to, from); err != nil {
 			return err
 		}
 	}
@@ -294,24 +313,37 @@ func rekey(ctx context.Context, tx *sql.Tx, from, to string) error {
 	return err
 }
 
-// laterCopy reports whether the first copy of a game was saved later in the game than the
-// second. That copy has more moves, or as many and the END line the second lacks.
-func laterCopy(aMoves int, aLog []byte, bMoves int, bLog []byte) (bool, error) {
-	if aMoves != bMoves {
-		return aMoves > bMoves, nil
-	}
-	a, err := decompress(aLog)
-	if err != nil {
-		return false, err
-	}
-	b, err := decompress(bLog)
-	if err != nil {
-		return false, err
-	}
-	return simlog.Closed(a) && !simlog.Closed(b), nil
+// logCopy is one copy of a game's log. text is read only when two copies have as many moves.
+type logCopy struct {
+	moves int
+	text  func() (string, error)
 }
 
-// GameLog returns a stored game's log text.
+func newCopy(g *simlog.Game) logCopy {
+	return logCopy{moves: len(g.Moves), text: func() (string, error) { return g.Text, nil }}
+}
+
+func storedCopy(moves int, log []byte) logCopy {
+	return logCopy{moves: moves, text: func() (string, error) { return decompress(log) }}
+}
+
+// laterCopy reports whether copy a of a game was saved later in the game than copy b. That copy
+// has more moves, or as many and the sim's END line b lacks, since a concession adds no move.
+func laterCopy(a, b logCopy) (bool, error) {
+	if a.moves != b.moves {
+		return a.moves > b.moves, nil
+	}
+	at, err := a.text()
+	if err != nil || !simlog.Closed(at) {
+		return false, err
+	}
+	bt, err := b.text()
+	if err != nil {
+		return false, err
+	}
+	return !simlog.Closed(bt), nil
+}
+
 func (s *Store) GameLog(ctx context.Context, fingerprint string) (string, error) {
 	var log []byte
 	err := s.read.QueryRowContext(ctx, `SELECT log FROM games WHERE fingerprint = ?`, fingerprint).Scan(&log)
@@ -326,30 +358,23 @@ func (s *Store) GameLog(ctx context.Context, fingerprint string) (string, error)
 
 // Games returns every stored game, newest first.
 func (s *Store) Games(ctx context.Context) ([]Game, error) {
-	rows, err := s.read.QueryContext(ctx, `
-		SELECT g.fingerprint, g.played_at, g.lobby_code, g.lobby_role, g.sim_version, g.first_player,
-			g.turns, g.end_kind, g.loser, g.match_no, g.source_file, g.source_index, g.sets,
-			coalesce(f.sim_format, ''), t.ranked,
-			coalesce(n.note, ''), b.fingerprint IS NOT NULL
+	var games []Game
+	byFP := make(map[string]int)
+	err := s.each(ctx, `
+		SELECT g.fingerprint, g.played_at, g.source_file, g.source_index, g.`+strings.Join(parsedColumns, ", g.")+`,
+			coalesce(f.sim_format, ''), t.ranked, coalesce(n.note, ''), b.fingerprint IS NOT NULL
 		FROM games g LEFT JOIN log_formats f ON f.source_file = g.source_file
 		LEFT JOIN game_types t ON t.fingerprint = g.fingerprint
 		LEFT JOIN game_notes n ON n.fingerprint = g.fingerprint
 		LEFT JOIN game_bookmarks b ON b.fingerprint = g.fingerprint
-		ORDER BY g.played_at DESC, g.source_index DESC`)
+		ORDER BY g.played_at DESC, g.source_index DESC`, nil,
+		func(rows *sql.Rows) error {
+			g, err := scanGame(rows)
+			byFP[g.Fingerprint] = len(games)
+			games = append(games, g)
+			return err
+		})
 	if err != nil {
-		return nil, err
-	}
-	var games []Game
-	byFP := make(map[string]int)
-	for rows.Next() {
-		g, err := scanGame(rows)
-		if err != nil {
-			return nil, errors.Join(err, rows.Close())
-		}
-		byFP[g.Fingerprint] = len(games)
-		games = append(games, g)
-	}
-	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return nil, err
 	}
 	return games, s.addPlayers(ctx, games, byFP)
@@ -358,55 +383,48 @@ func (s *Store) Games(ctx context.Context) ([]Game, error) {
 func scanGame(rows *sql.Rows) (Game, error) {
 	var g Game
 	var played int64
-	var role, end, sets string
 	var ranked sql.NullBool
-	err := rows.Scan(&g.Fingerprint, &played, &g.Lobby.Code, &role, &g.SimVersion, &g.First, &g.Turns,
-		&end, &g.End.Loser, &g.Match, &g.Source.File, &g.Source.Index, &sets, &g.SimFormat, &ranked, &g.Note, &g.Bookmarked)
+	parsed, fill := scanParsed(&g)
+	dest := append(append([]any{&g.Fingerprint, &played, &g.Source.File, &g.Source.Index}, parsed...),
+		&g.SimFormat, &ranked, &g.Note, &g.Bookmarked)
+	err := rows.Scan(dest...)
+	fill()
 	g.Type = gameType(ranked)
-	g.Sets = splitCodes(sets)
 	g.PlayedAt = time.UnixMilli(played)
 	g.Source.PlayedAt = g.PlayedAt
-	g.Lobby.Role = roleFromName(role)
-	g.End.Kind = endFromName(end)
 	return g, err
 }
 
 func (s *Store) addPlayers(ctx context.Context, games []Game, byFP map[string]int) error {
-	rows, err := s.read.QueryContext(ctx, `
+	return s.each(ctx, `
 		SELECT fingerprint, player, name, tag, owner, leader, mulliganed, hand_before, hand_after
-		FROM game_players ORDER BY fingerprint, owner, player`)
-	if err != nil {
-		return err
-	}
-	for rows.Next() {
-		var fp, before, after string
-		var p GamePlayer
-		if err := rows.Scan(&fp, &p.ID, &p.Name, &p.Tag, &p.Owner, &p.Leader, &p.Mulliganed, &before, &after); err != nil {
-			return errors.Join(err, rows.Close())
-		}
-		p.HandBefore, p.HandAfter = splitCodes(before), splitCodes(after)
-		if i, ok := byFP[fp]; ok {
-			games[i].Players = append(games[i].Players, p)
-		}
-	}
-	return errors.Join(rows.Err(), rows.Close())
+		FROM game_players ORDER BY fingerprint, owner, player`, nil,
+		func(rows *sql.Rows) error {
+			var fp, before, after string
+			var p GamePlayer
+			if err := rows.Scan(&fp, &p.ID, &p.Name, &p.Tag, &p.Owner, &p.Leader, &p.Mulliganed, &before, &after); err != nil {
+				return err
+			}
+			p.HandBefore, p.HandAfter = splitCodes(before), splitCodes(after)
+			if i, ok := byFP[fp]; ok {
+				games[i].Players = append(games[i].Players, p)
+			}
+			return nil
+		})
 }
 
-// CardNames returns every card name the logs gave, by code.
 func (s *Store) CardNames(ctx context.Context) (map[string]string, error) {
-	rows, err := s.read.QueryContext(ctx, `SELECT code, name FROM card_names`)
+	names := make(map[string]string)
+	err := s.each(ctx, `SELECT code, name FROM card_names`, nil, func(rows *sql.Rows) error {
+		var code, name string
+		err := rows.Scan(&code, &name)
+		names[code] = name
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
-	names := make(map[string]string)
-	for rows.Next() {
-		var code, name string
-		if err := rows.Scan(&code, &name); err != nil {
-			return nil, errors.Join(err, rows.Close())
-		}
-		names[code] = name
-	}
-	return names, errors.Join(rows.Err(), rows.Close())
+	return names, nil
 }
 
 // LocalPlayer returns the player in the most games, who is the one whose sim saved the logs.
@@ -419,6 +437,17 @@ func (s *Store) LocalPlayer(ctx context.Context) (string, error) {
 		return "", nil
 	}
 	return id, err
+}
+
+// LatestSimVersion is the sim version the newest stored game's log names, or "".
+func (s *Store) LatestSimVersion(ctx context.Context) (string, error) {
+	var v string
+	err := s.read.QueryRowContext(ctx, `
+		SELECT sim_version FROM games WHERE sim_version != '' ORDER BY played_at DESC LIMIT 1`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return v, err
 }
 
 func splitCodes(s string) []string {
@@ -450,33 +479,4 @@ func decompress(b []byte) (string, error) {
 		return "", errors.Join(err, r.Close())
 	}
 	return string(text), r.Close()
-}
-
-var roleNames = map[simlog.LobbyRole]string{simlog.RoleHost: "host", simlog.RoleJoin: "join"}
-
-func roleName(r simlog.LobbyRole) string { return roleNames[r] }
-
-func roleFromName(s string) simlog.LobbyRole {
-	for r, name := range roleNames {
-		if name == s {
-			return r
-		}
-	}
-	return simlog.RoleUnknown
-}
-
-var endNames = map[simlog.EndKind]string{
-	simlog.EndUnknown: "unknown", simlog.EndConcede: "concede",
-	simlog.EndDeckOut: "deck_out", simlog.EndLethal: "lethal",
-}
-
-func endName(k simlog.EndKind) string { return endNames[k] }
-
-func endFromName(s string) simlog.EndKind {
-	for k, name := range endNames {
-		if name == s {
-			return k
-		}
-	}
-	return simlog.EndUnknown
 }

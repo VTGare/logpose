@@ -7,20 +7,13 @@ import (
 	"strings"
 
 	"golang.org/x/net/html"
+
+	"github.com/VTGare/logpose/internal/htmlq"
 )
 
 // LimitlessBase is Limitless's One Piece site. It has no card API. Its set pages list every
 // printing with all of the card's data when asked for ?display=full.
 const LimitlessBase = "https://onepiece.limitlesstcg.com"
-
-// LimitlessArt is where Limitless keeps card images, as <set>/<key>_EN.webp.
-const LimitlessArt = "https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/one-piece"
-
-// ArtURL is the Limitless image of a printing, by its key ("OP14-020" or "OP14-020_p1").
-func ArtURL(key string) string {
-	set, _, _ := strings.Cut(key, "-")
-	return LimitlessArt + "/" + set + "/" + key + "_EN.webp"
-}
 
 // SetIndex is what the card index page lists: every set's page, and the sets its "Latest
 // Updates" line names, which are the ones that still change.
@@ -37,12 +30,12 @@ func ParseSetIndex(r io.Reader) (SetIndex, error) {
 	}
 	var idx SetIndex
 	seen := make(map[string]bool)
-	news := find(doc, byClass("site-news"))
+	news := htmlq.Find(doc, htmlq.ByClass("site-news"))
 	for a := range doc.Descendants() {
 		if a.Type != html.ElementNode || a.Data != "a" {
 			continue
 		}
-		slug, ok := strings.CutPrefix(attr(a, "href"), "/cards/")
+		slug, ok := strings.CutPrefix(htmlq.Attr(a, "href"), "/cards/")
 		if !ok || !setSlug.MatchString(slug) {
 			continue
 		}
@@ -88,7 +81,7 @@ func parseSetPage(r io.Reader) ([]limitlessPrint, error) {
 		return nil, err
 	}
 	var out []limitlessPrint
-	for _, main := range findAll(doc, byClass("card-page-main")) {
+	for _, main := range htmlq.FindAll(doc, htmlq.ByClass("card-page-main")) {
 		if p, ok := parsePrint(main); ok {
 			out = append(out, p)
 		}
@@ -102,42 +95,42 @@ var (
 	powerRe   = regexp.MustCompile(`(\d+)\s*Power`)
 	counterRe = regexp.MustCompile(`\+(\d+)\s*Counter`)
 	blockRe   = regexp.MustCompile(`Block\s+(\w+)`)
-	keyRe     = regexp.MustCompile(`/([A-Z0-9]+-\d+(?:_p\d+)?)_EN\.webp$`)
+	keyRe     = regexp.MustCompile(`/(` + PrintKeyPattern + `)_EN\.webp$`)
 	setCodeRe = regexp.MustCompile(`\s*\(([^)]*)\)$`)
 )
 
 func parsePrint(main *html.Node) (limitlessPrint, bool) {
-	code := text(find(main, byClass("card-text-id")))
+	code := htmlq.Text(htmlq.Find(main, htmlq.ByClass("card-text-id")))
 	if code == "" {
 		return limitlessPrint{}, false
 	}
 	c := Card{Code: code, Detailed: true, Cost: -1}
-	c.Name = CleanName(text(find(main, byClass("card-text-name"))))
-	if t := find(main, byClass("card-text-type")); t != nil {
-		c.Type = text(find(t, byTooltip("Category")))
-		for col := range strings.SplitSeq(text(find(t, byTooltip("Color"))), "/") {
+	c.Name = CleanName(htmlq.Text(htmlq.Find(main, htmlq.ByClass("card-text-name"))))
+	if t := htmlq.Find(main, htmlq.ByClass("card-text-type")); t != nil {
+		c.Type = htmlq.Text(htmlq.Find(t, htmlq.ByTooltip("Category")))
+		for col := range strings.SplitSeq(htmlq.Text(htmlq.Find(t, htmlq.ByTooltip("Color"))), "/") {
 			if col = strings.TrimSpace(col); col != "" {
 				c.Colors = append(c.Colors, Color(col))
 			}
 		}
-		line := text(t)
+		line := htmlq.Text(t)
 		c.Cost = number(costRe, line, -1)
 		c.Life = number(lifeRe, line, 0)
 	}
-	for _, s := range findAll(main, byClass("card-text-section")) {
+	for _, s := range htmlq.FindAll(main, htmlq.ByClass("card-text-section")) {
 		readSection(&c, s)
 	}
-	c.Block = submatch(blockRe, text(find(main, byClass("regulation-mark"))))
-	p := Print{Artist: text(find(main, byClass("card-text-artist")))}
+	c.Block = submatch(blockRe, htmlq.Text(htmlq.Find(main, htmlq.ByClass("regulation-mark"))))
+	p := Print{Artist: htmlq.Text(htmlq.Find(main, htmlq.ByClass("card-text-artist")))}
 	p.Artist = strings.TrimSpace(strings.TrimPrefix(p.Artist, "Illustrated by"))
-	if img := find(main, func(n *html.Node) bool { return n.Data == "img" && hasClass(n, "card") }); img != nil {
-		p.Key = submatch(keyRe, attr(img, "src"))
+	if img := htmlq.Find(main, func(n *html.Node) bool { return n.Data == "img" && htmlq.HasClass(n, "card") }); img != nil {
+		p.Key = submatch(keyRe, htmlq.Attr(img, "src"))
 	}
 	if p.Key == "" {
 		p.Key = code
 	}
 	setCode := ""
-	if cur := find(main, byClass("prints-current-details")); cur != nil {
+	if cur := htmlq.Find(main, htmlq.ByClass("prints-current-details")); cur != nil {
 		var spans []*html.Node
 		for s := range cur.Descendants() {
 			if s.Type == html.ElementNode && s.Data == "span" {
@@ -145,15 +138,15 @@ func parsePrint(main *html.Node) (limitlessPrint, bool) {
 			}
 		}
 		if len(spans) > 0 {
-			p.Set = setCodeRe.ReplaceAllString(text(spans[0]), "")
-			setCode = submatch(setCodeRe, text(spans[0]))
+			p.Set = setCodeRe.ReplaceAllString(htmlq.Text(spans[0]), "")
+			setCode = submatch(setCodeRe, htmlq.Text(spans[0]))
 		}
 		if len(spans) > 1 {
-			p.Rarity = text(spans[1])
+			p.Rarity = htmlq.Text(spans[1])
 		}
 	}
-	if row := find(main, func(n *html.Node) bool { return n.Data == "tr" && hasClass(n, "current") }); row != nil {
-		p.Kind = text(find(row, byClass("prints-table-card-number")))
+	if row := htmlq.Find(main, func(n *html.Node) bool { return n.Data == "tr" && htmlq.HasClass(n, "current") }); row != nil {
+		p.Kind = htmlq.Text(htmlq.Find(row, htmlq.ByClass("prints-table-card-number")))
 	}
 	c.Rarity, c.Set = p.Rarity, p.Set
 	p.Block = c.Block
@@ -164,18 +157,18 @@ func parsePrint(main *html.Node) (limitlessPrint, bool) {
 // traits. The title and type line are read before.
 func readSection(c *Card, s *html.Node) {
 	switch {
-	case find(s, byClass("card-text-name")) != nil, hasClass(s, "card-text-type"), hasClass(s, "card-text-artist"):
-	case find(s, byTooltip("Type")) != nil:
-		for t := range strings.SplitSeq(text(find(s, byTooltip("Type"))), "/") {
+	case htmlq.Find(s, htmlq.ByClass("card-text-name")) != nil, htmlq.HasClass(s, "card-text-type"), htmlq.HasClass(s, "card-text-artist"):
+	case htmlq.Find(s, htmlq.ByTooltip("Type")) != nil:
+		for t := range strings.SplitSeq(htmlq.Text(htmlq.Find(s, htmlq.ByTooltip("Type"))), "/") {
 			if t = strings.TrimSpace(t); t != "" {
 				c.Traits = append(c.Traits, t)
 			}
 		}
 	case s.Data == "p":
-		line := text(s)
+		line := htmlq.Text(s)
 		c.Power = number(powerRe, line, 0)
 		c.Counter = number(counterRe, line, 0)
-		for a := range strings.SplitSeq(text(find(s, byTooltip("Attribute"))), "/") {
+		for a := range strings.SplitSeq(htmlq.Text(htmlq.Find(s, htmlq.ByTooltip("Attribute"))), "/") {
 			// Unknown attributes come through as an untranslated key, "card.attribute.?".
 			if a = strings.TrimSpace(a); a != "" && !strings.HasPrefix(a, "card.") {
 				c.Attributes = append(c.Attributes, a)
@@ -183,7 +176,7 @@ func readSection(c *Card, s *html.Node) {
 		}
 	default:
 		// Attribute names come in full-width brackets, as "＜Strike＞".
-		t := strings.NewReplacer("＜", "<", "＞", ">").Replace(text(s))
+		t := strings.NewReplacer("＜", "<", "＞", ">").Replace(htmlq.Text(s))
 		if c.Effect == "" {
 			c.Effect = t
 		} else if t != "" {
@@ -194,15 +187,15 @@ func readSection(c *Card, s *html.Node) {
 
 // legality reads a format's badge: "legal", "not-legal" or "banned".
 func legality(main *html.Node, format string) string {
-	for _, b := range findAll(main, byClass("card-legality-badge")) {
+	for _, b := range htmlq.FindAll(main, htmlq.ByClass("card-legality-badge")) {
 		var divs []*html.Node
 		for d := b.FirstChild; d != nil; d = d.NextSibling {
 			if d.Type == html.ElementNode && d.Data == "div" {
 				divs = append(divs, d)
 			}
 		}
-		if len(divs) == 2 && text(divs[0]) == format {
-			return attr(divs[1], "class")
+		if len(divs) == 2 && htmlq.Text(divs[0]) == format {
+			return htmlq.Attr(divs[1], "class")
 		}
 	}
 	return ""

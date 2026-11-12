@@ -6,8 +6,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The app's motion, from the motion table in docs/design/redesign.md. mygo skips all of it
-// when Windows asks for less motion.
+// The app's motion. mygo skips all of it when Windows asks for less motion.
 const (
 	pageEnterTime = 180 * time.Millisecond
 	tileEnterTime = 240 * time.Millisecond
@@ -20,10 +19,6 @@ const (
 	slideTime   = 200 * time.Millisecond
 	openTime    = 220 * time.Millisecond
 )
-
-// pageEntered is true in the first frame of a page, when bars grow from zero and charts draw
-// in. build sets it.
-var pageEntered bool
 
 // pageEnter fades a page in and lifts it 8 DIPs as it opens.
 var pageEnter = ui.ElementTransition{Duration: pageEnterTime, Colors: true, Enter: &ui.Motion{Y: 8}}
@@ -58,8 +53,8 @@ func lift(el ui.Element, radius float32) ui.Element {
 
 // grow is a value that goes to target over d, from zero in a page's first frame, so bars grow
 // when a page opens and follow the filters after.
-func grow(el ui.Element, key any, target float32, d time.Duration) float32 {
-	if pageEntered {
+func (v *view) grow(el ui.Element, key any, target float32, d time.Duration) float32 {
+	if v.entered {
 		el.Jump(key, 0)
 	}
 	return el.AnimateTo(key, target, ui.Animation{Duration: d})

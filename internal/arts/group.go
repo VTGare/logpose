@@ -58,7 +58,6 @@ func (a Art) Find(key string) (Version, bool) {
 	return Version{}, false
 }
 
-// members are the keys whose pictures show the art.
 func (a Art) members() []Key {
 	out := make([]Key, 0, len(a.Versions)+len(a.Same))
 	for _, v := range a.Versions {
@@ -90,7 +89,6 @@ func LimitlessArts(card cards.Card) CardArts { return group(card, nil, noGrids, 
 
 func noGrids(Key) (grid, bool) { return grid{}, false }
 
-// printsOf is the card's printings, or its code alone when Limitless has none for it.
 func printsOf(card cards.Card) []cards.Print {
 	if len(card.Prints) > 0 {
 		return card.Prints
@@ -98,9 +96,10 @@ func printsOf(card cards.Card) []cards.Print {
 	return []cards.Print{{Key: card.Code}}
 }
 
-// group applies the grouping rules. gridFor reports the grids known now. When final is false, a
-// Bandai printing that can't be placed yet counts as pending. When it is true, a printing
-// without a grid is left out, since without its picture it can be neither shown nor compared.
+// group places the Bandai printings among the Limitless ones by the grids gridFor knows. When
+// final is false, a Bandai printing that can't be placed yet counts as pending. When it is true,
+// a printing without a grid is left out, since without its picture it can be neither shown nor
+// compared.
 func group(card cards.Card, bandai []printing, gridFor func(Key) (grid, bool), final bool) CardArts {
 	var out CardArts
 	prints := printsOf(card)
@@ -161,7 +160,6 @@ func settledBy(prints []cards.Print, b printing) int {
 	return slices.IndexFunc(prints, func(p cards.Print) bool { return p.Key == b.Key && sameProduct(p.Set, b.Product) })
 }
 
-// unsettled is the card's Bandai printings that need their picture compared.
 func unsettled(card cards.Card, bandai []printing) []printing {
 	prints := printsOf(card)
 	var out []printing
@@ -218,7 +216,6 @@ func twins(heads []Art, twinned []bool, open []printing, gridFor func(Key) (grid
 	return taken
 }
 
-// closest is the art with the member closest to g, when one is within matchMax.
 func closest(arts []Art, g grid, gridFor func(Key) (grid, bool)) (int, bool) {
 	best, bestD := -1, float64(matchMax)
 	for i, a := range arts {

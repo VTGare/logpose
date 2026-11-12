@@ -4,17 +4,15 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/VTGare/logpose/internal/fetch"
 )
 
 // Library is the cached copy of every card from Limitless and of Bandai's ban list.
@@ -37,8 +35,8 @@ type Library struct {
 // saved by an older version fetches every set again, and keeps its cards until then.
 const libraryVersion = 6
 
-// latestMaxAge is how old a set the index names as updated may be before it's fetched again.
-const latestMaxAge = 20 * time.Hour
+// LibraryMaxAge is how often the library is checked for new sets.
+const LibraryMaxAge = 24 * time.Hour
 
 func newLibrary() *Library {
 	return &Library{
@@ -46,18 +44,16 @@ func newLibrary() *Library {
 	}
 }
 
-// LoadLibrary reads the cached library, or returns an empty one when there's none yet.
+// LoadLibrary reads the cached library, or returns an empty one when there's none yet or the
+// file doesn't parse.
 func LoadLibrary(path string) (*Library, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return newLibrary(), nil
-	}
+	l := newLibrary()
+	found, err := fetch.LoadJSON(path, l)
 	if err != nil {
 		return nil, err
 	}
-	l := newLibrary()
-	if err := json.Unmarshal(data, l); err != nil {
-		return nil, err
+	if !found {
+		return newLibrary(), nil
 	}
 	if l.Unreleased == nil {
 		l.Unreleased = make(map[string]bool)
@@ -70,44 +66,41 @@ func LoadLibrary(path string) (*Library, error) {
 	return l, nil
 }
 
-func (l *Library) Save(path string) error {
-	data, err := json.Marshal(l)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
-}
+func (l *Library) Save(path string) error { return fetch.SaveJSON(path, l) }
 
-// Stale reports whether the library was last checked more than maxAge ago.
-func (l *Library) Stale(now time.Time, maxAge time.Duration) bool {
-	return now.Sub(l.Checked) > maxAge
-}
+func (l *Library) Stale(now time.Time) bool { return now.Sub(l.Checked) > LibraryMaxAge }
 
-// Source is where a refresh reads from.
+// LibraryPause is the wait between two Limitless pages, to go easy on Limitless. The first
+// refresh reads about 60.
+const LibraryPause = 500 * time.Millisecond
+
 type Source struct {
 	Client    *http.Client
 	Limitless string
 	Rules     string
-	// Pause is the wait between two pages, to go easy on Limitless.
+	// Pause is the wait between two pages, LibraryPause outside specs.
 	Pause time.Duration
-	// Progress, when set, hears of each set page read: how many of how many, and the set.
+	// Progress, when set, hears of each set page read.
 	Progress func(SetProgress)
 }
 
-// SetProgress is a refresh's progress after a set page.
 type SetProgress struct {
 	Done, Total int
 	// Set is the set's code and name, as "OP18 The Dominance of God", and Cards how many
 	// cards its page has.
 	Set   string
 	Cards int
+}
+
+// RefreshLibrary brings the library at path up to date when it's stale or force is set, and
+// saves it. A refresh that fails after fetching sets still saves them.
+func RefreshLibrary(ctx context.Context, src Source, path string, now time.Time, force bool) (Refreshed, error) {
+	l, err := LoadLibrary(path)
+	if err != nil || (!force && !l.Stale(now)) {
+		return Refreshed{}, err
+	}
+	n, err := l.Refresh(ctx, src, now)
+	return saveRefreshed(l, path, n, len(l.Cards), err)
 }
 
 // Refresh reads Limitless's set index, fetches the sets it hasn't seen, the ones the index
@@ -127,14 +120,14 @@ func (l *Library) Refresh(ctx context.Context, src Source, now time.Time) (int, 
 	for _, slug := range idx.Sets {
 		at, seen := l.Sets[slug]
 		changing := slices.Contains(idx.Latest, slug) || l.Unreleased[slug]
-		if !seen || (changing && now.Sub(at) > latestMaxAge) {
+		if !seen || (changing && now.Sub(at) > fetch.RecheckAfter) {
 			due = append(due, slug)
 		}
 	}
 	fetched := 0
 	for _, slug := range due {
 		if fetched > 0 {
-			if err := wait(ctx, src.Pause); err != nil {
+			if err := fetch.Wait(ctx, src.Pause); err != nil {
 				return fetched, err
 			}
 		}
@@ -191,8 +184,7 @@ func (l *Library) refreshRules(ctx context.Context, src Source, now time.Time) e
 func (l *Library) merge(prints []limitlessPrint) {
 	for _, p := range prints {
 		code := p.card.Code
-		set, _, _ := strings.Cut(code, "-")
-		ownSet := p.setCode == set
+		ownSet := p.setCode == SetOf(code)
 		original := p.print.Key == code && ownSet
 		c, ok := l.Cards[code]
 		if !ok || original {
@@ -218,8 +210,6 @@ func (l *Library) merge(prints []limitlessPrint) {
 	}
 }
 
-// limitlessLegality reads a card's Standard and Extra badges. A rotated card is still legal in
-// Extra, and one from a set that isn't out yet is legal in neither.
 // newestBlock is the newest block icon among the printings, X above all numbers.
 func newestBlock(prints []Print) string {
 	best := ""
@@ -261,6 +251,8 @@ func countCards(prints []limitlessPrint) int {
 	return len(seen)
 }
 
+// limitlessLegality reads a card's Standard and Extra badges. A rotated card is still legal in
+// Extra, and one from a set that isn't out yet is legal in neither.
 func limitlessLegality(standard, extra string) Legality {
 	switch standard {
 	case "legal":
@@ -305,32 +297,9 @@ func (l *Library) Apply(db *DB) {
 }
 
 func getPage(ctx context.Context, client *http.Client, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	body, err := fetch.Get(ctx, client, url, 16<<20)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cards: %w", err)
 	}
-	req.Header.Set("User-Agent", userAgent)
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("cards: %s: %s", url, resp.Status)
-	}
-	return io.ReadAll(io.LimitReader(resp.Body, 16<<20))
-}
-
-func wait(ctx context.Context, d time.Duration) error {
-	if d <= 0 {
-		return nil
-	}
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
-		return nil
-	}
+	return body, nil
 }

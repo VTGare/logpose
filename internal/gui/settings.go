@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 
+	"github.com/VTGare/logpose/internal/arts"
+	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/store"
 )
 
@@ -26,9 +27,14 @@ type settingsState struct {
 	// allNames shows every player in the You list, not only the top ones.
 	allNames bool
 	// art is nil until the card art folder is counted.
-	art *artUsage
+	art *arts.Usage
 	// offerSkip holds the places unticked in the offer of shortcuts.
 	offerSkip [2]bool
+	// frame is the view's frame the page last showed in.
+	frame int
+	// info is nil until the app first reads it, and infoFor is the snapshot it was asked for on.
+	info    *settingsInfo
+	infoFor *snapshot
 }
 
 func (s *settingsState) note(part, text string) {
@@ -48,8 +54,18 @@ const cardDataHelp = "Cards come from Limitless (onepiece.limitlesstcg.com), whi
 const topNames = 3
 
 func (v *view) settingsPage(c *ui.Context) {
-	if pageEntered && v.snap.Settings.ArtDir != "" {
+	s := &v.settings
+	if s.frame != v.frame-1 {
 		v.do(func(a actions) { a.LoadArtUsage() })
+	}
+	s.frame = v.frame
+	// A new snapshot can mean new games, logs or card data, so the page reads them again.
+	if s.infoFor != v.snap {
+		s.infoFor = v.snap
+		v.do(func(a actions) { a.LoadSettings() })
+	}
+	if s.info == nil {
+		return
 	}
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
@@ -83,7 +99,7 @@ func (v *view) statusTile(c *ui.Context, part, label string, ok bool, value, sub
 	t := c.Theme()
 	panel(c).Grow(1).Basis(0).Padding(12, 14).Gap(2).Children(func() {
 		ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
-			dot := winColor
+			dot := winColor(t)
 			if !ok {
 				dot = warnColor
 			}
@@ -104,7 +120,7 @@ func (v *view) statusTile(c *ui.Context, part, label string, ok bool, value, sub
 }
 
 func (v *view) simTile(c *ui.Context) {
-	s := v.snap.Settings
+	s := v.settings.info
 	if s.SimDir == "" {
 		v.statusTile(c, noteSim, "OPTCGSim", false, "Not found", "Start the sim, or choose its folder", "", func() {
 			if ui.Button(c, "Choose folder…").Clicked() {
@@ -140,7 +156,7 @@ func (v *view) simTile(c *ui.Context) {
 }
 
 func (v *view) logsTile(c *ui.Context) {
-	s := v.snap.Settings
+	s := v.settings.info
 	if s.SimDir == "" {
 		v.statusTile(c, noteLogs, "Logs", false, "No logs", "They're in the sim's folder", "", func() {
 			ui.Button(c, "Import again").Disabled(true)
@@ -155,13 +171,18 @@ func (v *view) logsTile(c *ui.Context) {
 }
 
 func (v *view) cardsTile(c *ui.Context) {
-	s := v.snap.Settings
-	ok := !s.Fetched.IsZero() && v.snap.Now.Sub(s.Fetched) < 3*24*time.Hour
+	s := v.settings.info
+	// Card data counts as current until three of its daily checks were missed.
+	ok := !s.Fetched.IsZero() && v.now().Sub(s.Fetched) < 3*cards.LibraryMaxAge
+	count := 0
+	if v.snap.Cards != nil {
+		count = v.snap.Cards.Len()
+	}
 	sub := "Only the sim's card list"
 	if !s.Fetched.IsZero() {
-		sub = "Refreshed " + dayAndTime(v.snap.Now, s.Fetched)
+		sub = "Refreshed " + dayAndTime(v.now(), s.Fetched)
 	}
-	v.statusTile(c, noteCards, "Card data", ok, fmt.Sprintf("%s cards", thousands(s.Cards)), sub, cardDataHelp, func() {
+	v.statusTile(c, noteCards, "Card data", ok, fmt.Sprintf("%s cards", thousands(count)), sub, cardDataHelp, func() {
 		if ui.Button(c, "Refresh now").Label("Refresh card data").Clicked() {
 			v.do(func(a actions) { a.RefreshCards() })
 		}
@@ -169,9 +190,9 @@ func (v *view) cardsTile(c *ui.Context) {
 }
 
 func (v *view) dataTile(c *ui.Context) {
-	s := v.snap.Settings
-	sub := fmt.Sprintf("%.1f MB in %s", float64(s.DBSize)/(1<<20), s.DBFolder)
-	v.statusTile(c, noteData, "Database", true, games(s.Games), sub, "", func() {
+	s := v.settings.info
+	sub := megabytes(s.DBSize) + " in " + s.DBFolder
+	v.statusTile(c, noteData, "Database", true, games(v.snap.Stored), sub, "", func() {
 		if ui.Button(c, "Back up…").Label("Back up the database").Clicked() {
 			v.do(func(a actions) { a.Backup() })
 		}
@@ -183,7 +204,7 @@ func (v *view) dataTile(c *ui.Context) {
 
 func (v *view) youSettings(c *ui.Context) {
 	t := c.Theme()
-	s := &v.snap.Settings
+	s := v.settings.info
 	ui.Text(c, "You").FontSize(13).FontWeight(600)
 	ui.Text(c, "Your games are the ones with these names. Pick more than one for an alt account.").FontSize(12).TextColor(t.TextMuted).Wrap()
 	auto := len(s.You) == 0
@@ -243,8 +264,8 @@ func (v *view) youSettings(c *ui.Context) {
 
 // setYou saves the user's names. The page shows them before the new snapshot arrives.
 func (v *view) setYou(names []string) {
-	v.snap.Settings.You = names
-	v.do(func(a actions) { a.SetSetting(store.SettingYou, strings.Join(names, "\n")) })
+	v.settings.info.You = names
+	v.do(func(a actions) { a.SetSetting(store.SettingYou, store.JoinNames(names)) })
 }
 
 var themes = []string{"", "dark", "light"}
@@ -254,31 +275,28 @@ func (v *view) lookSettings(c *ui.Context) {
 	theme := max(slices.Index(themes, v.prefs.theme), 0)
 	prefRow(c, "Theme", "", func() { ui.Segmented(c, &theme, "Windows", "Dark", "Light").Label("Theme") })
 	if themes[theme] != v.prefs.theme {
-		v.prefs.theme = themes[theme]
-		v.do(func(a actions) { a.SetSetting(store.SettingTheme, themes[theme]) })
+		prefTheme.set(v, themes[theme])
 	}
 	divider(c)
 	cb := v.prefs.colorblind
 	if switchRow(c, "Colorblind-safe colors", "Wins and losses in blue and orange instead of green and red", &cb, false) {
-		v.prefs.colorblind = cb
-		v.do(func(a actions) { a.SetSetting(store.SettingColorblind, flag(cb)) })
+		prefColorblind.set(v, cb)
 	}
 }
 
 func (v *view) startupSettings(c *ui.Context) {
 	t := c.Theme()
 	ui.Text(c, "Startup and tray").FontSize(13).FontWeight(600)
-	login := v.prefs.openAtLogin
+	login := v.system.openAtLogin
 	if switchRow(c, "Start with Windows", "", &login, false) {
-		v.prefs.openAtLogin = login
+		v.system.openAtLogin = login
 		v.do(func(a actions) { a.SetOpenAtLogin(login) })
 	}
 	v.shortcutRows(c)
 	divider(c)
 	hidden := v.prefs.startHidden
-	if switchRow(c, "Start hidden in the tray", "Only when it starts with Windows", &hidden, !v.prefs.openAtLogin) {
-		v.prefs.startHidden = hidden
-		v.do(func(a actions) { a.SetSetting(store.SettingStartHidden, flag(hidden)) })
+	if switchRow(c, "Start hidden in the tray", "Only when it starts with Windows", &hidden, !v.system.openAtLogin) {
+		prefStartHidden.set(v, hidden)
 	}
 	divider(c)
 	closing := 0
@@ -289,8 +307,7 @@ func (v *view) startupSettings(c *ui.Context) {
 		ui.Segmented(c, &closing, "Hides it to the tray", "Quits logpose").Label("Closing the window")
 	})
 	if quits := closing == 1; quits != v.prefs.closeQuits {
-		v.prefs.closeQuits = quits
-		v.do(func(a actions) { a.SetSetting(store.SettingCloseQuits, flag(quits)) })
+		prefCloseQuits.set(v, quits)
 	}
 	if n := v.settings.notes[noteStartup]; n != "" {
 		ui.Text(c, n).FontSize(12).TextColor(t.Accent)
@@ -303,22 +320,18 @@ func (v *view) artSettings(c *ui.Context) {
 	ui.Text(c, "Pictures of cards come from Limitless and stay on this PC.").FontSize(12).TextColor(t.TextMuted).Wrap()
 	on := !v.prefs.artOff
 	if switchRow(c, "Download card art", "Off shows the sim's own images", &on, false) {
-		v.prefs.artOff = !on
-		v.do(func(a actions) { a.SetArtDownloads(on) })
+		prefArtOff.set(v, !on)
 	}
-	dir := v.snap.Settings.ArtDir
+	dir := v.settings.info.ArtDir
 	if dir == "" {
 		return
 	}
 	divider(c)
 	capIndex := slices.Index(artCaps, v.prefs.artCap)
-	if capIndex < 0 {
-		capIndex = slices.Index(artCaps, artCapDefault)
-	}
 	u := v.settings.art
 	label, sub := "Counting…", ""
 	if u != nil {
-		label = megabytes(u.total()) + " on disk"
+		label = megabytes(u.Total()) + " on disk"
 		sub = fmt.Sprintf("Thumbnails %s · large images %s of %d MB", megabytes(u.ThumbBytes), megabytes(u.FullBytes), artCaps[capIndex])
 	}
 	prefRow(c, label, sub, func() {
@@ -326,7 +339,7 @@ func (v *view) artSettings(c *ui.Context) {
 			if ui.Button(c, "Show").Label("Show the card art folder").Clicked() {
 				v.do(func(a actions) { a.OpenPath(dir) })
 			}
-			if ui.Button(c, "Clear").Label("Clear card art").Disabled(u == nil || u.total() == 0).Clicked() {
+			if ui.Button(c, "Clear").Label("Clear card art").Disabled(u == nil || u.Total() == 0).Clicked() {
 				v.do(func(a actions) { a.ClearArt() })
 			}
 		})
@@ -342,9 +355,7 @@ func (v *view) artSettings(c *ui.Context) {
 		ui.Segmented(c, &picked, artCapLabels...).Label("Keep large images up to")
 	})
 	if picked != capIndex {
-		mb := artCaps[picked]
-		v.prefs.artCap = mb
-		v.do(func(a actions) { a.SetArtCap(mb) })
+		prefArtCap.set(v, artCaps[picked])
 	}
 	ui.Text(c, "Past this, the ones you opened longest ago are deleted. Thumbnails stay.").
 		FontSize(12).TextColor(t.TextMuted).Wrap()
@@ -357,18 +368,6 @@ var artCapLabels = func() []string {
 	}
 	return out
 }()
-
-// megabytes is a size such as "8.4 MB" or "258 MB".
-func megabytes(n int64) string {
-	mb := float64(n) / (1 << 20)
-	if n == 0 {
-		return "0 MB"
-	}
-	if mb < 10 {
-		return fmt.Sprintf("%.1f MB", mb)
-	}
-	return fmt.Sprintf("%.0f MB", mb)
-}
 
 // switchRow is prefRow with a switch, where a click anywhere on the row flips it. It reports
 // whether the switch changed.
@@ -429,25 +428,4 @@ func (v *view) setupPage(c *ui.Context) {
 				FontSize(12).TextColor(faintColor(t)).Wrap()
 		})
 	})
-}
-
-// dayAndTime is a past moment as "today at 18:50", "yesterday at 18:50" or "Nov 6 at 18:50".
-func dayAndTime(now, then time.Time) string {
-	day := then.Format("Jan 2")
-	switch dayStart(then) {
-	case dayStart(now):
-		day = "today"
-	case dayStart(now.AddDate(0, 0, -1)):
-		day = "yesterday"
-	}
-	return day + " at " + then.Format("15:04")
-}
-
-// thousands writes n with comma separators, such as 2,926.
-func thousands(n int) string {
-	s := fmt.Sprint(n)
-	for i := len(s) - 3; i > 0; i -= 3 {
-		s = s[:i] + "," + s[i:]
-	}
-	return s
 }

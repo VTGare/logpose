@@ -5,8 +5,6 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"github.com/VTGare/logpose/internal/stats"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -22,7 +20,7 @@ func matchupsSnapshot() *snapshot {
 func matchupsTester(s *snapshot) (*view, *ui.Tester) {
 	v, tt := tester(s)
 	Expect(tt.Click("Matchups")).To(Succeed())
-	Expect(v.page).To(Equal(pageMatchups))
+	tt.Frame()
 	return v, tt
 }
 
@@ -38,25 +36,23 @@ var _ = Describe("Matchups page", func() {
 	})
 
 	It("opens the row picked, and closes it when picked again", func() {
-		v, tt := matchupsTester(matchupsSnapshot())
-		Expect(tt.Click("Show the matchup vs Buggy OP09")).To(Succeed())
-		Expect(v.matchups.pick).To(Equal("OP09-042"))
-		tt.Frame()
-		Expect(tt.HasText("Latest games")).To(BeTrue())
+		_, tt := matchupsTester(matchupsSnapshot())
+		Expect(tt.Texts()).To(ContainElement("Filter to games vs Kaido"))
 		Expect(tt.Click("Show the matchup vs Buggy OP09")).To(Succeed())
 		tt.Frame()
-		Expect(v.matchups.pick).To(Equal(matchupNone))
+		Expect(tt.Texts()).To(ContainElement("Filter to games vs Buggy"))
+		Expect(tt.Texts()).NotTo(ContainElement("Filter to games vs Kaido"))
+		Expect(tt.Click("Show the matchup vs Buggy OP09")).To(Succeed())
+		tt.Frame()
 		Expect(tt.HasText("Latest games")).To(BeFalse())
 	})
 
 	It("opens Matches filtered to the matchup", func() {
-		v, tt := matchupsTester(matchupsSnapshot())
+		_, tt := matchupsTester(matchupsSnapshot())
 		Expect(tt.Click("Show in Matches")).To(Succeed())
-		Expect(v.page).To(Equal(pageMatches))
-		Expect(v.filter.deck).To(Equal("OP13-001"))
-		Expect(v.filter.oppLeader).To(Equal("OP17-058"))
 		tt.Frame()
-		Expect(tt.HasText("9 games · 4–5")).To(BeTrue())
+		Expect(tt.Texts()).To(ContainElements("Monkey D. Luffy", "vs Kaido", "9 games · 4–5"))
+		Expect(tt.HasText("Sort by 2 leaders faced")).To(BeFalse())
 	})
 
 	It("counts only the games in the filters' scope", func() {
@@ -64,22 +60,19 @@ var _ = Describe("Matchups page", func() {
 		for i := range 4 {
 			s.Matches[i].Ranked = false
 		}
-		v, tt := matchupsTester(s)
-		v.filter.gameType = int(stats.CasualGames)
-		tt.Frame()
-		_, list := v.matchupData()
-		Expect(list).To(HaveLen(2))
-		Expect(list[0].Record.Games()).To(Equal(3))
-		Expect(tt.HasText("2 leaders faced")).To(BeTrue())
+		_, tt := matchupsTester(s)
+		Expect(tt.Click("All games")).To(Succeed())
+		Expect(choose(tt, "Casual")).To(Succeed())
+		Expect(tt.Texts()).To(ContainElements("2 leaders faced", "Kaido", "1–2", "Buggy", "1–0"))
+		Expect(tt.Texts()).NotTo(ContainElement("4–5"))
 	})
 
 	It("lists the matchups of the deck picked at the top", func() {
 		s := matchupsSnapshot()
 		s.Matches[5].Me.Leader = "EB05-010"
 		s.Cards.Name("EB05-010", "Nico Robin")
-		v, tt := matchupsTester(s)
+		_, tt := matchupsTester(s)
 		Expect(tt.Click("Show matchups with Nico Robin")).To(Succeed())
-		Expect(v.filter.deck).To(Equal("EB05-010"))
 		tt.Frame()
 		Expect(tt.HasText("1 leader faced")).To(BeTrue())
 	})

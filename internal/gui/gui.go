@@ -4,10 +4,8 @@ import (
 	"context"
 	_ "embed"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +15,7 @@ import (
 
 	"github.com/VTGare/logpose/internal/arts"
 	"github.com/VTGare/logpose/internal/cards"
+	"github.com/VTGare/logpose/internal/fetch"
 	"github.com/VTGare/logpose/internal/importer"
 	"github.com/VTGare/logpose/internal/live"
 	"github.com/VTGare/logpose/internal/replay"
@@ -38,12 +37,12 @@ type Options struct {
 	LibraryPath string
 	// ArtDir caches card images from Limitless and Bandai. Empty means only the sim's images.
 	ArtDir string
-	// BandaiPath caches the printings on Bandai's card list, and GridDir the pictures compared
-	// to group them. Without both, the Art tab offers Limitless's printings alone.
+	// BandaiPath caches the printings on Bandai's card list. Without it and ArtDir, the Art tab
+	// offers Limitless's printings alone.
 	BandaiPath string
-	GridDir    string
-	// DBPath is the database file, which Settings shows.
-	DBPath string
+	DBPath     string
+	// SimArtDir holds the record of the art logpose put in the sim and the user's files it kept.
+	SimArtDir string
 	// SimFlag is true when -sim named the sim's folder.
 	SimFlag bool
 	Log     *slog.Logger
@@ -57,9 +56,6 @@ type Options struct {
 //go:embed assets/tray.png
 var trayIcon []byte
 
-// catalogMaxAge is how often the card catalog is refreshed. tcgcsv updates once a day.
-const catalogMaxAge = 24 * time.Hour
-
 type app struct {
 	opts Options
 	upd  updater
@@ -67,9 +63,11 @@ type app struct {
 	tray *mygo.Tray
 	view *view
 
-	quitting   bool
-	closeQuits atomic.Bool
-	refreshMu  sync.Mutex
+	quitting  bool
+	refreshMu sync.Mutex
+	// prefs are the ones the app follows, which applyPrefs changes.
+	prefsMu sync.Mutex
+	prefs   prefs
 
 	simMu     sync.Mutex
 	inst      *sim.Install
@@ -77,16 +75,13 @@ type app struct {
 
 	cardsMu sync.Mutex
 	pack    *cards.DB
-	cards   *cards.DB
-	// fetched is when the cached tcgcsv catalog was fetched, zero without one.
-	fetched time.Time
-	// checked is when the card library was last refreshed, zero without one.
-	checked time.Time
+	// cards is nil until cardDB loads it.
+	cards *cards.Loaded
 	// playing is set while the sim runs a game, when card data isn't fetched.
 	playing atomic.Bool
 
 	// web is the only owner of the art folder. Nil without one.
-	web *webArt
+	web *arts.Store
 	// gallery groups each card's printings from Limitless and Bandai into arts. Nil without an
 	// art folder.
 	gallery *arts.Gallery
@@ -117,7 +112,7 @@ func Run(ctx context.Context, opts Options) error {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
-	a := &app{opts: opts, inst: opts.Install, web: newWebArt(opts.ArtDir)}
+	a := &app{opts: opts, inst: opts.Install, web: arts.NewStore(opts.ArtDir)}
 	a.gallery = openGallery(opts, a.web)
 	if err := registerFonts(); err != nil {
 		opts.Log.Warn("fonts", "err", err)
@@ -126,16 +121,13 @@ func Run(ctx context.Context, opts Options) error {
 	return mygo.App.Run()
 }
 
-// bandaiPause is the wait between two pages of Bandai's card list. The first read is 61 pages.
-const bandaiPause = 2 * time.Second
-
-func openGallery(opts Options, web *webArt) *arts.Gallery {
-	if web == nil || opts.BandaiPath == "" || opts.GridDir == "" {
+func openGallery(opts Options, web *arts.Store) *arts.Gallery {
+	if web == nil || opts.BandaiPath == "" {
 		return nil
 	}
 	g, err := arts.Open(arts.Config{
-		CatalogPath: opts.BandaiPath, GridDir: opts.GridDir, Pictures: web,
-		Client: &http.Client{Timeout: 30 * time.Second}, Site: cards.BandaiSite, Pause: bandaiPause,
+		CatalogPath: opts.BandaiPath, ArtDir: opts.ArtDir, Pictures: web,
+		Client: fetch.NewClient(), Pause: arts.BandaiPause,
 	})
 	if err != nil {
 		opts.Log.Warn("bandai card list", "err", err)
@@ -155,17 +147,8 @@ func (a *app) ready(ctx context.Context) {
 	if err != nil {
 		a.opts.Log.Warn("settings", "err", err)
 	}
-	a.view.prefs = prefsFrom(set)
-	a.view.filter.format = a.view.prefs.startFormat
-	a.view.prefs.openAtLogin = mygo.App.OpenAtLogin()
-	a.readShortcuts()
-	a.view.prefs.installed = installed()
-	if a.web != nil {
-		a.web.setOff(a.view.prefs.artOff)
-		a.web.setLimit(int64(a.view.prefs.artCap) << 20)
-		go a.web.trim()
-	}
-	a.closeQuits.Store(a.view.prefs.closeQuits)
+	a.view.setPrefs(prefsFrom(set))
+	a.view.setSystem(a.readSystem())
 	title := "logpose"
 	if a.opts.Dev {
 		title = "logpose (dev)"
@@ -179,12 +162,13 @@ func (a *app) ready(ctx context.Context) {
 		Hidden:    a.view.prefs.startHidden && mygo.App.WasOpenedAtLogin(),
 		Content:   ui.View(a.view.build),
 	})
-	a.view.art = newArtCache(a.install(), a.web, a.win.Update)
+	a.resetArtCache()
+	a.applyPrefs(ctx, a.view.prefs)
 	a.win.OnClose(func(e *mygo.CloseEvent) {
 		if a.quitting {
 			return
 		}
-		if a.closeQuits.Load() {
+		if a.applied().closeQuits {
 			a.quitting = true
 			mygo.App.Quit()
 			return
@@ -218,14 +202,8 @@ func (a *app) install() *sim.Install {
 // setInstall switches to the sim in another folder: its card art, its card data and its logs.
 // chosen is true when the user picked the folder.
 func (a *app) setInstall(ctx context.Context, in sim.Install, chosen bool) error {
-	st := a.opts.Store
-	if err := st.SetSetting(ctx, store.SettingSimDir, in.Root); err != nil {
+	if err := rememberSim(ctx, a.opts.Store, in, chosen); err != nil {
 		return err
-	}
-	if chosen {
-		if err := st.SetSetting(ctx, store.SettingSimDirChosen, in.Root); err != nil {
-			return err
-		}
 	}
 	a.simMu.Lock()
 	a.inst = &in
@@ -233,10 +211,8 @@ func (a *app) setInstall(ctx context.Context, in sim.Install, chosen bool) error
 	a.cardsMu.Lock()
 	a.pack, a.cards = nil, nil
 	a.cardsMu.Unlock()
-	a.win.Update(func() {
-		a.view.art = newArtCache(&in, a.web, a.win.Update)
-		a.view.resetSimArt()
-	})
+	a.resetArtCache()
+	a.win.Update(a.view.resetSimArt)
 	a.watch(ctx)
 	a.refresh(ctx)
 	return nil
@@ -284,7 +260,7 @@ func (a *app) follow(ctx context.Context) {
 			if was && s.Phase != live.Playing {
 				go func() { _ = a.refreshCatalog(ctx, false) }()
 			}
-			a.win.Update(func() { a.view.live = s })
+			a.win.Update(func() { a.view.setLive(s) })
 		},
 		OnSaved: func(sv live.Saved) {
 			if sv.Format == "" {
@@ -322,7 +298,7 @@ func (a *app) refreshCatalog(ctx context.Context, force bool) error {
 	if !force && a.playing.Load() {
 		return nil
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := fetch.NewClient()
 	changed := false
 	err := errors.Join(a.refreshTCGCSV(ctx, client, force, &changed), a.refreshLibrary(ctx, client, force, &changed))
 	if changed {
@@ -341,7 +317,7 @@ func (a *app) refreshCatalog(ctx context.Context, force bool) error {
 // refreshBandai reads Bandai's card list when it's stale. Its printings only offer pictures,
 // so it isn't read while art downloads are off.
 func (a *app) refreshBandai(ctx context.Context, force bool) (bool, error) {
-	if a.gallery == nil || a.web.isOff() {
+	if a.gallery == nil || a.web.Off() {
 		return false, nil
 	}
 	now := time.Now()
@@ -349,9 +325,9 @@ func (a *app) refreshBandai(ctx context.Context, force bool) (bool, error) {
 		return false, nil
 	}
 	changed, err := a.gallery.Refresh(ctx, now, func(done, total int) {
-		a.win.Update(func() { a.view.artSync = artSync{done, total} })
+		a.win.Update(func() { a.view.setArtSync(artSync{done, total}) })
 	})
-	a.win.Update(func() { a.view.artSync = artSync{} })
+	a.win.Update(func() { a.view.setArtSync(artSync{}) })
 	if err != nil {
 		a.opts.Log.Warn("refresh bandai card list", "err", err)
 		return changed, err
@@ -364,60 +340,30 @@ func (a *app) refreshTCGCSV(ctx context.Context, client *http.Client, force bool
 	if a.opts.CatalogPath == "" {
 		return nil
 	}
-	cat, err := cards.LoadCatalog(a.opts.CatalogPath)
-	if err != nil {
-		a.opts.Log.Warn("card catalog", "err", err)
-		return err
-	}
-	if !force && !cat.Stale(time.Now(), catalogMaxAge) {
-		return nil
-	}
-	n, err := cat.Refresh(ctx, client, cards.TCGCSVBase)
-	if err != nil {
-		a.opts.Log.Warn("refresh card catalog", "err", err, "sets", n)
-		return err
-	}
-	if err := cat.Save(a.opts.CatalogPath); err != nil {
-		a.opts.Log.Warn("save card catalog", "err", err)
-		return err
-	}
-	a.opts.Log.Info("card catalog refreshed", "sets", n, "cards", len(cat.Cards))
-	*changed = true
-	return nil
+	r, err := cards.RefreshCatalog(ctx, client, cards.TCGCSVBase, a.opts.CatalogPath, time.Now(), force)
+	return a.logRefreshed("card catalog", r, err, changed)
 }
-
-// libraryPause is the wait between two Limitless pages. The first refresh reads about 60.
-const libraryPause = 500 * time.Millisecond
 
 func (a *app) refreshLibrary(ctx context.Context, client *http.Client, force bool, changed *bool) error {
 	if a.opts.LibraryPath == "" {
 		return nil
 	}
-	lib, err := cards.LoadLibrary(a.opts.LibraryPath)
-	if err != nil {
-		a.opts.Log.Warn("card library", "err", err)
-		return err
+	src := cards.Source{Client: client, Limitless: cards.LimitlessBase, Rules: cards.BandaiRestrictions, Pause: cards.LibraryPause}
+	src.Progress = func(p cards.SetProgress) { a.win.Update(func() { a.view.addCardSync(p) }) }
+	r, err := cards.RefreshLibrary(ctx, src, a.opts.LibraryPath, time.Now(), force)
+	a.win.Update(a.view.endCardSync)
+	return a.logRefreshed("card library", r, err, changed)
+}
+
+func (a *app) logRefreshed(name string, r cards.Refreshed, err error, changed *bool) error {
+	*changed = *changed || r.Saved
+	switch {
+	case err != nil:
+		a.opts.Log.Warn("refresh "+name, "err", err, "sets", r.Sets)
+	case r.Saved:
+		a.opts.Log.Info(name+" refreshed", "sets", r.Sets, "cards", r.Cards)
 	}
-	if !force && !lib.Stale(time.Now(), catalogMaxAge) {
-		return nil
-	}
-	src := cards.Source{Client: client, Limitless: cards.LimitlessBase, Rules: cards.BandaiRestrictions, Pause: libraryPause}
-	src.Progress = func(p cards.SetProgress) { a.win.Update(func() { a.view.cardSync.add(p) }) }
-	n, err := lib.Refresh(ctx, src, time.Now())
-	a.win.Update(func() { a.view.cardSync = cardSync{} })
-	if n > 0 || err == nil {
-		if serr := lib.Save(a.opts.LibraryPath); serr != nil {
-			a.opts.Log.Warn("save card library", "err", serr)
-			return serr
-		}
-		*changed = true
-	}
-	if err != nil {
-		a.opts.Log.Warn("refresh card library", "err", err, "sets", n)
-		return err
-	}
-	a.opts.Log.Info("card library refreshed", "sets", n, "cards", len(lib.Cards))
-	return nil
+	return err
 }
 
 // start shows what's stored, then imports and watches the sim's logs.
@@ -465,8 +411,8 @@ func (a *app) refresh(ctx context.Context) {
 		return
 	}
 	a.win.Update(func() {
-		a.view.snap = snap
-		a.updateTray(snap)
+		a.view.setSnapshot(snap)
+		a.updateTray()
 	})
 }
 
@@ -485,7 +431,7 @@ func (a *app) load(ctx context.Context) (*snapshot, error) {
 		return nil, err
 	}
 	// Each snapshot gets its own copy, since the window reads the last one while this one fills.
-	db := a.cardDB().Clone()
+	db := a.cardDB().DB.Clone()
 	for code, name := range names {
 		db.Name(code, name)
 	}
@@ -493,11 +439,7 @@ func (a *app) load(ctx context.Context) (*snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	set, err := st.Settings(ctx)
-	if err != nil {
-		return nil, err
-	}
-	info, err := a.settingsInfo(ctx, set, len(games), db.Len())
+	dismissed, err := st.Setting(ctx, keyDismissedSets)
 	if err != nil {
 		return nil, err
 	}
@@ -516,22 +458,20 @@ func (a *app) load(ctx context.Context) (*snapshot, error) {
 		Matches:   ms,
 		Overview:  stats.BuildOverview(ms, now),
 		Cards:     db,
-		Now:       now,
 		Formats:   stats.Ranges(formats),
-		Debuts:    stats.Debuts(ms, formats, splitList(set[store.SettingDismissedSets])),
-		Settings:  info,
+		Debuts:    stats.Debuts(ms, formats, splitList(dismissed)),
+		Stored:    len(games),
 	}, nil
 }
 
-// cardDB builds the card database: the catalog in the OPBounty pack the sim ships, the cached
-// tcgcsv catalog over it, which has newer sets, and the Limitless library over both, which has
-// everything. Names from the logs go on top in load. Without any, cards have the logs' names
-// and no colors.
-func (a *app) cardDB() *cards.DB {
+// cardDB builds the card database with cards.Load from the OPBounty pack the sim ships and the
+// cached catalog and library. Names from the logs go on top in load. Without any, cards have
+// the logs' names and no colors.
+func (a *app) cardDB() cards.Loaded {
 	a.cardsMu.Lock()
 	defer a.cardsMu.Unlock()
 	if a.cards != nil {
-		return a.cards
+		return *a.cards
 	}
 	if a.pack == nil {
 		a.pack = cards.NewDB()
@@ -543,23 +483,12 @@ func (a *app) cardDB() *cards.DB {
 			}
 		}
 	}
-	db := a.pack.Clone()
-	if a.opts.CatalogPath != "" {
-		if cat, err := cards.LoadCatalog(a.opts.CatalogPath); err == nil {
-			cat.Apply(db)
-			a.fetched = cat.Fetched
-		}
+	l, err := cards.Load(a.pack, a.opts.CatalogPath, a.opts.LibraryPath)
+	if err != nil {
+		a.opts.Log.Warn("card data", "err", err)
 	}
-	if a.opts.LibraryPath != "" {
-		if lib, err := cards.LoadLibrary(a.opts.LibraryPath); err == nil {
-			lib.Apply(db)
-			a.checked = lib.Checked
-		} else {
-			a.opts.Log.Warn("card library", "err", err)
-		}
-	}
-	a.cards = db
-	return db
+	a.cards = &l
+	return l
 }
 
 func (a *app) setUpTray() {
@@ -588,15 +517,10 @@ func (a *app) setUpTray() {
 	})
 }
 
-func (a *app) updateTray(s *snapshot) {
-	if a.tray == nil {
-		return
+func (a *app) updateTray() {
+	if a.tray != nil {
+		a.tray.SetToolTip(a.view.trayTip())
 	}
-	tip := "logpose"
-	if len(s.Overview.Today) > 0 {
-		tip = fmt.Sprintf("logpose · today %s", record(s.Overview.TodayRecord))
-	}
-	a.tray.SetToolTip(tip)
 }
 
 func (a *app) show() {
@@ -609,11 +533,10 @@ func (a *app) quit() {
 	mygo.App.Quit()
 }
 
-func splitList(s string) []string {
-	if s == "" {
-		return nil
-	}
-	return strings.Split(s, ",")
+// resetArtCache drops the card images decoded so far, for another sim folder or art source.
+func (a *app) resetArtCache() {
+	in := a.install()
+	a.win.Update(func() { a.view.setArtCache(newArtCache(in, a.web, a.win.Update)) })
 }
 
 // appActions makes the view's changes on a goroutine, then shows the result.
@@ -648,11 +571,9 @@ func (x *appActions) DeleteFormat(id int64) {
 
 func (x *appActions) DismissSet(set string) {
 	x.run("dismiss set", func(ctx context.Context, st *store.Store) error {
-		cur, err := st.Setting(ctx, store.SettingDismissedSets)
-		if err != nil {
-			return err
-		}
-		return st.SetSetting(ctx, store.SettingDismissedSets, strings.Join(append(splitList(cur), set), ","))
+		return st.ChangeSetting(ctx, keyDismissedSets, func(cur string) string {
+			return joinList(append(splitList(cur), set))
+		})
 	})
 }
 
@@ -668,9 +589,12 @@ func (x *appActions) SetBookmark(fingerprint string, on bool) {
 	x.run("set bookmark", func(ctx context.Context, st *store.Store) error { return st.SetBookmark(ctx, fingerprint, on) })
 }
 
-func (x *appActions) SaveBuild(b store.Build) {
+func (x *appActions) SaveBuild(b store.Build, saved func(id int64)) {
 	x.run("save build", func(ctx context.Context, st *store.Store) error {
-		_, err := st.SaveBuild(ctx, b)
+		id, err := st.SaveBuild(ctx, b)
+		if err == nil && saved != nil {
+			x.a.win.Update(func() { saved(id) })
+		}
 		return err
 	})
 }
@@ -688,11 +612,13 @@ func (x *appActions) LoadTimeline(fingerprint, me, opp string) {
 		l := matchTimeline{Fingerprint: fingerprint}
 		if g, err := x.parseGame(fingerprint); err != nil {
 			x.a.opts.Log.Warn("read match log", "err", err)
+			l.Err = err
 		} else {
+			l.Game = g
 			l.Me, l.Opp = g.LifeByTurn(me), g.LifeByTurn(opp)
 			l.MeHand, l.OppHand = g.HandByTurn(me), g.HandByTurn(opp)
 			l.MeBoard, l.OppBoard = g.CharactersByTurn(me), g.CharactersByTurn(opp)
-			db := x.a.cardDB()
+			db := x.a.cardDB().DB
 			l.Moments = g.Moments(func(code string) int { return db.Card(code).Power })
 			l.Marks = g.Marks()
 			l.Replayable = g.HasRZ()
@@ -702,18 +628,17 @@ func (x *appActions) LoadTimeline(fingerprint, me, opp string) {
 }
 
 // OpenReplay maximizes the window, since the board needs the room, and builds the replay.
-func (x *appActions) OpenReplay(fingerprint string) {
+func (x *appActions) OpenReplay(fingerprint string, g *simlog.Game) {
 	x.a.win.Maximize()
 	go func() {
-		l := loadedReplay{Fingerprint: fingerprint}
-		l.Game, l.Err = x.parseGame(fingerprint)
-		if l.Err == nil {
-			db := x.a.cardDB()
-			l.Replay, l.Err = replay.Build(l.Game, func(code string) int { return db.Card(code).Power })
-		}
+		l := loadedReplay{Fingerprint: fingerprint, Game: g}
+		db := x.a.cardDB().DB
+		l.Replay, l.Err = replay.Build(g, func(code string) int { return db.Card(code).Power })
 		x.a.win.Update(func() { x.a.view.setReplay(l) })
 	}()
 }
+
+func (x *appActions) NewDay() { x.a.updateTray() }
 
 func (x *appActions) After(d time.Duration, fn func()) {
 	time.AfterFunc(d, func() { x.a.win.Update(fn) })
@@ -724,14 +649,7 @@ func (x *appActions) parseGame(fingerprint string) (*simlog.Game, error) {
 	if err != nil {
 		return nil, err
 	}
-	games, err := simlog.Parse(strings.NewReader(text))
-	if err != nil {
-		return nil, err
-	}
-	if len(games) != 1 {
-		return nil, fmt.Errorf("log parses to %d games", len(games))
-	}
-	return &games[0], nil
+	return simlog.ParseOne(text)
 }
 
 type loadedDecks struct {

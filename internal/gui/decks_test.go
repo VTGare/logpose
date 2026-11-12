@@ -106,10 +106,16 @@ var _ = Describe("Decks page", func() {
 	})
 
 	It("suggests builds from every game, whatever the filters", func() {
-		v, tt := tester(deckSnapshot())
+		s := deckSnapshot()
+		for i := range s.Matches {
+			s.Matches[i].Ranked = i%2 == 0
+		}
+		_, tt := tester(s)
+		Expect(tt.Click("All games")).To(Succeed())
+		Expect(choose(tt, "Ranked")).To(Succeed())
 		Expect(tt.Click("Decks")).To(Succeed())
-		v.filter.gameType = int(stats.RankedGames)
 		tt.Frame()
+		Expect(tt.Texts()).To(ContainElement("5 games"))
 		Expect(tt.HasText("2 suggested")).To(BeTrue())
 	})
 
@@ -124,9 +130,7 @@ var _ = Describe("Decks page", func() {
 	It("shows every game's cards on Cards for a leader without builds", func() {
 		v, tt := tester(deckSnapshot())
 		Expect(tt.Click("Decks")).To(Succeed())
-		v.decks.tab = tabCards
-		tt.Frame()
-		Expect(v.decks.tab).To(Equal(tabCards))
+		openDecks(v, tt, "cards")
 		Expect(tt.HasText("Kid & Killer")).To(BeTrue())
 		Expect(tt.HasText("Otama")).To(BeTrue())
 	})
@@ -135,14 +139,13 @@ var _ = Describe("Decks page", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
 		v, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
-		v.decks.tab = tabCards
-		tt.Frame()
+		openDecks(v, tt, "cards")
 		Expect(tt.HasText("Kid & Killer")).To(BeTrue())
 		Expect(tt.HasText("Otama")).To(BeTrue())
 
 		Expect(tt.Click("No build")).To(Succeed())
 		tt.Frame()
-		Expect(v.decks.tab).To(Equal(tabCards))
+		Expect(tt.HasText("In starting hand")).To(BeTrue())
 		Expect(tt.HasText("Kid & Killer")).To(BeTrue())
 		Expect(tt.HasText("Otama")).To(BeFalse())
 	})
@@ -151,8 +154,7 @@ var _ = Describe("Decks page", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
 		v, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
-		v.decks.tab = tabList
-		tt.Frame()
+		openDecks(v, tt, "list")
 		Expect(tt.HasText("Latest list")).To(BeTrue())
 		Expect(tt.HasText("Show changes")).To(BeTrue())
 
@@ -165,13 +167,13 @@ var _ = Describe("Decks page", func() {
 
 	It("goes back to Overall from the suggestions", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
-		v, tt := tester(deckSnapshot(wano))
+		_, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.Click("1 suggested")).To(Succeed())
 		tt.Frame()
 		Expect(tt.Click("Back to Overall")).To(Succeed())
 		tt.Frame()
-		Expect(v.decks.suggesting).To(BeFalse())
+		Expect(tt.HasText("Suggested builds")).To(BeFalse())
 		Expect(tt.HasText("Latest list")).To(BeTrue())
 	})
 
@@ -184,7 +186,7 @@ var _ = Describe("Decks page", func() {
 		tt.Frame()
 		Expect(tt.Click("Make this a build")).To(Succeed())
 		tt.Frame()
-		v.decks.name = "Supernovas"
+		retype(tt, "Build name", "Supernovas")
 		Expect(tt.Click("Save")).To(Succeed())
 		Expect(f.builds).To(Equal([]store.Build{{Leader: "OP13-001", Name: "Supernovas", Core: []string{"GARP", "KID", "LUF"}}}))
 	})
@@ -203,9 +205,9 @@ var _ = Describe("Decks page", func() {
 
 	It("opens on Overall, with a build's list a click away", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
-		v, tt := tester(deckSnapshot(wano))
+		_, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
-		Expect(v.decks.scope).To(Equal(deckScope{}))
+		Expect(tt.Texts()).To(ContainElement("· Overall"))
 		Expect(tt.Click("Wano/Miracle")).To(Succeed())
 		Expect(tt.Click("List")).To(Succeed())
 		tt.Frame()
@@ -219,7 +221,7 @@ var _ = Describe("Decks page", func() {
 		Expect(tt.Click("Wano/Miracle")).To(Succeed())
 		Expect(tt.Click("List")).To(Succeed())
 		tt.Frame()
-		for _, text := range []string{"Latest list", "Cost curve", "Counters", "Types", "Traits", "×4"} {
+		for _, text := range []string{"Latest list", "Cost curve", "Counters", "+1000", "Types", "Traits", "×4"} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
 	})
@@ -229,9 +231,7 @@ var _ = Describe("Decks page", func() {
 		v, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.Click("Wano/Miracle")).To(Succeed())
-		v.decks.tab = tabCards
-		tt.Frame()
-		Expect(v.decks.tab).To(Equal(tabCards))
+		openDecks(v, tt, "cards")
 		for _, text := range []string{"In starting hand", "In hand by its turn", "Not by its turn", "as starting hand", "Played", "Searcher took it", "Otama", "×4", "The tick is the build's 100%", "the difference likely isn't luck"} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
@@ -250,7 +250,7 @@ var _ = Describe("Decks page", func() {
 		g := s.Decks["4"]
 		g.Facts.List = map[string]int{"GARP": 4, "OTA": 4, "W-1": 2, "TEC": 2}
 		s.Decks["4"] = g
-		v, tt := tester(s)
+		_, tt := tester(s)
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.Click("Wano/Miracle")).To(Succeed())
 		Expect(tt.Click("List")).To(Succeed())
@@ -259,7 +259,7 @@ var _ = Describe("Decks page", func() {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
 		Expect(tt.HasText("Core")).To(BeFalse())
-		v.decks.version = g.PlayedAt
+		Expect(tt.Click("Nov 6 15:00")).To(Succeed())
 		tt.Frame()
 		Expect(tt.HasText("List from")).To(BeTrue())
 		named := func() int {
@@ -272,51 +272,34 @@ var _ = Describe("Decks page", func() {
 			return n
 		}
 		before := named()
-		Expect(v.prefs.deckChanges).To(BeFalse())
-		v.prefs.deckChanges = true
+		Expect(tt.Click("Show changes")).To(Succeed())
 		tt.Frame()
 		Expect(named()).To(Equal(before+1), "the rail names the card added")
 		Expect(tt.HasText("×2")).To(BeTrue())
 	})
 
-	It("counts every game for Overall, one build's for a build, and the rest for No build", func() {
-		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
-		v, tt := tester(deckSnapshot(wano))
-		Expect(tt.Click("Decks")).To(Succeed())
-		d := v.leaderStats.decks
-		count := func(sc deckScope) (games, matches int) {
-			return len(d.scopedGames(sc)), len(d.scopedMatches(sc, v.leaderStats.games))
-		}
-		games, matches := count(deckScope{})
-		Expect([]int{games, matches}).To(Equal([]int{10, 10}))
-		games, matches = count(buildScope(1))
-		Expect([]int{games, matches}).To(Equal([]int{5, 5}))
-		for _, g := range d.scopedGames(buildScope(1)) {
-			Expect(g.Result).To(Equal(stats.Win))
-		}
-		games, matches = count(deckScope{kind: scopeNoBuild})
-		Expect([]int{games, matches}).To(Equal([]int{5, 5}))
-		Expect(d.unbuilt).To(Equal(5))
-	})
-
 	It("counts a game that fits two builds only for Overall", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano", Core: []string{"W-1"}}
 		otama := store.Build{ID: 2, Leader: "OP13-001", Name: "Otama", Core: []string{"OTA"}}
-		v, tt := tester(deckSnapshot(wano, otama))
+		_, tt := tester(deckSnapshot(wano, otama))
 		Expect(tt.Click("Decks")).To(Succeed())
-		d := v.leaderStats.decks
-		Expect(d.scopedGames(deckScope{})).To(HaveLen(10))
-		Expect(d.scopedGames(buildScope(1))).To(BeEmpty())
-		Expect(d.scopedGames(buildScope(2))).To(BeEmpty())
-		Expect(d.scopedGames(deckScope{kind: scopeNoBuild})).To(HaveLen(5))
+		Expect(tt.Texts()).To(ContainElements("10 games · 5–5 · 50%", "5 games · 0–5 · 0%"))
+		empty := 0
+		for _, text := range tt.Texts() {
+			if text == "0 games · 0–0 · too few" {
+				empty++
+			}
+		}
+		Expect(empty).To(Equal(2), "neither build counts the games both fit")
 	})
 
 	It("chooses No build from its chip, and drops Overall and No build without builds", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
-		v, tt := tester(deckSnapshot(wano))
+		_, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.Click("No build")).To(Succeed())
-		Expect(v.decks.scope).To(Equal(deckScope{kind: scopeNoBuild}))
+		tt.Frame()
+		Expect(tt.Texts()).To(ContainElements("Monkey D. Luffy ›", "· No build"))
 
 		_, tt = tester(deckSnapshot())
 		Expect(tt.Click("Decks")).To(Succeed())
@@ -326,51 +309,46 @@ var _ = Describe("Decks page", func() {
 
 	It("counts only the chosen scope's games in the banner and the Results panels", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
-		v, tt := tester(deckSnapshot(wano))
+		_, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
-		Expect(v.leaderStats.stats.Record).To(Equal(stats.Record{Wins: 5, Losses: 5}))
-		Expect(tt.Texts()).To(ContainElement("· Overall"))
+		Expect(tt.Texts()).To(ContainElements("5–5 · 10 games", "· Overall"))
 
 		Expect(tt.Click("No build")).To(Succeed())
 		tt.Frame()
-		Expect(v.leaderStats.stats.Record).To(Equal(stats.Record{Losses: 5}))
-		Expect(v.leaderStats.games).To(HaveLen(5))
-		Expect(tt.Texts()).To(ContainElements("Monkey D. Luffy ›", "No build", "· No build"))
+		Expect(tt.Texts()).To(ContainElements("0–5 · 5 games", "Monkey D. Luffy ›", "No build", "· No build"))
 
 		Expect(tt.Click("Wano/Miracle")).To(Succeed())
 		tt.Frame()
-		Expect(v.leaderStats.stats.Record).To(Equal(stats.Record{Wins: 5}))
-		Expect(v.leaderStats.turnOrder.First.Games() + v.leaderStats.turnOrder.Second.Games()).To(BeNumerically("<=", 5))
-		Expect(tt.Texts()).To(ContainElement("· Wano/Miracle"))
+		Expect(tt.Texts()).To(ContainElements("5–0 · 5 games", "· Wano/Miracle"))
 	})
 
 	It("keeps no-build games out of a build's turn order when a turn order is filtered", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
-		v, tt := tester(deckSnapshot(wano))
+		_, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.Click("Wano/Miracle")).To(Succeed())
-		all := v.leaderStats.turnOrder
-		v.filter.turn = stats.GoingFirst
 		tt.Frame()
-		Expect(v.leaderStats.turnOrder).To(Equal(all))
-		Expect(v.leaderStats.turnOrder.First.Losses + v.leaderStats.turnOrder.Second.Losses).To(Equal(0))
+		Expect(tt.Click("Show games going first")).To(Succeed())
+		tt.Frame()
+		Expect(tt.Texts()).To(ContainElement("Going first"), "the turn order filter is on")
+		Expect(tt.Texts()).To(ContainElements("1st", "5–0", "2nd", "0–0"))
+		Expect(tt.Texts()).NotTo(ContainElement("5–5"))
 	})
 
 	It("compares the builds and No build under Overall, and a row click chooses one", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
-		v, tt := tester(deckSnapshot(wano))
+		_, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.HasText("Builds of Monkey D. Luffy")).To(BeTrue())
-		rows := v.leaderStats.decks.scopeRows()
-		Expect(rows).To(HaveLen(2))
-		Expect(rows[0].name).To(Equal("Wano/Miracle"))
-		Expect(rows[0].stats.Record).To(Equal(stats.Record{Wins: 5}))
-		Expect(rows[1].name).To(Equal("No build"))
-		Expect(rows[1].stats.Record).To(Equal(stats.Record{Losses: 5}))
+		build, ok := tt.Find("Show Wano/Miracle")
+		Expect(ok).To(BeTrue())
+		none, ok := tt.Find("Show No build")
+		Expect(ok).To(BeTrue())
+		Expect(build.Y).To(BeNumerically("<", none.Y))
 
 		Expect(tt.Click("Show No build")).To(Succeed())
 		tt.Frame()
-		Expect(v.decks.scope).To(Equal(deckScope{kind: scopeNoBuild}))
+		Expect(tt.Texts()).To(ContainElement("· No build"))
 		Expect(tt.HasText("Builds of Monkey D. Luffy")).To(BeFalse())
 	})
 
@@ -384,11 +362,9 @@ var _ = Describe("Decks page", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
 		s := deckSnapshot(wano)
 		delete(s.Decks, "1")
-		v, tt := tester(s)
+		_, tt := tester(s)
 		Expect(tt.Click("Decks")).To(Succeed())
-		d := v.leaderStats.decks
-		Expect(d.scopedGames(deckScope{kind: scopeNoBuild})).To(HaveLen(4))
-		Expect(d.scopedMatches(deckScope{kind: scopeNoBuild}, v.leaderStats.games)).To(HaveLen(5))
+		Expect(tt.Texts()).To(ContainElement("5 games · 0–5 · 0%"))
 	})
 
 	It("keeps the tab when another build is chosen", func() {
@@ -397,12 +373,13 @@ var _ = Describe("Decks page", func() {
 		v, tt := tester(deckSnapshot(wano, nova))
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.Click("Wano/Miracle")).To(Succeed())
-		v.decks.tab = tabCards
-		tt.Frame()
+		openDecks(v, tt, "cards")
+		Expect(tt.HasText("Otama")).To(BeTrue())
 		Expect(tt.Click("Supernovas")).To(Succeed())
 		tt.Frame()
-		Expect(v.decks.scope).To(Equal(buildScope(2)))
-		Expect(v.decks.tab).To(Equal(tabCards))
+		Expect(tt.HasText("In starting hand")).To(BeTrue())
+		Expect(tt.Texts()).To(ContainElement("KID · ×4"))
+		Expect(tt.Texts()).NotTo(ContainElement("OTA · ×4"))
 	})
 
 	It("makes a new build from the cards clicked and the name typed", func() {
@@ -412,16 +389,32 @@ var _ = Describe("Decks page", func() {
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.Click("New build")).To(Succeed())
 		tt.Frame()
-		Expect(v.decks.edit).NotTo(BeNil())
 		Expect(tt.HasText("New Monkey D. Luffy build")).To(BeTrue())
-		v.decks.edit.toggle("OTA")
-		v.decks.edit.name = "Wano"
-		tt.Frame()
+		Expect(tt.Click("Otama")).To(Succeed())
+		retype(tt, "Build name", "Wano")
 		Expect(tt.HasText("5 games · 5–0")).To(BeTrue())
 		Expect(tt.HasText("Results")).To(BeFalse())
 		Expect(tt.Click("Save")).To(Succeed())
+		tt.Frame()
 		Expect(f.builds).To(Equal([]store.Build{{Leader: "OP13-001", Name: "Wano", Core: []string{"OTA"}}}))
-		Expect(v.decks.edit).To(BeNil())
+		Expect(tt.HasText("New Monkey D. Luffy build")).To(BeFalse())
+	})
+
+	It("chooses a just-saved build by its ID when another build has its name", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano", Core: []string{"OTA"}}
+		v, tt := tester(deckSnapshot(wano))
+		f := &fakeActions{}
+		v.act = f
+		Expect(tt.Click("Decks")).To(Succeed())
+		Expect(tt.Click("New build")).To(Succeed())
+		tt.Frame()
+		Expect(tt.Click("Kid & Killer")).To(Succeed())
+		retype(tt, "Build name", "Wano")
+		Expect(tt.Click("Save")).To(Succeed())
+		v.setSnapshot(deckSnapshot(store.Build{ID: 100, Leader: "OP13-001", Name: "Wano", Core: []string{"KID"}}, wano))
+		tt.Frame()
+		Expect(tt.HasText("Latest list")).To(BeTrue())
+		Expect(tt.Texts()).To(ContainElement("0–5 · 5 games"), "the new build runs Kid & Killer, which only lost")
 	})
 
 	It("won't save a build without a name or a core card", func() {
@@ -431,7 +424,13 @@ var _ = Describe("Decks page", func() {
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.Click("New build")).To(Succeed())
 		tt.Frame()
-		v.decks.edit.name = "Wano"
+		tt.Type("Wano")
+		tt.Frame()
+		Expect(tt.Click("Save")).To(Succeed())
+		Expect(f.builds).To(BeEmpty())
+
+		retype(tt, "Build name", "")
+		Expect(tt.Click("Otama")).To(Succeed())
 		tt.Frame()
 		Expect(tt.Click("Save")).To(Succeed())
 		Expect(f.builds).To(BeEmpty())
@@ -447,16 +446,16 @@ var _ = Describe("Decks page", func() {
 		Expect(tt.Click("Edit core")).To(Succeed())
 		tt.Frame()
 		Expect(tt.HasText("Edit Wano/Miracle")).To(BeTrue())
-		Expect(v.decks.edit.core).To(Equal([]string{"OTA"}))
+		Expect(tt.Texts()).To(ContainElement("Core"))
 		Expect(tt.HasText("5 games · 5–0")).To(BeTrue())
 		tt.Key(0, ui.KeyEscape)
 		tt.Frame()
-		Expect(v.decks.edit).To(BeNil())
+		Expect(tt.HasText("Edit Wano/Miracle")).To(BeFalse())
 
 		Expect(tt.Click("Wano/Miracle actions")).To(Succeed())
 		Expect(tt.Click("Rename")).To(Succeed())
 		tt.Frame()
-		v.decks.rename = "Miracle"
+		retype(tt, "Build name", "Miracle")
 		Expect(tt.Click("Save")).To(Succeed())
 		Expect(f.builds).To(Equal([]store.Build{{ID: 1, Leader: "OP13-001", Name: "Miracle", Core: []string{"OTA"}}}))
 
@@ -472,14 +471,29 @@ var _ = Describe("Decks page", func() {
 
 	It("opens the suggestions from the build row, with a way back", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
-		v, tt := tester(deckSnapshot(wano))
+		_, tt := tester(deckSnapshot(wano))
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.Click("Wano/Miracle")).To(Succeed())
 		Expect(tt.Click("1 suggested")).To(Succeed())
 		tt.Frame()
-		Expect(tt.HasText("Back to Wano/Miracle")).To(BeTrue())
+		Expect(tt.HasText("Suggested builds")).To(BeTrue())
 		Expect(tt.Click("Back to Wano/Miracle")).To(Succeed())
 		tt.Frame()
-		Expect(v.decks.suggesting).To(BeFalse())
+		Expect(tt.HasText("Suggested builds")).To(BeFalse())
 	})
 })
+
+// openDecks opens a Decks tab the way -page does, since the sidebar's Cards hides the tab's.
+func openDecks(v *view, tt *ui.Tester, tab string) {
+	v.open("decks/" + tab)
+	tt.Frame()
+}
+
+func retype(tt *ui.Tester, label, text string) {
+	GinkgoHelper()
+	Expect(tt.Click(label)).To(Succeed())
+	tt.Key(ui.Ctrl, ui.KeyA)
+	tt.Key(0, ui.KeyBackspace)
+	tt.Type(text)
+	tt.Frame()
+}

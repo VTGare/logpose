@@ -37,7 +37,7 @@ func (v *view) versionRail(c *ui.Context, changes []stats.Change, chosen int) {
 	panel(c).Width(railW).Gap(2).Padding(6).Children(func() {
 		for i := len(changes) - 1; i >= 0; i-- {
 			ch := changes[i]
-			b := ui.ButtonBase(c.Key(i)).Label(ch.At.Format("Jan 2 15:04")).Column().Gap(3).Padding(7, 8).Radius(8).
+			b := ui.ButtonBase(c.Key(i)).Label(v.dateTime(ch.At)).Column().Gap(3).Padding(7, 8).Radius(8).
 				Background(ui.Transparent).AlignItems(ui.Stretch)
 			switch {
 			case i == chosen:
@@ -53,7 +53,7 @@ func (v *view) versionRail(c *ui.Context, changes []stats.Change, chosen int) {
 			}
 			b.Children(func() {
 				ui.Row(c).Gap(6).AlignItems(ui.End).Children(func() {
-					ui.Text(c, ch.At.Format("Jan 2")).FontSize(13).FontWeight(600)
+					ui.Text(c, v.date(ch.At)).FontSize(13).FontWeight(600)
 					ui.Text(c, ch.At.Format("15:04")).FontSize(12).TextColor(faintColor(t))
 					if i == len(changes)-1 {
 						ui.Text(c, "Latest").FontSize(11).TextColor(t.Accent)
@@ -64,19 +64,24 @@ func (v *view) versionRail(c *ui.Context, changes []stats.Change, chosen int) {
 					if i == 0 {
 						ui.Text(c, "First list").FontSize(12).TextColor(t.TextMuted)
 					} else {
-						ui.Text(c, fmt.Sprintf("+%d", in)).FontSize(12).FontWeight(600).TextColor(winColor)
-						ui.Text(c, fmt.Sprintf("−%d", out)).FontSize(12).FontWeight(600).TextColor(lossColor)
+						ui.Text(c, fmt.Sprintf("+%d", in)).FontSize(12).FontWeight(600).TextColor(winColor(t))
+						ui.Text(c, fmt.Sprintf("−%d", out)).FontSize(12).FontWeight(600).TextColor(lossColor(t))
 					}
 					ui.Spacer(c)
-					gameSquares(c, ch.Games)
+					gs := ch.Games[:min(len(ch.Games), railSquares)]
+					rs := make([]stats.Result, len(gs))
+					for i, g := range gs {
+						rs[i] = g.Result
+					}
+					resultSquares(c, rs, 7)
 				})
 				if i == chosen && i > 0 && v.prefs.deckChanges {
 					ui.Box(c).Height(1).Background(t.Border.Alpha(0.6)).Margin(4, 0, 2, 0)
 					for _, code := range swapOrder(ch.Swaps) {
 						n := ch.Swaps[code]
-						sign, col := "+", winColor
+						sign, col := "+", winColor(t)
 						if n < 0 {
-							sign, col = "−", lossColor
+							sign, col = "−", lossColor(t)
 						}
 						ui.Row(c.Key(code)).Gap(6).AlignItems(ui.Center).Children(func() {
 							ui.Text(c, fmt.Sprintf("%s%d", sign, max(n, -n))).FontSize(12).FontWeight(700).TextColor(col).Width(24)
@@ -98,22 +103,6 @@ func swapCounts(swaps map[string]int) (in, out int) {
 		}
 	}
 	return in, out
-}
-
-// gameSquares is a square per game, green for a win and red for a loss, at most railSquares.
-func gameSquares(c *ui.Context, gs []stats.DeckGame) {
-	ui.Row(c).Gap(2).Children(func() {
-		for i, g := range gs[:min(len(gs), railSquares)] {
-			col := faintColor(c.Theme())
-			switch g.Result {
-			case stats.Win:
-				col = winColor
-			case stats.Loss:
-				col = lossColor
-			}
-			ui.Box(c.Key(i)).Size(7, 7).Radius(2).Background(col)
-		}
-	})
 }
 
 // swapOrder puts the cards in before the cards out, the bigger swaps first.

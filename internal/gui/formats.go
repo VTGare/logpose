@@ -23,30 +23,17 @@ type formatsState struct {
 	day int
 }
 
-func dayStart(t time.Time) time.Time {
-	y, m, d := t.Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, t.Location())
-}
-
-func (v *view) do(fn func(actions)) {
-	if v.act != nil {
-		fn(v.act)
-	}
-}
-
 func (v *view) formatsPage(c *ui.Context) {
 	t := c.Theme()
 	s := &v.formats
 	if s.start.IsZero() {
-		s.start = dayStart(v.snap.Now)
+		s.start = stats.DayStart(v.now())
 	}
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
 			ui.Text(c, "Formats").FontSize(20).FontWeight(600)
 			ui.Text(c, "A format runs from the day it starts until the next one starts, and holds the ranked games in it. Casual lobbies can be any format, so they only show under All formats. The sim's logs don't say which format a game was played in, so you set where each one begins.").TextColor(t.TextMuted).Wrap().MaxWidth(820)
-			for _, d := range v.snap.Debuts {
-				v.debutTile(c.Key(d.Set), d)
-			}
+			v.debutTiles(c)
 			v.formatTimeline(c)
 			v.formatList(c)
 			v.addFormatTile(c)
@@ -56,22 +43,27 @@ func (v *view) formatsPage(c *ui.Context) {
 
 // debutBanner offers to start a format for each set that just showed up, over the Overview.
 func (v *view) debutBanner(c *ui.Context) {
-	ui.Column(c).Padding(14, 20, 0, 20).Gap(8).Children(func() {
-		for _, d := range v.snap.Debuts {
-			v.debutTile(c.Key(d.Set), d)
-		}
-	})
+	if len(v.snap.Debuts) == 0 {
+		return
+	}
+	ui.Column(c).Padding(14, 20, 0, 20).Gap(8).Children(func() { v.debutTiles(c) })
+}
+
+func (v *view) debutTiles(c *ui.Context) {
+	for _, d := range v.snap.Debuts {
+		v.debutTile(c.Key(d.Set), d)
+	}
 }
 
 func (v *view) debutTile(c *ui.Context, d stats.SetDebut) {
 	t := c.Theme()
-	day := dayStart(d.First)
+	day := stats.DayStart(d.First)
 	ui.Row(c).Gap(12).Padding(12, 16).Radius(12).Background(panelColor(t)).Border(1, t.Accent).Children(func() {
 		ui.Column(c).Grow(1).Gap(2).Children(func() {
-			ui.Text(c, fmt.Sprintf("%s cards first showed up in your games on %s", d.Set, day.Format("Jan 2"))).Bold()
+			ui.Text(c, fmt.Sprintf("%s cards first showed up in your games on %s", d.Set, v.date(day))).Bold()
 			ui.Text(c, "That usually means a new format started.").FontSize(12).TextColor(t.TextMuted)
 		})
-		if ui.PrimaryButton(c, "Start a format on "+day.Format("Jan 2")).Clicked() {
+		if ui.PrimaryButton(c, "Start a format on "+v.date(day)).Clicked() {
 			v.do(func(a actions) { a.AddFormat(d.Set, day) })
 		}
 		if ui.Button(c, "Dismiss").Clicked() {
@@ -92,7 +84,7 @@ func (v *view) addFormatTile(c *ui.Context) {
 			}
 		})
 		if s.err != "" {
-			ui.Text(c, s.err).FontSize(12).TextColor(lossColor)
+			ui.Text(c, s.err).FontSize(12).TextColor(lossColor(t))
 		} else {
 			ui.Text(c, "It starts at midnight on that day.").FontSize(12).TextColor(t.TextMuted)
 		}
@@ -102,7 +94,7 @@ func (v *view) addFormatTile(c *ui.Context) {
 func (v *view) addFormat() {
 	s := &v.formats
 	name := strings.TrimSpace(s.name)
-	start := dayStart(s.start)
+	start := stats.DayStart(s.start)
 	switch {
 	case name == "":
 		s.err = "Give the format a name."
@@ -146,9 +138,9 @@ func (v *view) formatList(c *ui.Context) {
 		for i := len(fs) - 1; i >= 0; i-- {
 			v.formatRow(c.Key(fs[i].ID), fs[i])
 		}
-		before := stats.Scope{Type: stats.RankedGames, Until: fs[0].Start}.Apply(v.snap.Matches)
+		before := stats.FormatRange{End: fs[0].Start}.Scope().Apply(v.snap.Matches)
 		if len(before) > 0 {
-			ui.Text(c, fmt.Sprintf("%d ranked %s before %s belong to no format.", len(before), map[bool]string{true: "game", false: "games"}[len(before) == 1], fs[0].Start.Format("Jan 2"))).FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, fmt.Sprintf("%d ranked %s before %s belong to no format.", len(before), plural(len(before), "game", "games"), v.date(fs[0].Start))).FontSize(12).TextColor(t.TextMuted)
 		}
 	})
 }
@@ -156,14 +148,11 @@ func (v *view) formatList(c *ui.Context) {
 func (v *view) formatRow(c *ui.Context, f stats.FormatRange) {
 	t := c.Theme()
 	s := &v.formats
-	ms := stats.Scope{Type: stats.RankedGames, Since: f.Start, Until: f.End}.Apply(v.snap.Matches)
-	var r stats.Record
-	for _, m := range ms {
-		r.Add(m.Result)
-	}
+	ms := f.Scope().Apply(v.snap.Matches)
+	r := stats.RecordOf(ms)
 	end := "now"
 	if !f.End.IsZero() {
-		end = f.End.Format("Jan 2")
+		end = v.date(f.End)
 	}
 	current := f.End.IsZero()
 	ui.Row(c).Gap(14).Padding(8, 0).AlignItems(ui.Center).Children(func() {
@@ -190,7 +179,7 @@ func (v *view) formatRow(c *ui.Context, f stats.FormatRange) {
 					}
 				})
 			}
-			ui.Text(c, fmt.Sprintf("%s to %s · %s ranked · %s", f.Start.Format("Jan 2"), end, games(len(ms)), record(r))).FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, fmt.Sprintf("%s to %s · %s ranked · %s", v.date(f.Start), end, games(len(ms)), record(r))).FontSize(12).TextColor(t.TextMuted)
 		})
 		if rate, ok := r.Rate(); ok && s.editing != f.ID {
 			ui.Text(c, pct(rate)).FontSize(18).Bold()
@@ -216,8 +205,8 @@ func (v *view) formatTimeline(c *ui.Context) {
 	if len(ms) == 0 {
 		return
 	}
-	first := dayStart(ms[len(ms)-1].PlayedAt)
-	ranked, casual, top := gamesByDay(ms, first, dayStart(v.snap.Now))
+	first := stats.DayStart(ms[len(ms)-1].PlayedAt)
+	ranked, casual, top := gamesByDay(ms, first, stats.DayStart(v.now()))
 	n := len(ranked)
 	dayAt := func(i int) time.Time { return first.AddDate(0, 0, i) }
 	inFormat := func(i int) bool {
@@ -236,7 +225,7 @@ func (v *view) formatTimeline(c *ui.Context) {
 	}
 	s := &v.formats
 	describe := func(i int) string {
-		return fmt.Sprintf("%s · %d ranked, %d casual", dayAt(i).Format("Mon Jan 2"), ranked[i], casual[i])
+		return fmt.Sprintf("%s · %d ranked, %d casual", v.weekday(dayAt(i)), ranked[i], casual[i])
 	}
 	tile(c, "Your games by day", func() {
 		chart.Plot(c, chart.Axes{Bottom: bottom, Label: axisLabel(c)}, func(area ui.Element) {
@@ -290,13 +279,19 @@ func (v *view) formatTimeline(c *ui.Context) {
 	})
 }
 
+// dayIndex is how many days day comes after the midnight first. Both are midnights, and the
+// hours are rounded since a day with a clock change is 23 or 25 hours long.
+func dayIndex(first, day time.Time) int {
+	return int(day.Sub(first).Hours()/24 + 0.5)
+}
+
 // gamesByDay counts ranked and casual games on each day from first to last, and the most on any
 // day.
 func gamesByDay(ms []stats.Match, first, last time.Time) (ranked, casual []int, top int) {
-	n := int(last.Sub(first).Hours()/24+0.5) + 1
+	n := dayIndex(first, last) + 1
 	ranked, casual, top = make([]int, n), make([]int, n), 1
 	for _, m := range ms {
-		i := int(dayStart(m.PlayedAt).Sub(first).Hours()/24 + 0.5)
+		i := dayIndex(first, stats.DayStart(m.PlayedAt))
 		if i < 0 || i >= n {
 			continue
 		}
@@ -314,10 +309,10 @@ func gamesByDay(ms []stats.Match, first, last time.Time) (ranked, casual []int, 
 func formatBands(p *ui.Painter, r ui.Rect, t *ui.Theme, fs []stats.FormatRange, first time.Time, n int, labelH float32) {
 	colW := r.W / float32(n)
 	for _, f := range fs {
-		i0 := max(0, int(f.Start.Sub(first).Hours()/24+0.5))
+		i0 := max(0, dayIndex(first, f.Start))
 		i1 := n
 		if !f.End.IsZero() {
-			i1 = min(n, int(f.End.Sub(first).Hours()/24+0.5))
+			i1 = min(n, dayIndex(first, f.End))
 		}
 		if i0 >= n || i1 <= i0 {
 			continue

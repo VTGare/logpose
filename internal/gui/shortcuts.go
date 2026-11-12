@@ -4,18 +4,19 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/egoist/mygo"
+
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/shortcut"
-	"github.com/VTGare/logpose/internal/store"
 )
 
 var shortcutNames = [...]string{shortcut.StartMenu: "Start menu", shortcut.Desktop: "Desktop"}
 
 // shortcutCard offers shortcuts once, on the Overview, until it's answered or both exist.
 func (v *view) shortcutCard(c *ui.Context) {
-	p := &v.prefs
-	if !p.canShortcut || p.installed || p.shortcutsOffered || p.shortcuts[shortcut.StartMenu] && p.shortcuts[shortcut.Desktop] {
+	p := &v.system
+	if !p.canShortcut || p.installed || v.prefs.shortcutsOffered || p.shortcuts[shortcut.StartMenu] && p.shortcuts[shortcut.Desktop] {
 		return
 	}
 	t := c.Theme()
@@ -52,14 +53,13 @@ func (v *view) shortcutCard(c *ui.Context) {
 	})
 }
 
-// shortcutRows are the shortcut switches in Settings.
 func (v *view) shortcutRows(c *ui.Context) {
-	if !v.prefs.canShortcut {
+	if !v.system.canShortcut {
 		return
 	}
 	for _, place := range shortcut.Places {
 		divider(c)
-		on := v.prefs.shortcuts[place]
+		on := v.system.shortcuts[place]
 		if switchRow(c, shortcutNames[place]+" shortcut", "", &on, false) {
 			v.setShortcut(place, on)
 			v.answerShortcuts()
@@ -68,7 +68,7 @@ func (v *view) shortcutRows(c *ui.Context) {
 }
 
 func (v *view) setShortcut(place shortcut.Place, on bool) {
-	v.prefs.shortcuts[place] = on
+	v.system.shortcuts[place] = on
 	v.do(func(a actions) { a.SetShortcut(place, on) })
 }
 
@@ -76,8 +76,7 @@ func (v *view) answerShortcuts() {
 	if v.prefs.shortcutsOffered {
 		return
 	}
-	v.prefs.shortcutsOffered = true
-	v.do(func(a actions) { a.SetSetting(store.SettingShortcutsOffered, "1") })
+	prefShortcutsOffered.set(v, true)
 }
 
 // shortcutLink starts this exe as it was started, so -db and -sim carry over. A test copy's
@@ -97,18 +96,20 @@ func (a *app) shortcutLink() (shortcut.Link, error) {
 	}, nil
 }
 
-func (a *app) readShortcuts() {
+func (a *app) readSystem() systemState {
+	s := systemState{openAtLogin: mygo.App.OpenAtLogin(), installed: installed()}
 	link, err := a.shortcutLink()
 	if err != nil {
-		return
+		return s
 	}
 	if _, err := shortcut.Path(shortcut.StartMenu, link.Name); err != nil {
-		return
+		return s
 	}
-	a.view.prefs.canShortcut = true
+	s.canShortcut = true
 	for _, place := range shortcut.Places {
-		a.view.prefs.shortcuts[place] = shortcut.Exists(place, link.Name)
+		s.shortcuts[place] = shortcut.Exists(place, link.Name)
 	}
+	return s
 }
 
 func (x *appActions) SetShortcut(place shortcut.Place, on bool) {
@@ -125,7 +126,7 @@ func (x *appActions) SetShortcut(place shortcut.Place, on bool) {
 			x.a.opts.Log.Warn("shortcut", "place", place, "on", on, "err", err)
 		}
 		now := shortcut.Exists(place, link.Name)
-		x.a.win.Update(func() { x.a.view.prefs.shortcuts[place] = now })
+		x.a.win.Update(func() { x.a.view.setShortcutMade(place, now) })
 		if err != nil {
 			x.toast(ui.Toast{Title: "Windows didn't take the " + shortcutNames[place] + " shortcut change.", Type: "error"})
 		}

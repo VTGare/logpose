@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/VTGare/logpose/internal/cards"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -20,20 +18,20 @@ var day0 = time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
 // pageFixture is a trimmed Bandai page from the cards package's specs.
 func pageFixture(name string) []byte {
 	GinkgoHelper()
-	data, err := os.ReadFile(filepath.Join("..", "cards", "testdata", name))
+	data, err := os.ReadFile(filepath.Join("testdata", name))
 	Expect(err).NotTo(HaveOccurred())
 	return data
 }
 
-func parsePage(data []byte) cards.BandaiPage {
+func parsePage(data []byte) bandaiPage {
 	GinkgoHelper()
-	page, err := cards.ParseBandaiPage(bytes.NewReader(data))
+	page, err := parseBandaiPage(bytes.NewReader(data))
 	Expect(err).NotTo(HaveOccurred())
 	return page
 }
 
 // pageHTML writes a card list page in Bandai's shape.
-func pageHTML(list []cards.BandaiSeries, shown string, prints ...cards.BandaiPrint) []byte {
+func pageHTML(list []bandaiSeries, shown string, prints ...bandaiPrint) []byte {
 	var b strings.Builder
 	b.WriteString(`<html><body><select name="series" id="series"><option value>ALL</option>`)
 	for _, s := range list {
@@ -53,12 +51,12 @@ func pageHTML(list []cards.BandaiSeries, shown string, prints ...cards.BandaiPri
 }
 
 // seriesPage is a page for a series with one printing of its own.
-func seriesPage(list []cards.BandaiSeries, id string) []byte {
+func seriesPage(list []bandaiSeries, id string) []byte {
 	code := "T" + id + "-001"
-	return pageHTML(list, id, cards.BandaiPrint{Key: code, Code: code, Rarity: "C", Product: "Series " + id})
+	return pageHTML(list, id, bandaiPrint{Key: code, Code: code, Rarity: "C", Product: "Series " + id})
 }
 
-func ids(list []cards.BandaiSeries) []string {
+func ids(list []bandaiSeries) []string {
 	var out []string
 	for _, s := range list {
 		out = append(out, s.ID)
@@ -75,7 +73,7 @@ func keysOf(ps []printing) []string {
 }
 
 var _ = Describe("catalog", func() {
-	var list []cards.BandaiSeries
+	var list []bandaiSeries
 	BeforeEach(func() { list = parsePage(pageFixture("bandai-cardlist.html")).Series })
 
 	// readAll stores the list's page, then a page for every series it says is due.
@@ -106,7 +104,7 @@ var _ = Describe("catalog", func() {
 		c := newCatalog()
 		readAll(c, day0)
 		day10 := day0.Add(10 * 24 * time.Hour)
-		grown := append([]cards.BandaiSeries{{ID: "569118", Name: "BOOSTER PACK -NEW- [OP-18]"}}, list...)
+		grown := append([]bandaiSeries{{ID: "569118", Name: "BOOSTER PACK -NEW- [OP-18]"}}, list...)
 		_, err := c.store(parsePage(seriesPage(grown, promotionID)), day10)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(c.due(day10)).To(ContainElement("569118"))
@@ -151,7 +149,7 @@ var _ = Describe("catalog", func() {
 		changed, err = c.store(parsePage(pageFixture("bandai-569901.html")), day0.Add(time.Hour))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeFalse())
-		changed, err = c.store(parsePage(pageHTML(list, promotionID, cards.BandaiPrint{
+		changed, err = c.store(parsePage(pageHTML(list, promotionID, bandaiPrint{
 			Key: "OP07-021_p1", Code: "OP07-021", Rarity: "R", Product: "Offline Regional Participation Pack 2025 Vol.1",
 		})), day0.Add(2*time.Hour))
 		Expect(err).NotTo(HaveOccurred())
@@ -164,7 +162,7 @@ var _ = Describe("catalog", func() {
 		path := filepath.Join(GinkgoT().TempDir(), "bandai.json")
 		c, err := loadCatalog(path)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(c.Series).To(BeEmpty())
+		Expect(c.due(day0)).To(BeEmpty())
 		_, err = c.store(parsePage(pageFixture("bandai-569901.html")), day0)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(c.save(path)).To(Succeed())
@@ -172,11 +170,13 @@ var _ = Describe("catalog", func() {
 		back, err := loadCatalog(path)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(back.forCard("OP07-021")).To(Equal(c.forCard("OP07-021")))
-		Expect(back.Series[promotionID].Fetched).To(BeTemporally("==", day0))
+		Expect(back.due(day0.Add(time.Hour))).NotTo(ContainElement(promotionID))
+		Expect(back.due(day0.Add(time.Hour))).To(HaveLen(60))
 
 		Expect(os.WriteFile(path, []byte("{"), 0o600)).To(Succeed())
 		back, err = loadCatalog(path)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(back.Series).To(BeEmpty())
+		Expect(back.due(day0)).To(BeEmpty())
+		Expect(back.forCard("OP07-021")).To(BeEmpty())
 	})
 })

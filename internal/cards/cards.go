@@ -30,7 +30,7 @@ type Card struct {
 
 	// The rest comes only from Limitless. Detailed is set on cards that have it.
 	Detailed bool
-	// Cost is -1 on leaders, which have Life instead.
+	// Cost is -1 on leaders, which have Life instead. IsLeader tells them apart.
 	Cost       int
 	Life       int
 	Counter    int

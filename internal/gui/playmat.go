@@ -3,6 +3,7 @@ package gui
 import (
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/egoist/mygo/ui"
 
@@ -27,12 +28,11 @@ type mat struct {
 	w, h, dw, dh, g, p, W, H float32
 }
 
-// slotPad is the room around the cards in the character area.
 const slotPad = 4
 
 func newMat(w float32) mat {
-	m := mat{w: w, h: w * 1.4, dw: w * 0.6, g: 6, p: 14}
-	m.dh = m.dw * 1.4
+	m := mat{w: w, h: cardHeight(w), dw: w * 0.6, g: 6, p: 14}
+	m.dh = cardHeight(m.dw)
 	m.W = 2*m.p + 6*m.h + 5*m.g
 	m.H = 2*m.p + 2*m.halfH() + 2*m.g
 	return m
@@ -43,8 +43,9 @@ func fitMat(r ui.Rect) mat {
 	if r.W <= 0 || r.H <= 0 {
 		return newMat(80)
 	}
-	// newMat's W is 58+8.4w and its H 80+8.4w.
-	w := min((r.W-58)/8.4, (r.H-80)/8.4)
+	// A mat's size grows in step with its card width.
+	m0, m1 := newMat(0), newMat(1)
+	w := min((r.W-m0.W)/(m1.W-m0.W), (r.H-m0.H)/(m1.H-m0.H))
 	return newMat(min(max(float32(math.Floor(float64(w))), 52), 150))
 }
 
@@ -60,7 +61,6 @@ func (m mat) box(mine bool, x, y, w, h float32) ui.Rect {
 	return ui.Rect{X: m.W - x - w, Y: m.p + m.halfH() - y - h, W: w, H: h}
 }
 
-// The zones of a half, in the user's half's terms.
 func (m mat) charsX() float32 { return m.p + m.h + m.g }
 
 func (m mat) slotX(i int) float32 {
@@ -116,26 +116,18 @@ func (m mat) center(pl placed) (float32, float32) { return pl.x + m.h/2, pl.y + 
 func matCharacters(sv *stepView, s *replay.Side) ([]replay.Card, int) {
 	chars := s.Characters
 	bt := sv.step.Battle
-	if bt == nil || s.Owner == bt.AttackerOwner || sv.index == 0 {
+	if bt == nil || bt.Left == nil || s.Owner == bt.AttackerOwner {
 		return chars, -1
 	}
 	for _, c := range chars {
-		if c.ID == bt.DefenderID {
+		if c.ID == bt.Left.ID {
 			return chars, -1
 		}
 	}
-	before := sv.r.Steps[sv.index-1].Board.Side(s.Owner)
-	for i, c := range before.Characters {
-		if c.ID == bt.DefenderID {
-			at := min(i, len(chars))
-			out := append(append(append([]replay.Card{}, chars[:at]...), c), chars[at:]...)
-			return out, at
-		}
-	}
-	return chars, -1
+	at := min(max(bt.LeftSlot, 0), len(chars))
+	return slices.Insert(slices.Clone(chars), at, *bt.Left), at
 }
 
-// layout places both sides' leaders, stages and characters.
 func (m mat) layout(sv *stepView) []placed {
 	var out []placed
 	side := func(s *replay.Side, mine bool) {
@@ -156,16 +148,16 @@ func (m mat) layout(sv *stepView) []placed {
 	return out
 }
 
-// playmat is both players' areas on one mat, the opponent's turned toward the user as at a
-// table, with the step's attack drawn over it.
 func (v *view) playmat(c *ui.Context, m mat, sv *stepView) ui.Element {
 	cards := m.layout(sv)
 	key := 0
 	k := func() *ui.Context { key++; return c.Key(key) }
 	bt := sv.step.Battle
 	a, t := -1, -1
+	var attacker side
 	if bt != nil {
-		a, t = battlePair(cards, bt, sv.me.Owner == bt.AttackerOwner)
+		attacker = sv.attacker()
+		a, t = battlePair(cards, bt, attacker.mine)
 	}
 	themCols, meCols := colorsOf(v.snap.card(sv.them.Leader.Code)), colorsOf(v.snap.card(sv.me.Leader.Code))
 	return ui.Box(c).Size(m.W, m.H).Radius(12).Background(panelColor(c.Theme())).Border(1, zoneLine).Clip().
@@ -190,8 +182,8 @@ func (v *view) playmat(c *ui.Context, m mat, sv *stepView) ui.Element {
 			}
 			box := ui.Box(c.Key(key)).Absolute().Left(pl.x).Top(pl.y).Size(m.h, m.h).Center()
 			selected := false
-			if rs := v.detail.replay; rs != nil && !pl.gone {
-				id := pl.card.ID
+			if !pl.gone {
+				rs, id := sv.rs, pl.card.ID
 				box.Cursor(ui.CursorPointer)
 				if box.Clicked() {
 					rs.pile = pileRef{}
@@ -208,16 +200,14 @@ func (v *view) playmat(c *ui.Context, m mat, sv *stepView) ui.Element {
 			} else {
 				sv.glide(box, pl.card.ID)
 			}
-			box.Children(func() { v.boardCard(c, pl.card, m.w, selected, sideColor(pl.mine), notes...) })
+			box.Children(func() { v.boardCard(c, pl.card, m.w, selected, sv.seat(pl.mine).color(), notes...) })
 		}
 		if a >= 0 && t >= 0 {
-			v.attackArrow(c, k, m, cards[a], cards[t], bt, sv.me.Owner == bt.AttackerOwner)
+			v.attackArrow(c, k, m, cards[a], cards[t], bt, attacker)
 		}
 	})
 }
 
-// zones are the character and cost areas as wells in the mat, and dashed outlines where the
-// stage and trash are while they're empty.
 func zones(c *ui.Context, k func() *ui.Context, m mat, sv *stepView) {
 	t := c.Theme()
 	well := func(r ui.Rect) {
@@ -243,7 +233,6 @@ func zones(c *ui.Context, k func() *ui.Context, m mat, sv *stepView) {
 	}
 }
 
-// piles are the decks, trash, life and DON.
 func (v *view) piles(c *ui.Context, k func() *ui.Context, m mat, sv *stepView) {
 	for _, s := range []*replay.Side{sv.them, sv.me} {
 		mine := s == sv.me
@@ -265,7 +254,6 @@ func pill(c *ui.Context, text string, size float32) ui.Element {
 	return ui.Text(c, text).FontSize(size).Bold().TextColor(pillText).Padding(1, 6).Radius(8).Background(pillBack)
 }
 
-// trash is the trash's top card with the trash's size. The card glides in from where it was.
 func (v *view) trash(c *ui.Context, m mat, sv *stepView, s *replay.Side, x, y float32) {
 	if len(s.Trash) == 0 {
 		return
@@ -274,12 +262,11 @@ func (v *view) trash(c *ui.Context, m mat, sv *stepView, s *replay.Side, x, y fl
 	box := ui.Box(c.Key(cardMatch(top.ID))).Absolute().Left(x).Top(y).Size(m.w, m.h)
 	v.pileButton(box, sv, pileRef{kind: pileTrash, mine: s == sv.me})
 	sv.glide(box, top.ID).Children(func() {
-		v.cardArt(c, top.Code, m.w, m.h)
+		v.card(c, top.Code, m.w)
 		pill(c, fmt.Sprintf("Trash %d", len(s.Trash)), 10).Absolute().Bottom(4).Left(4)
 	})
 }
 
-// cardBack is a face-down card: life, the deck and the DON deck.
 func cardBack(c *ui.Context, w, h float32) ui.Element {
 	return ui.Box(c).Size(w, h).Radius(4).Background(backFace).Border(1, backEdge).Center().Children(func() {
 		ui.Icon(c, iconCompass).Size(min(w, h)*0.45, min(w, h)*0.45).TextColor(backEdge)
@@ -322,17 +309,12 @@ func (v *view) deckPile(c *ui.Context, k func() *ui.Context, m mat, sv *stepView
 	v.pileButton(box, sv, pileRef{kind: pileDeck, mine: s == sv.me})
 	box.Children(func() {
 		cardBack(c, m.w, m.h)
-		pill(c, fmt.Sprint(s.DeckCount()), 10).Absolute().Left(4).Bottom(4)
+		pill(c, fmt.Sprint(len(s.Deck())), 10).Absolute().Left(4).Bottom(4)
 	})
 }
 
-// pileButton lets a deck or trash on the mat be clicked to show its cards in the inspector,
-// and rings the one shown.
-func (v *view) pileButton(box ui.Element, sv *stepView, p pileRef) {
-	rs := v.detail.replay
-	if rs == nil {
-		return
-	}
+func (*view) pileButton(box ui.Element, sv *stepView, p pileRef) {
+	rs := sv.rs
 	box.Cursor(ui.CursorPointer).Label(sv.pileName(p))
 	if box.Clicked() {
 		rs.selected = 0
@@ -343,25 +325,15 @@ func (v *view) pileButton(box ui.Element, sv *stepView, p pileRef) {
 		}
 	}
 	if rs.pile == p {
-		selectRing(box.Radius(6), sideColor(p.mine))
+		selectRing(box.Radius(6), sv.seat(p.mine).color())
 	}
 }
 
-// selectRing marks the selected card or pile in its player's color. The dark hairline keeps
-// the ring apart from bright art.
+// The dark hairline keeps the ring apart from bright art.
 func selectRing(el ui.Element, col ui.Color) {
 	el.Border(2, col).Shadow(0, 0, 0, 2, ui.RGBA(0, 0, 0, 0.6))
 }
 
-func sideColor(mine bool) ui.Color {
-	if mine {
-		return youColor
-	}
-	return oppColor
-}
-
-// donRow is the cost area as DON!! cards: active ones upright, rested ones turned sideways
-// and dimmed, centered in the zone. They overlap when they don't fit.
 func (v *view) donRow(c *ui.Context, k func() *ui.Context, m mat, s *replay.Side, z ui.Rect, mine bool) {
 	n := len(s.Don)
 	if n == 0 {
@@ -399,7 +371,6 @@ func (v *view) donRow(c *ui.Context, k func() *ui.Context, m mat, s *replay.Side
 		Absolute().Left(z.X).Top(ly).Width(z.W - 10).TextAlign(ui.End)
 }
 
-// donDeck is the face-down DON!! deck with how many are left, or nothing once it's empty.
 func (v *view) donDeck(c *ui.Context, k func() *ui.Context, m mat, s *replay.Side, x, y float32) {
 	if s.DonDeck == 0 {
 		return
@@ -414,7 +385,6 @@ func (v *view) donDeck(c *ui.Context, k func() *ui.Context, m mat, s *replay.Sid
 	})
 }
 
-// donCard is a DON!! card from the sim's install, or a gold block without it.
 func (v *view) donCard(c *ui.Context, w, h float32) ui.Element {
 	if art := v.art.get(donCode, artCard); art != nil {
 		return ui.Image(c, art).Size(w, h).Fit(ui.Cover).Radius(3)
@@ -424,18 +394,10 @@ func (v *view) donCard(c *ui.Context, w, h float32) ui.Element {
 	})
 }
 
-// donCode and donBackCode name the DON!! card and its back in the art cache.
-const (
-	donCode     = "Don"
-	donBackCode = "DonBack"
-)
-
 var donPink = ui.Hex("#E8457E")
 
-// boardCard is a card on the board, turned sideways when rested. Its attached DON!! cards are
-// tucked under it, their bottom edges showing below it, with their count over the card.
 func (v *view) boardCard(c *ui.Context, card replay.Card, w float32, selected bool, col ui.Color, notes ...string) {
-	h := w * 7 / 5
+	h := cardHeight(w)
 	bw, bh := w, h
 	if card.Rested {
 		bw, bh = h, w
@@ -452,7 +414,7 @@ func (v *view) boardCard(c *ui.Context, card replay.Card, w float32, selected bo
 				v.donCard(c.Key(i), w, h).Absolute().Left(-w * 0.07 * off).Top(h * 0.1 * off)
 			}
 			// Absolute elements draw over the rest, so the card is one too, to sit over its DON.
-			art := v.cardArt(c, card.Code, w, h, notes...).Absolute().Top(0).Left(0)
+			art := v.card(c, card.Code, w, notes...).Absolute().Top(0).Left(0)
 			if selected {
 				selectRing(art, col)
 			}
@@ -463,55 +425,6 @@ func (v *view) boardCard(c *ui.Context, card replay.Card, w float32, selected bo
 			}
 		})
 		badges(c, badgesOf(card), bw, bh)
-	})
-}
-
-// smallArtWidth is how wide the sim's small images are. Cards drawn wider use the full image.
-const smallArtWidth = 60
-
-// cardArt is the card's image at a size: the sim's small image, or the full one scaled down
-// when the card is drawn wider than the small one. Resting the pointer on it shows the whole
-// card large, with notes under it. A block in its colors stands in while the image loads or
-// when the sim has none.
-func (v *view) cardArt(c *ui.Context, code string, w, h float32, notes ...string) ui.Element {
-	name := v.snap.card(code).Name
-	kind := artFull
-	if w > smallArtWidth {
-		kind = artCard
-	}
-	art := v.art.get(code, kind)
-	if art == nil && kind == artCard {
-		art = v.art.get(code, artFull)
-	}
-	if art == nil {
-		cols := colorsOf(v.snap.card(code))
-		return ui.Box(c).Size(w, h).Radius(4).Background(cols[0].Card).Label(name).PopoverMenu(v.cardMenu(v.snap.card(code)))
-	}
-	img := ui.Image(c, art).Size(w, h).Fit(ui.Cover).Radius(4).Label(name).PopoverMenu(v.cardMenu(v.snap.card(code)))
-	if w < previewMin {
-		v.cardPreview(c, img, code, notes...)
-	}
-	return img
-}
-
-// cardPreview shows the card large while the pointer rests on anchor, with notes under it.
-// Without art it names the card.
-func (v *view) cardPreview(c *ui.Context, anchor ui.Element, code string, notes ...string) {
-	pw := previewWidth(c)
-	ui.TooltipBase(c, anchor, func(tip ui.Element) {
-		art := v.largeArt(code, v.art.get(code, artFull))
-		tip.Radius(10).Shadow(0, 6, 24, 0, ui.RGBA(0, 0, 0, 0.5)).Background(panelDark).Children(func() {
-			ui.Column(c).Gap(6).Children(func() {
-				if art == nil {
-					ui.Text(c, v.snap.card(code).Name).FontSize(13).TextColor(pillText).Padding(6, 10)
-				} else {
-					ui.Image(c, art).Size(pw, pw*7/5).Fit(ui.Cover).Radius(10)
-				}
-				for i, n := range notes {
-					ui.Text(c.Key(i), n).FontSize(12).TextColor(pillText).Padding(0, 10, 4, 10).Wrap()
-				}
-			})
-		})
 	})
 }
 
@@ -529,13 +442,8 @@ func battlePair(cards []placed, bt *replay.Battle, mineAttacks bool) (a, t int) 
 	return find(bt.AttackerID, mineAttacks), find(bt.DefenderID, !mineAttacks)
 }
 
-// attackArrow points from the attacker to the card the attack lands on, with both powers.
-// Hovering a power spells out how it's made.
-func (v *view) attackArrow(c *ui.Context, k func() *ui.Context, m mat, a, t placed, bt *replay.Battle, mineAttacks bool) {
-	col := oppColor
-	if mineAttacks {
-		col = youColor
-	}
+func (v *view) attackArrow(c *ui.Context, k func() *ui.Context, m mat, a, t placed, bt *replay.Battle, attacker side) {
+	col := attacker.color()
 	ax, ay := m.center(a)
 	tx, ty := m.center(t)
 	// The arrow covers the whole mat, so clicks have to pass through it to the cards.
@@ -565,10 +473,6 @@ func (v *view) attackArrow(c *ui.Context, k func() *ui.Context, m mat, a, t plac
 				Background(col).Shadow(0, 2, 8, 0, panelShade).Tooltip(v.powerSum(pw))
 		})
 	}
-	defCol := youColor
-	if mineAttacks {
-		defCol = oppColor
-	}
 	power(a, bt.Attack, col)
-	power(t, bt.Defense, defCol)
+	power(t, bt.Defense, attacker.other().color())
 }

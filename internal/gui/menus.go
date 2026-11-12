@@ -25,7 +25,7 @@ func (v *view) gameMenu(m stats.Match) func(*ui.Menu) {
 			menu.Submenu("Game type", func(sub *ui.Menu) {
 				for i, label := range v.typeOptions(m) {
 					if sub.Item(label).Radio(int(m.Type) == i).Chosen() {
-						v.act.SetGameType(m.Fingerprint, store.GameType(i))
+						v.do(func(a actions) { a.SetGameType(m.Fingerprint, store.GameType(i)) })
 					}
 				}
 			})
@@ -45,22 +45,19 @@ func (v *view) gameMenu(m stats.Match) func(*ui.Menu) {
 			bookmark = "Remove bookmark"
 		}
 		if menu.Item(bookmark).Chosen() {
-			v.act.SetBookmark(m.Fingerprint, !m.Bookmarked)
+			v.do(func(a actions) { a.SetBookmark(m.Fingerprint, !m.Bookmarked) })
 		}
 		menu.Separator()
 		if menu.Item("Filter to games vs " + m.Opp.Name).Chosen() {
 			v.filter.opp = m.Opp.ID
-			v.resetPoints()
 		}
 		matchup := v.snap.card(m.Me.Leader).Name + " vs " + v.snap.card(m.Opp.Leader).Name
 		if menu.Item("Filter to " + matchup).Chosen() {
 			v.filter.deck, v.filter.oppLeader = m.Me.Leader, m.Opp.Leader
-			v.resetPoints()
 		}
 	}
 }
 
-// yourDeckMenu is the menu of one of the user's decks, by its leader.
 func (v *view) yourDeckMenu(leader string) func(*ui.Menu) {
 	return func(m *ui.Menu) {
 		if m.Item("Open on Decks").Chosen() {
@@ -100,12 +97,10 @@ func (v *view) showOpponentGames(deck, leader string) {
 	}
 	v.filter.oppLeader = leader
 	v.page = pageMatches
-	v.resetPoints()
 }
 
 func (v *view) filterOpponent(leader string) {
 	v.filter.oppLeader = leader
-	v.resetPoints()
 }
 
 // leaderCardItems are the items of a leader as a card, after what the menu does with it as a
@@ -119,7 +114,6 @@ func (v *view) leaderCardItems(m *ui.Menu, code string) {
 	}
 }
 
-// openInCards shows the card in the Cards page's panel.
 func (v *view) openInCards(code string) {
 	s := &v.cardsUI
 	if s.selected != code {
@@ -161,7 +155,6 @@ func (v *view) clearPillMenu(label string, at bool, reset func()) func(*ui.Menu)
 	return func(m *ui.Menu) {
 		if m.Item(label).Disabled(at).Chosen() {
 			reset()
-			v.resetPoints()
 		}
 		if m.Item("Clear all filters").Disabled(!v.canClear()).Chosen() {
 			v.clearFilters()

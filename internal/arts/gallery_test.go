@@ -32,7 +32,7 @@ func imageOf(g grid) image.Image {
 // every other series. It records the series each read asked for, "" for the list's own page.
 type fakeBandai struct {
 	mu    sync.Mutex
-	list  []cards.BandaiSeries
+	list  []bandaiSeries
 	pages map[string][]byte
 	reads []string
 }
@@ -98,7 +98,7 @@ var _ = Describe("Gallery", func() {
 			c.Series[promotionID] = s
 			Expect(c.save(catPath)).To(Succeed())
 		}
-		g, err := Open(Config{CatalogPath: catPath, GridDir: filepath.Join(dir, "grids-1"), Pictures: pics})
+		g, err := Open(Config{CatalogPath: catPath, ArtDir: dir, Pictures: pics})
 		Expect(err).NotTo(HaveOccurred())
 		return g
 	}
@@ -216,7 +216,7 @@ var _ = Describe("Gallery", func() {
 		})
 		gallery := func() *Gallery {
 			GinkgoHelper()
-			g, err := Open(Config{CatalogPath: catPath, GridDir: filepath.Join(dir, "grids-1"), Client: srv.Client(), Site: srv.URL})
+			g, err := Open(Config{CatalogPath: catPath, ArtDir: dir, Client: srv.Client(), Site: srv.URL})
 			Expect(err).NotTo(HaveOccurred())
 			return g
 		}

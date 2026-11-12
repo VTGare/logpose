@@ -9,8 +9,11 @@ import (
 )
 
 // Version goes up whenever Read gives different facts for the same game, so stored games are
-// read again.
-const Version = 1
+// read again. Lists come from the replay, so a new replay.Version is a new Version too. Bump
+// readVersion for changes to Read itself.
+const Version = readVersion + replay.Version
+
+const readVersion = 1
 
 // Facts is what one player's deck did in one game.
 type Facts struct {
@@ -55,7 +58,33 @@ const (
 	OwnLines
 	// Discard is any other card trashed from the hand, usually by an effect.
 	Discard
+	eventKindCount
 )
+
+var EventKinds = func() []EventKind {
+	out := make([]EventKind, 0, eventKindCount-Drew)
+	for k := Drew; k < eventKindCount; k++ {
+		out = append(out, k)
+	}
+	return out
+}()
+
+var eventNames = map[EventKind]string{
+	Drew: "drew", FromLife: "from_life", PaidPlay: "paid_play", EffectPlay: "effect_play",
+	Counter: "counter", Trigger: "trigger", OwnLines: "own_lines", Discard: "discard",
+}
+
+// String is the kind's stored name, which the card events table's CHECK lists.
+func (k EventKind) String() string { return eventNames[k] }
+
+func ParseEventKind(name string) (EventKind, bool) {
+	for k, n := range eventNames {
+		if n == name {
+			return k, true
+		}
+	}
+	return 0, false
+}
 
 // Event is a card entering or leaving the hand. Turn is the game turn, 0 for the setup.
 type Event struct {
@@ -73,17 +102,13 @@ type Search struct {
 	Turn   int
 }
 
-// linesBack is how far before a card's move its own lines can be. An event's move to the trash
-// comes after its effect, such as a "Draw 2 Card".
-const linesBack = 5
-
 // Read returns the facts for every player the log links to an RZ1 owner. Logs without RZ1 have
 // none.
 func Read(g *simlog.Game) ([]Facts, error) {
 	if !g.HasRZ() {
 		return nil, nil
 	}
-	r, err := replay.Build(g, func(string) int { return 0 })
+	r, err := replay.Build(g, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +121,7 @@ func Read(g *simlog.Game) ([]Facts, error) {
 			Player:   p.ID(),
 			List:     list(r, p.Owner),
 			Don:      don(g, p.Owner),
-			Events:   events(g, p.Owner),
+			Events:   events(g, r, p.Owner),
 			Searches: searches(g, p),
 		})
 	}
@@ -131,7 +156,7 @@ func don(g *simlog.Game, owner int) []int {
 		if c.Owner != owner {
 			continue
 		}
-		t := turnOf(g, c.Line)
+		t := g.TurnOf(c.Line)
 		for len(out) <= t {
 			out = append(out, 0)
 		}
@@ -140,23 +165,19 @@ func don(g *simlog.Game, owner int) []int {
 	return out
 }
 
-func turnOf(g *simlog.Game, line int) int {
-	if line < len(g.Lines) {
-		return g.Lines[line].Turn
+func events(g *simlog.Game, r *replay.Replay, owner int) []Event {
+	stepOf := make(map[int]*replay.Step)
+	for i := range r.Steps {
+		for _, mi := range r.Steps[i].Moves {
+			stepOf[mi] = &r.Steps[i]
+		}
 	}
-	if len(g.Lines) == 0 {
-		return 0
-	}
-	return g.Lines[len(g.Lines)-1].Turn
-}
-
-func events(g *simlog.Game, owner int) []Event {
 	var out []Event
-	for _, m := range g.Moves {
+	for mi, m := range g.Moves {
 		if m.Owner != owner || m.Card == "" {
 			continue
 		}
-		t := turnOf(g, m.Line)
+		t := g.TurnOf(m.Line)
 		if t == 0 {
 			continue
 		}
@@ -167,7 +188,7 @@ func events(g *simlog.Game, owner int) []Event {
 		case m.To == simlog.ZoneHand && m.From == simlog.ZoneLife:
 			k = FromLife
 		case m.From == simlog.ZoneHand && (m.To == simlog.ZoneCharacter || m.To == simlog.ZoneStage):
-			k = playKind(g, m)
+			k = playKind(stepOf[mi], m.Card)
 		case m.From == simlog.ZoneHand && m.To == simlog.ZoneTrash:
 			k = trashKind(g, m)
 		default:
@@ -178,24 +199,19 @@ func events(g *simlog.Game, owner int) []Event {
 	return out
 }
 
-// playKind tells "Deploy X" from "Y: Deploy X". The line is next to the move, on either side.
-func playKind(g *simlog.Game, m simlog.Move) EventKind {
-	tag := "[" + m.Card + "]"
-	for _, i := range []int{m.Line, m.Line - 1, m.Line + 1, m.Line - 2} {
-		if i < 0 || i >= len(g.Lines) {
-			continue
-		}
-		t := g.Lines[i].Text
-		if strings.HasPrefix(t, "Deploy ") && strings.Contains(t, tag) {
-			return PaidPlay
-		}
-		if src, rest, ok := strings.Cut(t, "]: "); ok && strings.HasPrefix(rest, "Deploy") &&
-			strings.Contains(rest, tag) && !strings.HasSuffix(src+"]", tag) {
-			return EffectPlay
-		}
+// playKind tells "Deploy X" from "Y: Deploy X" by the step the move is in.
+func playKind(s *replay.Step, code string) EventKind {
+	if s == nil || s.Kind == replay.KindPlay && s.Cards[0] == code {
+		return PaidPlay
 	}
-	return PaidPlay
+	return EffectPlay
 }
+
+// linesBack is how far before a card's move its own lines can be. An event's move to the trash
+// comes after its effect, such as a "Draw 2 Card". Trashed cards are read from the lines and not
+// from their replay step, since the replay folds an event played after a search into the
+// searcher's step, where it looks like a discard.
+const linesBack = 5
 
 // trashKind looks at every line near the move. A counter event's own effect lines follow its
 // "Activate Counter", so a counter line wins over any other line of the card's own.
@@ -206,21 +222,20 @@ func trashKind(g *simlog.Game, m simlog.Move) EventKind {
 		if i < 0 || i >= len(g.Lines) {
 			continue
 		}
-		t := g.Lines[i].Text
-		if !strings.Contains(t, tag) {
+		l := g.Lines[i]
+		if !strings.Contains(l.Text, tag) {
 			continue
 		}
-		if strings.HasPrefix(t, "Discard ") && strings.Contains(t, "for Counter") {
+		if l.Kind == simlog.LineCounterDiscard {
 			return Counter
 		}
-		src, rest, ok := strings.Cut(t, "]: ")
-		if !ok || !strings.HasSuffix(src+"]", tag) {
+		if l.Source != m.Card {
 			continue
 		}
 		switch {
-		case strings.HasPrefix(rest, "Activate Counter"):
+		case l.Kind == simlog.LineCounter:
 			return Counter
-		case strings.HasPrefix(rest, "Activate Trigger"):
+		case l.Kind == simlog.LineTrigger:
 			kind = Trigger
 		case kind == Discard:
 			kind = OwnLines
@@ -244,7 +259,7 @@ func searches(g *simlog.Game, p simlog.Player) []Search {
 			continue
 		}
 		switch {
-		case strings.Contains(l.Text, "]: Reveal and Draw ") && len(l.Cards) >= 2:
+		case l.Source != "" && strings.HasPrefix(l.EffectText(), "Reveal and Draw ") && len(l.Cards) >= 2:
 			byLine[i] = &Search{Source: l.Cards[0], Taken: l.Cards[len(l.Cards)-1], Turn: l.Turn}
 		case l.Text == "Picked no cards to Draw" && i > 0 && len(g.Lines[i-1].Cards) > 0:
 			prev := g.Lines[i-1].Cards

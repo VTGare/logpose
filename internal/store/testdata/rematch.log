@@ -1,0 +1,54 @@
+Attempting to connect to XNJ8M66
+Version is 1.44a.24
+[Bob​#2222] Leader is Eustass"Captain"Kid [<mark><link="OP17-058">OP17-058</link></mark>]
+Alice​#1111 Has Connected
+Version is 1.44a.24
+[Alice​#1111] Leader is Monkey D. Luffy [<mark><link="OP13-001">OP13-001</link></mark>]
+[Bob​#2222] Chose to go Second
+RZ1|HDR|1.44a|2|RZ1
+RZ1|PLY|1|Alice​#1111|OP13-001
+RZ1|PLY|2|Bob​#2222|OP17-058
+RZ1|1|1|OP12-023|0|49|1|0|1|1|0|0|0
+RZ1|CHK|1|1|49|1|0|0|10|0|0|0|1|0
+RZ1|2|1|EB05-001|0|48|1|1|1|1|0|0|0
+RZ1|CHK|2|1|48|2|0|0|10|0|0|0|1|0
+RZ1|3|1|EB05-001|0|47|1|2|1|1|0|0|0
+RZ1|CHK|3|1|47|3|0|0|10|0|0|0|1|0
+RZ1|4|1|OP07-022|0|46|1|3|1|1|0|0|0
+RZ1|CHK|4|1|46|4|0|0|10|0|0|0|1|0
+RZ1|5|1|ST32-002|0|45|1|4|1|1|0|0|0
+RZ1|CHK|5|1|45|5|0|0|10|0|0|0|1|0
+[Alice​#1111] Hand before Mulligan: [OP12-023,EB05-001,EB05-001,OP07-022,ST32-002]
+[Alice​#1111] Draw 1 Don
+[Alice​#1111] End Turn
+[Bob​#2222] Draw 1 Card
+[Bob​#2222] End Turn
+[Bob​#2222] Concedes!
+[Alice​#1111] gg
+Opponent is Ready for Rematch
+Version is 1.44a.24
+[Bob​#2222] Leader is Eustass"Captain"Kid [<mark><link="OP17-058">OP17-058</link></mark>]
+Alice​#1111 Has Connected
+Version is 1.44a.24
+[Alice​#1111] Leader is Monkey D. Luffy [<mark><link="OP13-001">OP13-001</link></mark>]
+[Bob​#2222] Chose to go Second
+RZ1|HDR|1.44a|2|RZ1
+RZ1|PLY|1|Alice​#1111|OP13-001
+RZ1|PLY|2|Bob​#2222|OP17-058
+RZ1|1|1|OP14-031|0|49|1|0|1|1|0|0|0
+RZ1|CHK|1|1|49|1|0|0|10|0|0|0|1|0
+RZ1|2|1|ST30-004|0|48|1|1|1|1|0|0|0
+RZ1|CHK|2|1|48|2|0|0|10|0|0|0|1|0
+RZ1|3|1|EB01-013|0|47|1|2|1|1|0|0|0
+RZ1|CHK|3|1|47|3|0|0|10|0|0|0|1|0
+RZ1|4|1|OP12-023|0|46|1|3|1|1|0|0|0
+RZ1|CHK|4|1|46|4|0|0|10|0|0|0|1|0
+RZ1|5|1|OP06-033|0|45|1|4|1|1|0|0|0
+RZ1|CHK|5|1|45|5|0|0|10|0|0|0|1|0
+[Alice​#1111] Hand before Mulligan: [OP14-031,ST30-004,EB01-013,OP12-023,OP06-033]
+[Alice​#1111] Draw 1 Don
+[Alice​#1111] End Turn
+[Bob​#2222] Draw 1 Card
+[Bob​#2222] End Turn
+RZ1|CHK|90|2|30|5|2|0|5|5|8|0|1|0
+[Alice​#1111] Shanks [<mark><link="OP17-022">OP17-022</link></mark>] attacking Eustass"Captain"Kid [<mark><link="OP17-058">OP17-058</link></mark>]

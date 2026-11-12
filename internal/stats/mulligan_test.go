@@ -46,15 +46,16 @@ var _ = Describe("ForMulligans", func() {
 	})
 
 	It("counts each card dealt once a game, by whether the hand was kept", func() {
-		mu := stats.ForMulligans([]stats.Match{
+		ms := []stats.Match{
 			handGame(true, false, nil, "A", "A", "B"),
 			handGame(false, true, nil, "A", "C"),
 			handGame(true, true, nil, "A"),
-		})
+		}
+		mu := stats.ForMulligans(ms)
 		Expect(mu.Cards).To(Equal([]stats.DealtCard{
-			{Card: "A", Kept: record(1, 0), SentBack: record(1, 1)},
-			{Card: "B", Kept: record(1, 0)},
-			{Card: "C", SentBack: record(0, 1)},
+			{Card: "A", Kept: record(1, 0), SentBack: record(1, 1), Games: ms},
+			{Card: "B", Kept: record(1, 0), Games: ms[:1]},
+			{Card: "C", SentBack: record(0, 1), Games: ms[1:2]},
 		}))
 		Expect(mu.Cards[0].Dealt()).To(Equal(3))
 	})

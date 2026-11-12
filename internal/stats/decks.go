@@ -9,21 +9,21 @@ import (
 
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/deck"
+	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/store"
 )
 
 // DeckSize is how many cards a deck has besides its leader.
 const DeckSize = 50
 
-// DeckGame is a match with what the local player's deck did in it.
 type DeckGame struct {
 	Match
 	Facts deck.Facts
 }
 
-// DeckGames pairs matches with their facts, oldest first. Matches without facts, from logs
-// without RZ1 moves, are left out. A list the log names only part of takes the cards of the
-// nearest full list of the same leader that holds it.
+// DeckGames pairs matches with their facts. Matches without facts, from logs without RZ1
+// moves, are left out. A list the log names only part of takes the cards of the nearest full
+// list of the same leader that holds it.
 func DeckGames(ms []Match, facts map[string]deck.Facts) []DeckGame {
 	var out []DeckGame
 	for _, m := range ms {
@@ -31,12 +31,14 @@ func DeckGames(ms []Match, facts map[string]deck.Facts) []DeckGame {
 			out = append(out, DeckGame{Match: m, Facts: f})
 		}
 	}
+	// fill takes the first of two lists as near, so it reads them oldest first.
 	slices.SortStableFunc(out, func(a, b DeckGame) int { return a.PlayedAt.Compare(b.PlayedAt) })
 	for i := range out {
 		if out[i].Facts.Named() < DeckSize {
 			out[i].Facts.List = fill(out, i)
 		}
 	}
+	slices.Reverse(out)
 	return out
 }
 
@@ -72,12 +74,14 @@ type Assignment struct {
 	Builds map[int64][]DeckGame
 	// Conflicts are games that run every core card of two builds with cores of the same size.
 	Conflicts []DeckGame
+
+	in map[string]int64
 }
 
 // Assign puts each game in the build whose core its list runs in full. When several fit, the
 // build with the bigger core is the more specific one. Games that fit none are left out.
 func Assign(gs []DeckGame, builds []store.Build) Assignment {
-	a := Assignment{Builds: make(map[int64][]DeckGame)}
+	a := Assignment{Builds: make(map[int64][]DeckGame), in: make(map[string]int64)}
 	for _, g := range gs {
 		var fit []store.Build
 		for _, b := range builds {
@@ -91,11 +95,52 @@ func Assign(gs []DeckGame, builds []store.Build) Assignment {
 		slices.SortFunc(fit, func(x, y store.Build) int { return cmp.Compare(len(y.Core), len(x.Core)) })
 		if len(fit) > 1 && len(fit[0].Core) == len(fit[1].Core) {
 			a.Conflicts = append(a.Conflicts, g)
+			a.in[g.Fingerprint] = conflict
 			continue
 		}
 		a.Builds[fit[0].ID] = append(a.Builds[fit[0].ID], g)
+		a.in[g.Fingerprint] = fit[0].ID
 	}
 	return a
+}
+
+// conflict marks a game that fits two builds in Assignment.in. Stored builds count from 1.
+const conflict = 0
+
+// In is the build a game is in. ok is false for a game in no build, and a game that fits two
+// builds is in none of them, with id 0.
+func (a Assignment) In(fingerprint string) (id int64, ok bool) {
+	id, ok = a.in[fingerprint]
+	return id, ok
+}
+
+type BuildSplit struct {
+	Assignment
+	// Unbuilt are the games that fit no build.
+	Unbuilt []DeckGame
+	// Suggestions group the games no single build takes, the ones that fit two builds too.
+	Suggestions []Suggestion
+}
+
+// Builds splits a leader's games into the builds. card looks up the searchers that name the
+// suggestions.
+func Builds(gs []DeckGame, builds []store.Build, dismissed [][]string, card func(code string) cards.Card) BuildSplit {
+	s := BuildSplit{Assignment: Assign(gs, builds)}
+	var rest []DeckGame
+	for _, g := range gs {
+		id, ok := s.In(g.Fingerprint)
+		if !ok {
+			s.Unbuilt = append(s.Unbuilt, g)
+		}
+		if !ok || id == conflict {
+			rest = append(rest, g)
+		}
+	}
+	s.Suggestions = suggest(rest, dismissed)
+	for i := range s.Suggestions {
+		s.Suggestions[i].Name = suggestionName(s.Suggestions[i], s.Suggestions, card)
+	}
+	return s
 }
 
 func runsAll(list map[string]int, core []string) bool {
@@ -111,17 +156,12 @@ func runsAll(list map[string]int, core []string) bool {
 // can't tell the leader's builds apart.
 const StapleShare = 0.95
 
-// Staples are the cards in at least StapleShare of the games, sorted.
-func Staples(gs []DeckGame) []string {
-	in := make(map[string]int)
-	for _, g := range gs {
-		for c := range g.Facts.List {
-			in[c]++
-		}
-	}
+func Staples(gs []DeckGame) []string { return staples(cardGames(gs), len(gs)) }
+
+func staples(in map[string]int, games int) []string {
 	var out []string
 	for c, n := range in {
-		if float64(n) >= StapleShare*float64(len(gs)) {
+		if float64(n) >= StapleShare*float64(games) {
 			out = append(out, c)
 		}
 	}
@@ -129,12 +169,75 @@ func Staples(gs []DeckGame) []string {
 	return out
 }
 
+// cardGames counts the games that ran each card.
+func cardGames(gs []DeckGame) map[string]int {
+	in := make(map[string]int)
+	for _, g := range gs {
+		for c := range g.Facts.List {
+			in[c]++
+		}
+	}
+	return in
+}
+
+// unsaved stands in for the ID of a build not saved yet, since 0 is conflict.
+const unsaved = -1
+
+// BuildEdit is where a leader's games go when one build's core changes.
+type BuildEdit struct {
+	// Now holds the games the build has, After the ones it gets with the new core, and Others
+	// the ones the other builds get then, by fingerprint.
+	Now, After, Others map[string]bool
+	Before, With       Record
+	// Conflicts is how many games fit two builds with the new core.
+	Conflicts int
+	// Games counts the games that ran each card, and Staples are the cards nearly all ran.
+	Games   map[string]int
+	Staples []string
+}
+
+// EditBuild shows where the leader's games go with edited, one of builds with a changed core
+// or a new build with ID 0.
+func EditBuild(gs []DeckGame, builds []store.Build, edited store.Build) BuildEdit {
+	e := BuildEdit{Now: make(map[string]bool), After: make(map[string]bool), Others: make(map[string]bool)}
+	var others []store.Build
+	for _, b := range builds {
+		if b.ID != edited.ID {
+			others = append(others, b)
+		}
+	}
+	var now []DeckGame
+	if edited.ID != 0 {
+		now = Assign(gs, builds).Builds[edited.ID]
+	}
+	for _, g := range now {
+		e.Now[g.Fingerprint] = true
+	}
+	e.Before = RecordOf(now)
+	if edited.ID == 0 {
+		edited.ID = unsaved
+	}
+	a := Assign(gs, append(others, edited))
+	for id, games := range a.Builds {
+		for _, g := range games {
+			if id == edited.ID {
+				e.After[g.Fingerprint] = true
+			} else {
+				e.Others[g.Fingerprint] = true
+			}
+		}
+	}
+	e.With = RecordOf(a.Builds[edited.ID])
+	e.Conflicts = len(a.Conflicts)
+	e.Games = cardGames(gs)
+	e.Staples = staples(e.Games, len(gs))
+	return e
+}
+
 // searcherShare is the share of the games a card was in that it has to have searched in to
 // count as a searcher. It keeps out a card whose effect looked at the deck once.
 const searcherShare = 0.25
 
-// Searchers are the cards that searched the deck in at least searcherShare of the games they
-// were in, sorted.
 func Searchers(gs []DeckGame) []string {
 	in := make(map[string]int)
 	searched := make(map[string]int)
@@ -162,18 +265,22 @@ func Searchers(gs []DeckGame) []string {
 
 // Suggestion is a group of games whose lists run the same searchers.
 type Suggestion struct {
-	// Core is the searchers, sorted.
-	Core  []string
+	// Core is the searchers, sorted, and Key the same joined, which tells suggestions apart.
+	Core []string
+	Key  string
+	// Name is what the searchers that tell the suggestion apart look for.
+	Name  string
 	Games []DeckGame
 }
 
-// Suggest groups the games by the searchers their lists run. Games without searchers and the
-// groups the user dismissed aren't suggested. The biggest group comes first.
-func Suggest(gs []DeckGame, dismissed [][]string) []Suggestion {
+// suggest groups the games by the searchers their lists run. Games without searchers and the
+// groups the user dismissed aren't suggested. The biggest group comes first, and of two as big
+// the one played first.
+func suggest(gs []DeckGame, dismissed [][]string) []Suggestion {
 	searchers := Searchers(gs)
 	byKey := make(map[string]*Suggestion)
 	var out []*Suggestion
-	for _, g := range gs {
+	for _, g := range slices.Backward(gs) {
 		var core []string
 		for _, c := range searchers {
 			if g.Facts.List[c] > 0 {
@@ -186,7 +293,7 @@ func Suggest(gs []DeckGame, dismissed [][]string) []Suggestion {
 		key := strings.Join(core, ",")
 		s, ok := byKey[key]
 		if !ok {
-			s = &Suggestion{Core: core}
+			s = &Suggestion{Core: core, Key: key}
 			byKey[key] = s
 			out = append(out, s)
 		}
@@ -195,6 +302,7 @@ func Suggest(gs []DeckGame, dismissed [][]string) []Suggestion {
 	var kept []Suggestion
 	for _, s := range out {
 		if !slices.ContainsFunc(dismissed, func(d []string) bool { return slices.Equal(d, s.Core) }) {
+			slices.Reverse(s.Games)
 			kept = append(kept, *s)
 		}
 	}
@@ -204,7 +312,8 @@ func Suggest(gs []DeckGame, dismissed [][]string) []Suggestion {
 
 // CardStats is how one card did in a build's games.
 type CardStats struct {
-	Card string
+	Card   string
+	Latest bool
 	// Games are the games the card was in the deck for.
 	Games int
 	// Opening is the games it was in the hand kept after the mulligan.
@@ -214,6 +323,9 @@ type CardStats struct {
 	// that turn or don't say who went first.
 	OnCurve, OffCurve Record
 	EndedFirst        int
+	// Curve is false when FromOpening holds for the card's cost, and OnCurve and OffCurve only
+	// repeat the opening hand.
+	Curve bool
 	// The games it was played the turn it could first be paid for or earlier, played later, only
 	// put out by an effect, or never played. A game counts once, in the first that applies.
 	PlayedOnCurve, PlayedLater, ByEffect, NeverPlayed Record
@@ -253,17 +365,21 @@ func Cards(gs []DeckGame, card func(code string) cards.Card) []CardStats {
 			}
 		}
 	}
+	var latest map[string]int
+	if len(gs) > 0 {
+		latest = gs[0].Facts.List
+	}
 	out := make([]CardStats, 0, len(byCard))
 	for _, s := range byCard {
 		if s.Games > 0 {
+			s.Latest = latest[s.Card] > 0
 			out = append(out, *s)
 		}
 	}
-	sortCards(out, gs, card)
+	sortCards(out, card)
 	return out
 }
 
-// searcherTakes is the cards each searcher took in any of the games.
 func searcherTakes(gs []DeckGame) map[string]map[string]bool {
 	takes := make(map[string]map[string]bool)
 	for _, g := range gs {
@@ -280,13 +396,13 @@ func searcherTakes(gs []DeckGame) map[string]map[string]bool {
 	return takes
 }
 
-// add counts one game the card was in the deck for.
 func (s *CardStats) add(g DeckGame, kept []string, info cards.Card) {
 	s.Games++
+	s.Curve = !FromOpening(info.PaidCost())
 	if slices.Contains(kept, s.Card) {
 		s.Opening.Add(g.Result)
 	}
-	curve, ok := curveTurn(g, max(info.Cost, 0))
+	curve, ok := curveTurn(g, info.PaidCost())
 	switch {
 	case !ok:
 		s.EndedFirst++
@@ -295,7 +411,7 @@ func (s *CardStats) add(g DeckGame, kept []string, info cards.Card) {
 	default:
 		s.OffCurve.Add(g.Result)
 	}
-	paid, effect := plays(g, s.Card, info.Type == "Event")
+	paid, effect := plays(g, s.Card, info.Type == cards.Event)
 	switch {
 	case paid > 0 && ok && paid <= curve:
 		s.PlayedOnCurve.Add(g.Result)
@@ -308,15 +424,10 @@ func (s *CardStats) add(g DeckGame, kept []string, info cards.Card) {
 	}
 }
 
-func sortCards(cs []CardStats, gs []DeckGame, card func(code string) cards.Card) {
-	var latest map[string]int
-	if len(gs) > 0 {
-		latest = gs[len(gs)-1].Facts.List
-	}
+func sortCards(cs []CardStats, card func(code string) cards.Card) {
 	slices.SortFunc(cs, func(a, b CardStats) int {
-		ia, ib := latest[a.Card] > 0, latest[b.Card] > 0
-		if ia != ib {
-			if ia {
+		if a.Latest != b.Latest {
+			if a.Latest {
 				return -1
 			}
 			return 1
@@ -332,7 +443,7 @@ func sortCards(cs []CardStats, gs []DeckGame, card func(code string) cards.Card)
 }
 
 func eventRank(c cards.Card) int {
-	if c.Type == "Event" {
+	if c.Type == cards.Event {
 		return 1
 	}
 	return 0
@@ -344,11 +455,8 @@ func uniq(cs []string) []string {
 	return slices.Compact(out)
 }
 
-// ownTurn says whether a game turn was the player's: the odd ones for the player who went
-// first.
-func ownTurn(g DeckGame, t int) bool { return (t%2 == 1) == g.WentFirst }
+func ownTurn(g DeckGame, t int) bool { return simlog.FirstPlayersTurn(t) == g.WentFirst }
 
-// curveTurn is the player's first turn with at least cost DON!! in play.
 func curveTurn(g DeckGame, cost int) (int, bool) {
 	if !g.TurnOrderKnown {
 		return 0, false
@@ -414,8 +522,8 @@ func List(list map[string]int, card func(code string) cards.Card) ListStats {
 	traits := make(map[string]int)
 	for c, n := range list {
 		info := card(c)
-		st.Curve[min(max(info.Cost, 0), 10)] += n
-		if info.Type == "Character" {
+		st.Curve[min(info.PaidCost(), 10)] += n
+		if info.Type == cards.Character {
 			st.Counters[info.Counter] += n
 		}
 		if info.Type != "" {
@@ -446,10 +554,11 @@ type Change struct {
 	Games []DeckGame
 }
 
-// Changes returns the lists the games went through, oldest first.
+// Changes returns the lists the games went through, oldest first, each with its games oldest
+// first.
 func Changes(gs []DeckGame) []Change {
 	var out []Change
-	for _, g := range gs {
+	for _, g := range slices.Backward(gs) {
 		list := g.Facts.List
 		if len(out) > 0 && maps.Equal(out[len(out)-1].Games[0].Facts.List, list) {
 			last := &out[len(out)-1]
@@ -478,4 +587,31 @@ func swaps(from, to map[string]int) map[string]int {
 		}
 	}
 	return out
+}
+
+// suggestionName is what the suggestion's searchers look for, such as "Land of Wano", or a
+// searcher's name when its effect doesn't say. Searchers every suggestion runs are left out,
+// since they don't tell the suggestions apart.
+func suggestionName(s Suggestion, all []Suggestion, card func(code string) cards.Card) string {
+	shared := func(c string) bool {
+		return !slices.ContainsFunc(all, func(o Suggestion) bool { return !slices.Contains(o.Core, c) })
+	}
+	telling := slices.DeleteFunc(slices.Clone(s.Core), func(c string) bool { return len(all) > 1 && shared(c) })
+	if len(telling) == 0 {
+		telling = s.Core
+	}
+	var names []string
+	for _, c := range telling {
+		info := card(c)
+		targets := cards.SearchTargets(info.Effect)
+		if len(targets) == 0 {
+			targets = []string{info.Name}
+		}
+		for _, t := range targets {
+			if !slices.Contains(names, t) {
+				names = append(names, t)
+			}
+		}
+	}
+	return strings.Join(names, " + ")
 }

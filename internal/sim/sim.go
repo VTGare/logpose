@@ -1,12 +1,16 @@
 package sim
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/VTGare/logpose/internal/simfile"
 )
 
 var ErrNotFound = errors.New("sim: OPTCGSim not found")
@@ -18,9 +22,8 @@ type Install struct {
 
 func (i Install) Logs() string { return filepath.Join(i.Root, "CombatLogs", "AutoSaved") }
 
-// LogCount is the number of combat logs in the AutoSaved folder.
 func (i Install) LogCount() int {
-	paths, _ := filepath.Glob(filepath.Join(i.Logs(), "*.log"))
+	paths, _ := simfile.CombatLogs(i.Logs())
 	return len(paths)
 }
 
@@ -31,18 +34,16 @@ func (i Install) streamingAssets() string {
 	return filepath.Join(i.Root, "OPTCGSim_Data", "StreamingAssets")
 }
 
+func (i Install) cardDir(code string) string {
+	set, _, _ := strings.Cut(code, "-")
+	return filepath.Join(i.streamingAssets(), "Cards", set)
+}
+
 // CardImage returns the path of a card's image. The sim ships a full image and a small one per
 // card, in a folder per set. Small images are JPEGs, and full ones JPEG or, in about half the
 // sets, PNG.
 func (i Install) CardImage(code string, small bool) string {
-	set := code
-	for j := range code {
-		if code[j] == '-' {
-			set = code[:j]
-			break
-		}
-	}
-	dir := filepath.Join(i.streamingAssets(), "Cards", set)
+	dir := i.cardDir(code)
 	if small {
 		return filepath.Join(dir, code+"_small.jpg")
 	}
@@ -63,7 +64,6 @@ func (i Install) DonImage() string {
 	return filepath.Join(dir, "default", "Don.png")
 }
 
-// DonBack returns the path of the back of DON!! cards.
 func (i Install) DonBack() string {
 	return filepath.Join(i.streamingAssets(), "CardBacks", "CardBackDon.png")
 }
@@ -111,9 +111,9 @@ func PlayerLog() (string, error) {
 	return filepath.Join(home, "AppData", "LocalLow", "Batsu", "OPTCGSim", "Player.log"), nil
 }
 
-// Version is the sim version that ran last, such as "1.44a". The sim keeps a folder per version
-// next to Player.log, and the one changed last belongs to the version that ran last. It's ""
-// when there's none.
+// Version is the newest version folder the sim keeps next to Player.log, such as "1.44a", or ""
+// when there's none. Not every version makes one: 1.45a doesn't, so a game's log is the better
+// source once there is one (see Newer).
 func Version() string {
 	log, err := PlayerLog()
 	if err != nil {
@@ -172,4 +172,58 @@ func FormatName(simVersion, slot string) string {
 		return f.Name
 	}
 	return slot
+}
+
+// Newer returns the later of two sim versions such as "1.44a", "1.44a.24" and "1.45a". Numbers
+// compare as numbers and letters as text. An empty version is older than any other.
+func Newer(a, b string) string {
+	if compareVersions(a, b) < 0 {
+		return b
+	}
+	return a
+}
+
+func compareVersions(a, b string) int {
+	pa, pb := versionParts(a), versionParts(b)
+	for i := range min(len(pa), len(pb)) {
+		x, y := pa[i], pb[i]
+		nx, errx := strconv.Atoi(x)
+		ny, erry := strconv.Atoi(y)
+		var c int
+		if errx == nil && erry == nil {
+			c = cmp.Compare(nx, ny)
+		} else {
+			c = strings.Compare(x, y)
+		}
+		if c != 0 {
+			return c
+		}
+	}
+	return cmp.Compare(len(pa), len(pb))
+}
+
+// versionParts splits "1.44a.24" into 1, 44, a, 24.
+func versionParts(v string) []string {
+	var parts []string
+	start := -1
+	digit := false
+	for i, r := range v {
+		d := r >= '0' && r <= '9'
+		switch {
+		case r == '.':
+			if start >= 0 {
+				parts = append(parts, v[start:i])
+			}
+			start = -1
+		case start < 0:
+			start, digit = i, d
+		case d != digit:
+			parts = append(parts, v[start:i])
+			start, digit = i, d
+		}
+	}
+	if start >= 0 {
+		parts = append(parts, v[start:])
+	}
+	return parts
 }

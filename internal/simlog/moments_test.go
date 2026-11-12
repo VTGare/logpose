@@ -36,6 +36,7 @@ var _ = Describe("Moments", func() {
 			move(1, "EB01-013", ZoneCharacter, ZoneTrash),
 			move(1, "OP14-031", ZoneDeck, ZoneCharacter),
 			move(1, "ST30-004", ZoneHand, ZoneCharacter),
+			move(1, "OP05-097", ZoneHand, ZoneStage),
 			boardCheck(1, 3, 4),
 			by(alice, "End Turn"),
 			by(bob, "Draw 1 Card"),
@@ -61,9 +62,12 @@ var _ = Describe("Moments", func() {
 		Expect(ms[0].Turn).To(Equal(3))
 		Expect(ms[0].Player).To(Equal(aliceID))
 		Expect(ms[0].Reasons).To(Equal([]Reason{{Kind: ReasonBoard, Player: aliceID, N: 3}}))
-		Expect(ms[0].Played).To(Equal([]string{"OP06-033", "EB01-013", "OP14-031", "ST30-004"}))
+		Expect(ms[0].Played).To(Equal([]string{"OP06-033", "EB01-013", "OP14-031", "ST30-004", "OP05-097"}))
+		Expect(ms[0].Characters).To(Equal([]string{"OP06-033", "EB01-013", "OP14-031", "ST30-004"}))
 		Expect(ms[0].Removed).To(BeEmpty())
 		Expect(ms[0].Board).To(Equal([]string{"OP06-033", "OP14-031", "ST30-004"}))
+		Expect(ms[0].New).To(Equal(3))
+		Expect(ms[0].Gone).To(Equal([]string{"EB01-013", "OP05-097"}))
 
 		Expect(ms[1].Turn).To(Equal(4))
 		Expect(ms[1].Player).To(Equal(bobID))

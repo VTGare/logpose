@@ -3,20 +3,16 @@ package cards
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
+
+	"github.com/VTGare/logpose/internal/fetch"
 )
 
 // TCGCSVBase is tcgcsv.com's mirror of TCGplayer's catalog for category 68, One Piece. It
 // lists the sets ("groups"), and each set's products carry the card number, type and color.
 const TCGCSVBase = "https://tcgcsv.com/tcgplayer/68"
-
-const userAgent = "logpose (+https://github.com/VTGare/logpose)"
 
 // Catalog is the cached copy of tcgcsv's cards. Groups holds each set's modifiedOn, so a
 // refresh only fetches sets that changed.
@@ -38,17 +34,19 @@ type catalogCard struct {
 // older version fetches every set again, and keeps its cards until then.
 const catalogVersion = 2
 
+// catalogMaxAge is how often the catalog is refreshed. tcgcsv updates once a day.
+const catalogMaxAge = 24 * time.Hour
+
+// LoadCatalog reads the cached catalog, or returns an empty one when there's none yet or the
+// file doesn't parse.
 func LoadCatalog(path string) (*Catalog, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return &Catalog{Version: catalogVersion, Groups: make(map[string]string), Cards: make(map[string]catalogCard)}, nil
-	}
+	var c Catalog
+	found, err := fetch.LoadJSON(path, &c)
 	if err != nil {
 		return nil, err
 	}
-	var c Catalog
-	if err := json.Unmarshal(data, &c); err != nil {
-		return nil, err
+	if !found {
+		return &Catalog{Version: catalogVersion, Groups: make(map[string]string), Cards: make(map[string]catalogCard)}, nil
 	}
 	if c.Groups == nil || c.Version < catalogVersion {
 		c.Groups = make(map[string]string)
@@ -61,25 +59,9 @@ func LoadCatalog(path string) (*Catalog, error) {
 	return &c, nil
 }
 
-func (c *Catalog) Save(path string) error {
-	data, err := json.Marshal(c)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
-}
+func (c *Catalog) Save(path string) error { return fetch.SaveJSON(path, c) }
 
-// Stale reports whether the catalog is older than maxAge.
-func (c *Catalog) Stale(now time.Time, maxAge time.Duration) bool {
-	return now.Sub(c.Fetched) > maxAge
-}
+func (c *Catalog) Stale(now time.Time) bool { return now.Sub(c.Fetched) > catalogMaxAge }
 
 // Apply adds the catalog's cards to db, over the ones db has. A catalog saved before it kept
 // power has none, so a card keeps the power db has.
@@ -110,9 +92,20 @@ type tcgProducts struct {
 	} `json:"results"`
 }
 
+// RefreshCatalog brings the catalog at path up to date from base when it's stale or force is
+// set, and saves it. A refresh that fails after fetching sets still saves them.
+func RefreshCatalog(ctx context.Context, client *http.Client, base, path string, now time.Time, force bool) (Refreshed, error) {
+	c, err := LoadCatalog(path)
+	if err != nil || (!force && !c.Stale(now)) {
+		return Refreshed{}, err
+	}
+	n, err := c.Refresh(ctx, client, base, now)
+	return saveRefreshed(c, path, n, len(c.Cards), err)
+}
+
 // Refresh fetches the sets that changed since the catalog last saw them. It returns how many
 // sets it fetched.
-func (c *Catalog) Refresh(ctx context.Context, client *http.Client, base string) (int, error) {
+func (c *Catalog) Refresh(ctx context.Context, client *http.Client, base string, now time.Time) (int, error) {
 	var groups tcgGroups
 	if err := getJSON(ctx, client, base+"/groups", &groups); err != nil {
 		return 0, err
@@ -131,7 +124,7 @@ func (c *Catalog) Refresh(ctx context.Context, client *http.Client, base string)
 		c.Groups[id] = g.ModifiedOn
 		fetched++
 	}
-	c.Fetched = time.Now()
+	c.Fetched = now
 	return fetched, nil
 }
 
@@ -160,18 +153,9 @@ func (c *Catalog) addProducts(p tcgProducts) {
 }
 
 func getJSON(ctx context.Context, client *http.Client, url string, v any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	body, err := fetch.Get(ctx, client, url, 64<<20)
 	if err != nil {
-		return err
+		return fmt.Errorf("cards: %w", err)
 	}
-	req.Header.Set("User-Agent", userAgent)
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("cards: %s: %s", url, resp.Status)
-	}
-	return json.NewDecoder(io.LimitReader(resp.Body, 64<<20)).Decode(v)
+	return json.Unmarshal(body, v)
 }

@@ -5,11 +5,14 @@ import (
 	"slices"
 	"time"
 
+	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/store"
 )
 
-// MinGames is the fewest games a rate is shown for. Below it the UI shows "too few".
+// MinGames is the fewest games a rate is shown for.
 const MinGames = 5
+
+// Every slice of games stats takes is newest first, as the store gives them.
 
 type Result int
 
@@ -28,9 +31,12 @@ type Match struct {
 	// TurnOrderKnown is false for logs that don't say who went first.
 	TurnOrderKnown bool
 	Ranked         bool
+	// RankedGuess is IsRanked's guess, which Ranked is unless the user set the game's type.
+	// LobbyGames is how many stored games were played in its lobby.
+	RankedGuess bool
+	LobbyGames  int
 }
 
-// LobbySizes counts the games played in each lobby.
 func LobbySizes(games []store.Game) map[string]int {
 	sizes := make(map[string]int)
 	for _, g := range games {
@@ -50,9 +56,7 @@ func IsRanked(g store.Game, lobbySizes map[string]int) bool {
 	return g.Match > 0 || (g.Lobby.InRoom() && lobbySizes[g.Lobby.Code] == 1)
 }
 
-// CanBeRanked reports whether a game could have been ranked. The joiner's log has the room code
-// without its room letter when the sim's ranked panel joined, so the match number counts too.
-func CanBeRanked(g store.Game) bool { return g.Lobby.InRoom() || g.Match > 0 }
+func CanBeRanked(g store.Game) bool { return simlog.CouldBeRanked(g.Lobby, g.Match) }
 
 // Matches turns stored games into matches for the local player, keeping the store's order.
 // me is the user's names. A game with more than one of them is from the first one's side.
@@ -71,7 +75,8 @@ func Matches(games []store.Game, me ...string) []Match {
 		if !ok {
 			continue
 		}
-		m := Match{Game: g, Me: mine, Ranked: IsRanked(g, sizes)}
+		guess := IsRanked(g, sizes)
+		m := Match{Game: g, Me: mine, Ranked: guess, RankedGuess: guess, LobbyGames: sizes[g.Lobby.Code]}
 		if CanBeRanked(g) && g.Type != store.TypeGuessed {
 			m.Ranked = g.Type == store.TypeRanked
 		}
@@ -108,14 +113,36 @@ func (r *Record) Add(res Result) {
 	}
 }
 
+func (m Match) result() Result { return m.Result }
+
+func RecordOf[G interface{ result() Result }](gs []G) Record {
+	var r Record
+	for _, g := range gs {
+		r.Add(g.result())
+	}
+	return r
+}
+
+func (r Record) Plus(o Record) Record {
+	return Record{Wins: r.Wins + o.Wins, Losses: r.Losses + o.Losses}
+}
+
 func (r Record) Games() int { return r.Wins + r.Losses }
 
-// Rate is the win rate from 0 to 1. ok is false below MinGames.
+func (r Record) Enough() bool { return r.Games() >= MinGames }
+
 func (r Record) Rate() (rate float64, ok bool) {
-	if r.Games() < MinGames {
+	if !r.Enough() {
 		return 0, false
 	}
-	return float64(r.Wins) / float64(r.Games()), true
+	return r.Share(), true
+}
+
+func (r Record) Share() float64 {
+	if r.Games() == 0 {
+		return 0
+	}
+	return float64(r.Wins) / float64(r.Games())
 }
 
 // likelyZ is the normal quantile for an 80% two-sided range.
@@ -166,11 +193,8 @@ type Point struct {
 	Wins int
 }
 
-// RollingWindow is how many games the rolling win rate averages.
 const RollingWindow = 20
 
-// Overview is the local player's play across every leader: today, the week, each day played and
-// their decks.
 type Overview struct {
 	// Deck is the leader of the local player's latest game.
 	Deck  string
@@ -202,7 +226,6 @@ type Day struct {
 	Played time.Duration
 }
 
-// Deck is one of the local player's leaders, in short.
 type Deck struct {
 	Leader string
 	Record Record
@@ -210,39 +233,42 @@ type Deck struct {
 	Last time.Time
 }
 
-// Leader is everything about one of the local player's leaders.
 type Leader struct {
-	Leader    string
-	Record    Record
+	Leader string
+	Record Record
+	// TurnOrder counts the games of either turn order, so both halves show whatever the turn
+	// filter.
 	TurnOrder TurnOrder
 	// Rolling is the win rate over the last RollingWindow games with it, oldest first. It
 	// starts once there are that many games.
 	Rolling []Point
 	// Matchups is the opponents' leaders faced with it, most played first.
 	Matchups []LeaderRecord
-	Recent   []Match
 	// First and Last are when the first and the latest game with it ended.
 	First, Last time.Time
 }
 
-// ForLeader summarizes the matches, given newest first, played with one leader.
-func ForLeader(ms []Match, leader string) Leader {
+// ForLeader summarizes the matches played with one leader. Everything but TurnOrder counts
+// only the games turn keeps.
+func ForLeader(ms []Match, leader string, turn TurnOrderFilter) Leader {
 	l := Leader{Leader: leader}
 	var games []Match
 	for _, m := range ms {
 		if m.Me.Leader != leader {
 			continue
 		}
+		l.TurnOrder.Add(m)
+		if !turn.keeps(m) {
+			continue
+		}
 		games = append(games, m)
 		l.Record.Add(m.Result)
-		l.TurnOrder.Add(m)
 	}
 	if len(games) == 0 {
 		return l
 	}
 	l.Rolling = rolling(games)
 	l.Matchups = byLeader(games, func(m Match) (string, bool) { return m.Opp.Leader, true })
-	l.Recent = games[:min(len(games), 10)]
 	l.Last, l.First = games[0].PlayedAt, games[len(games)-1].PlayedAt
 	return l
 }
@@ -250,20 +276,23 @@ func ForLeader(ms []Match, leader string) Leader {
 // Matchup is the local player's games with one of their leaders against one opposing leader.
 type Matchup struct {
 	// Leader is the opponent's leader.
-	Leader    string
-	Record    Record
+	Leader string
+	Record Record
+	// TurnOrder counts the games of either turn order, like Leader's.
 	TurnOrder TurnOrder
-	// Games are newest first.
-	Games []Match
+	Games     []Match
+	// WinTurns and LossTurns are the average turns of the wins and of the losses, rounded.
+	WinTurns, LossTurns int
+	Lethal, Conceded    int
 }
 
-// Matchups groups the matches, given newest first, played with one leader by the opponent's
-// leader, most played first.
-func Matchups(ms []Match, leader string) []Matchup {
+// Matchups groups the matches played with one leader by the opponent's leader, most played
+// first. Everything but TurnOrder counts only the games turn keeps.
+func Matchups(ms []Match, leader string, turn TurnOrderFilter) []Matchup {
 	idx := make(map[string]int)
 	var out []Matchup
 	for _, m := range ms {
-		if m.Me.Leader != leader || m.Opp.Leader == "" {
+		if m.Me.Leader != leader || m.Opp.Leader == "" || !turn.keeps(m) {
 			continue
 		}
 		i, seen := idx[m.Opp.Leader]
@@ -274,11 +303,43 @@ func Matchups(ms []Match, leader string) []Matchup {
 		}
 		mu := &out[i]
 		mu.Record.Add(m.Result)
-		mu.TurnOrder.Add(m)
 		mu.Games = append(mu.Games, m)
+	}
+	for _, m := range ms {
+		if i, ok := idx[m.Opp.Leader]; ok && m.Me.Leader == leader {
+			out[i].TurnOrder.Add(m)
+		}
+	}
+	for i := range out {
+		out[i].ends()
 	}
 	slices.SortStableFunc(out, func(a, b Matchup) int { return b.Record.Games() - a.Record.Games() })
 	return out
+}
+
+func (mu *Matchup) ends() {
+	var winTurns, lossTurns int
+	for _, m := range mu.Games {
+		switch m.Result {
+		case Win:
+			winTurns += m.Turns
+		case Loss:
+			lossTurns += m.Turns
+		}
+		switch m.End.Kind {
+		case simlog.EndLethal:
+			mu.Lethal++
+		case simlog.EndConcede:
+			mu.Conceded++
+		}
+	}
+	avg := func(sum, n int) int {
+		if n == 0 {
+			return 0
+		}
+		return (sum + n/2) / n
+	}
+	mu.WinTurns, mu.LossTurns = avg(winTurns, mu.Record.Wins), avg(lossTurns, mu.Record.Losses)
 }
 
 // Leaders is every leader the local player played, most played first.
@@ -286,7 +347,6 @@ func Leaders(ms []Match) []LeaderRecord {
 	return byLeader(ms, func(m Match) (string, bool) { return m.Me.Leader, true })
 }
 
-// BuildOverview summarizes matches given newest first.
 func BuildOverview(ms []Match, now time.Time) Overview {
 	var o Overview
 	if len(ms) == 0 {
@@ -312,8 +372,8 @@ func BuildOverview(ms []Match, now time.Time) Overview {
 		}
 		o.Decks[i].Record.Add(m.Result)
 	}
-	o.Days = days(ms)
-	if d := o.Days[0]; d.Date.Equal(dayStart(now)) {
+	o.Days = Days(ms)
+	if d := o.Days[0]; d.Date.Equal(DayStart(now)) {
 		for _, m := range d.Matches {
 			o.Today = append(o.Today, m.Result)
 		}
@@ -324,23 +384,24 @@ func BuildOverview(ms []Match, now time.Time) Overview {
 	return o
 }
 
-func dayStart(t time.Time) time.Time {
+// DayStart is the midnight that starts t's day, in t's location.
+func DayStart(t time.Time) time.Time {
 	y, mo, d := t.Date()
 	return time.Date(y, mo, d, 0, 0, 0, 0, t.Location())
 }
 
 // WeekStart is the Monday midnight that starts t's week.
 func WeekStart(t time.Time) time.Time {
-	day := dayStart(t)
+	day := DayStart(t)
 	return day.AddDate(0, 0, -((int(day.Weekday()) + 6) % 7))
 }
 
-// days groups matches given newest first by the day they ended on.
-func days(ms []Match) []Day {
+// Days groups matches by the day they ended on, latest first.
+func Days(ms []Match) []Day {
 	var out []Day
 	for i := len(ms) - 1; i >= 0; i-- {
 		m := ms[i]
-		date := dayStart(m.PlayedAt)
+		date := DayStart(m.PlayedAt)
 		if len(out) == 0 || !out[len(out)-1].Date.Equal(date) {
 			out = append(out, Day{Date: date})
 		}
@@ -445,7 +506,6 @@ const (
 	CasualGames
 )
 
-// Filter keeps the matches of one game type, in order.
 func Filter(ms []Match, t GameType) []Match {
 	if t == AllGames {
 		return ms
@@ -473,8 +533,6 @@ func (f TurnOrderFilter) keeps(m Match) bool {
 	return f == EitherTurn || m.TurnOrderKnown && m.WentFirst == (f == GoingFirst)
 }
 
-// Scope is which matches the pages show: a game type, one deck or all of them, a turn order and
-// a start.
 type Scope struct {
 	Type GameType
 	Turn TurnOrderFilter
@@ -488,7 +546,6 @@ type Scope struct {
 	Until time.Time
 }
 
-// Apply keeps the matches in the scope, in order.
 func (s Scope) Apply(ms []Match) []Match {
 	if s == (Scope{}) {
 		return ms
@@ -513,18 +570,12 @@ const (
 	WorstFirst
 )
 
-// SortMatchups orders leader records. Best and worst go by raw win rate, with more games first
+// SortMatchups orders leader records. Best and worst go by Share, with more games first
 // among equal rates.
 func SortMatchups(lrs []LeaderRecord, by MatchupOrder) []LeaderRecord {
 	out := slices.Clone(lrs)
-	raw := func(r Record) float64 {
-		if r.Games() == 0 {
-			return 0
-		}
-		return float64(r.Wins) / float64(r.Games())
-	}
 	slices.SortStableFunc(out, func(a, b LeaderRecord) int {
-		ra, rb := raw(a.Record), raw(b.Record)
+		ra, rb := a.Record.Share(), b.Record.Share()
 		switch {
 		case by == BestFirst && ra != rb:
 			return cmpFloat(rb, ra)
@@ -546,19 +597,6 @@ func cmpFloat(a, b float64) int {
 	default:
 		return 0
 	}
-}
-
-// SplitBySample splits leader records into those with at least MinGames games and the rest,
-// keeping their order.
-func SplitBySample(lrs []LeaderRecord) (enough, few []LeaderRecord) {
-	for _, lr := range lrs {
-		if lr.Record.Games() >= MinGames {
-			enough = append(enough, lr)
-		} else {
-			few = append(few, lr)
-		}
-	}
-	return enough, few
 }
 
 // Versus is the local player's history for a game about to be played.

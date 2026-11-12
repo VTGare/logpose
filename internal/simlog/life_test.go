@@ -1,9 +1,44 @@
 package simlog
 
 import (
+	"strings"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+var _ = Describe("TurnPlayer", func() {
+	turns := func(lines []string) []string {
+		lines = append(lines,
+			by(alice, "Draw 1 Don"),
+			by(alice, "End Turn"),
+			by(bob, "Draw 1 Card"),
+			by(bob, "End Turn"),
+			by(alice, "Draw 1 Card"),
+			by(bob, "Concedes!"),
+		)
+		g := parse(logOf(lines...))[0]
+		var out []string
+		for t := range 5 {
+			out = append(out, g.TurnPlayer(t))
+		}
+		return out
+	}
+
+	It("names who ended each turn, and goes by turn order for the turn the game ended in", func() {
+		Expect(turns(lobby("XNJ8M66"))).To(Equal([]string{"", "Alice#1111", "Bob#2222", "Alice#1111", "Bob#2222"}))
+	})
+
+	It("names nobody for a turn no one ended when the log doesn't say who went first", func() {
+		var lines []string
+		for _, l := range lobby("XNJ8M66") {
+			if !strings.Contains(l, "Chose to go") {
+				lines = append(lines, l)
+			}
+		}
+		Expect(turns(lines)).To(Equal([]string{"", "Alice#1111", "Bob#2222", "", ""}))
+	})
+})
 
 var _ = Describe("LifeByTurn", func() {
 	It("gives each player's life at the start and at the end of every turn", func() {

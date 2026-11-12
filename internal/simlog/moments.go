@@ -1,16 +1,12 @@
 package simlog
 
-import (
-	"slices"
-	"strings"
-)
+import "slices"
 
 type ReasonKind int
 
 const (
 	// ReasonRemoved is Player removing the other player's characters, as many as Moment.Removed.
 	ReasonRemoved ReasonKind = iota + 1
-	// ReasonLifeLost is Player losing N life in the turn.
 	ReasonLifeLost
 	ReasonAtOne
 	ReasonAtZero
@@ -35,13 +31,18 @@ type Moment struct {
 	// Line is the index in Game.Lines of the turn's first line.
 	Line    int
 	Reasons []Reason
-	// Played is the cards the turn's player put on the board, characters and stages, in order.
-	Played []string
+	// Played is the cards the turn's player put on the board, characters and stages, in order,
+	// and Characters the characters among them.
+	Played     []string
+	Characters []string
 	// Removed is the other player's characters that left the board.
 	Removed []string
 	// Board is the turn's player's characters at its end, in the order they came onto the
-	// board.
+	// board. Its last New cards came onto it in the turn.
 	Board []string
+	New   int
+	// Gone is the cards in Played that weren't on the board at the turn's end.
+	Gone []string
 }
 
 // Removing characters is a moment at bigRemovals of bigPower or more, or at anyRemovals of
@@ -88,22 +89,27 @@ func (g *Game) Moments(power func(code string) int) []Moment {
 	return out
 }
 
-// addCards fills each turn's played and removed cards and its player's board, from the moves.
+type onBoard struct {
+	card string
+	turn int
+}
+
 func (g *Game) addCards(ms []Moment) {
 	owners := g.owners()
-	boards := make(map[string][]string)
+	boards := make(map[string][]onBoard)
 	for _, mv := range g.Moves {
-		m := &ms[g.moveTurn(mv)]
+		m := &ms[g.TurnOf(mv.Line)]
 		owner := owners[mv.Owner]
 		mine := owner == m.Player
 		leaves := mv.From == ZoneCharacter && mv.To != ZoneCharacter
+		enters := mv.To == ZoneCharacter && mv.From != ZoneCharacter
 		if leaves {
-			if i := slices.Index(boards[owner], mv.Card); i >= 0 {
-				boards[owner] = slices.Delete(slices.Clone(boards[owner]), i, i+1)
+			if i := slices.IndexFunc(boards[owner], func(b onBoard) bool { return b.card == mv.Card }); i >= 0 {
+				boards[owner] = slices.Delete(boards[owner], i, i+1)
 			}
 		}
-		if mv.To == ZoneCharacter && mv.From != ZoneCharacter {
-			boards[owner] = append(slices.Clone(boards[owner]), mv.Card)
+		if enters {
+			boards[owner] = append(boards[owner], onBoard{mv.Card, m.Turn})
 		}
 		if !mine {
 			if leaves {
@@ -111,11 +117,39 @@ func (g *Game) addCards(ms []Moment) {
 			}
 			continue
 		}
-		m.Board = boards[owner]
-		if (mv.To == ZoneCharacter || mv.To == ZoneStage) && mv.From != mv.To {
+		m.Board, m.New = m.Board[:0], 0
+		for _, b := range boards[owner] {
+			m.Board = append(m.Board, b.card)
+			if b.turn == m.Turn {
+				m.New++
+			}
+		}
+		if enters || (mv.To == ZoneStage && mv.From != ZoneStage) {
 			m.Played = append(m.Played, mv.Card)
 		}
+		if enters {
+			m.Characters = append(m.Characters, mv.Card)
+		}
 	}
+	for t := range ms {
+		ms[t].Gone = gone(ms[t].Played, ms[t].Board[len(ms[t].Board)-ms[t].New:])
+	}
+}
+
+func gone(played, stayed []string) []string {
+	left := make(map[string]int)
+	for _, code := range stayed {
+		left[code]++
+	}
+	var out []string
+	for _, code := range played {
+		if left[code] > 0 {
+			left[code]--
+		} else {
+			out = append(out, code)
+		}
+	}
+	return out
 }
 
 func addRemovals(ms []Moment, power func(code string) int) {
@@ -164,41 +198,12 @@ func (g *Game) addBoards(ms []Moment, id string) {
 	}
 }
 
-// owners maps RZ1 owner numbers to player IDs.
 func (g *Game) owners() map[int]string {
 	out := make(map[int]string)
 	for _, p := range g.Players {
 		out[p.Owner] = p.ID()
 	}
 	return out
-}
-
-func (g *Game) moveTurn(mv Move) int {
-	if mv.Line < len(g.Lines) {
-		return g.Lines[mv.Line].Turn
-	}
-	return g.lastTurn()
-}
-
-// TurnPlayer is the ID of whoever ended turn t, or by turn order when the game ended in it.
-func (g *Game) TurnPlayer(t int) string {
-	for _, l := range g.Lines {
-		if l.Turn == t && l.Text == "End Turn" && l.Player != "" && l.Player != "You" {
-			return l.Player
-		}
-	}
-	if g.First == "" || t == 0 {
-		return ""
-	}
-	if t%2 == 1 {
-		return g.First
-	}
-	for _, p := range g.Players {
-		if p.ID() != g.First {
-			return p.ID()
-		}
-	}
-	return ""
 }
 
 type MarkKind int
@@ -228,17 +233,14 @@ func (g *Game) Marks() []Mark {
 		if mv.From != ZoneCharacter || mv.To == ZoneCharacter {
 			continue
 		}
-		t := g.moveTurn(mv)
+		t := g.TurnOf(mv.Line)
 		if owner := owners[mv.Owner]; owner != g.TurnPlayer(t) {
 			out = append(out, Mark{Kind: MarkRemoved, Turn: t, Line: mv.Line, Player: owner, Card: mv.Card})
 		}
 	}
 	for i, l := range g.Lines {
-		if l.Turn == 0 || l.Player == "" || l.Player == "You" || len(l.Cards) == 0 {
-			continue
-		}
-		if strings.HasSuffix(l.Text, ": Activate Trigger") {
-			out = append(out, Mark{Kind: MarkTrigger, Turn: l.Turn, Line: i, Player: l.Player, Card: l.Cards[0]})
+		if l.Turn > 0 && l.Player != "" && l.Kind == LineTrigger {
+			out = append(out, Mark{Kind: MarkTrigger, Turn: l.Turn, Line: i, Player: l.Player, Card: l.Source})
 		}
 	}
 	slices.SortStableFunc(out, func(a, b Mark) int { return a.Line - b.Line })

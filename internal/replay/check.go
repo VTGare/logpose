@@ -3,8 +3,6 @@ package replay
 import (
 	"fmt"
 	"slices"
-	"strconv"
-	"strings"
 
 	"github.com/VTGare/logpose/internal/simlog"
 )
@@ -79,48 +77,27 @@ func countIssues(s *Side, c simlog.Check) []string {
 	return out
 }
 
-// snapshotIssue compares a "Hand: [...]", "Board: [...]", "Trash: [...]" or "Life: N" line with
-// the side. The sim prints them for both players around the end of each turn and after battles.
-// Hand and trash are compared as sets of cards, since effects can reorder them.
-func snapshotIssue(s *Side, text string) (string, bool) {
-	name, list, ok := strings.Cut(text, ": ")
-	if !ok {
-		return "", false
-	}
-	switch name {
+// snapshotIssue compares a printout line with the side. The sim prints them for both players
+// around the end of each turn and after battles. Hand and trash are compared as sets of cards,
+// since effects can reorder them.
+func snapshotIssue(s *Side, l simlog.Line) string {
+	switch l.Printout {
 	case "Hand":
-		return compareCodes(name, Codes(s.Hand), list, true), true
+		return compareCodes(l.Printout, codes(s.Hand), l.Shown, true)
 	case "Trash":
-		return compareCodes(name, Codes(s.Trash), list, true), true
+		return compareCodes(l.Printout, codes(s.Trash), l.Shown, true)
 	case "Board":
-		codes := make([]string, 0, len(s.Characters))
-		for _, c := range s.Characters {
-			codes = append(codes, c.Code)
-		}
-		return compareCodes(name, codes, list, false), true
+		return compareCodes(l.Printout, codes(s.Characters), l.Shown, false)
 	case "Life":
-		n, err := strconv.Atoi(list)
-		if err != nil {
-			return "", false
+		if l.N != len(s.Life) {
+			return fmt.Sprintf("Life %d, board has %d", l.N, len(s.Life))
 		}
-		if n != len(s.Life) {
-			return fmt.Sprintf("Life %d, board has %d", n, len(s.Life)), true
-		}
-		return "", true
 	}
-	return "", false
+	return ""
 }
 
-func compareCodes(name string, have []string, list string, sorted bool) string {
-	inner, ok := strings.CutPrefix(list, "[")
-	if !ok {
-		return ""
-	}
-	inner, _ = strings.CutSuffix(inner, "]")
-	var want []string
-	if inner != "" {
-		want = strings.Split(inner, ",")
-	}
+func compareCodes(name string, have, shown []string, sorted bool) string {
+	want := slices.Clone(shown)
 	got := slices.Clone(have)
 	if sorted {
 		slices.Sort(want)

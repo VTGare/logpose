@@ -13,6 +13,10 @@ import (
 // matchMax was measured with exactly this sampling.
 const gridW, gridH = 16, 22
 
+// gridDir is the folder grids go in, inside the art folder. Grid files carry no version, so
+// a change to gridW, gridH or gridOf needs a new name.
+const gridDir = "grids-1"
+
 type grid [gridW * gridH * 3]uint8
 
 // matchMax is the largest distance at which two pictures are the same art. Stamp versions of
@@ -34,7 +38,6 @@ func gridOf(img image.Image) grid {
 	return g
 }
 
-// distance is the mean squared difference of the 0–255 channels.
 func distance(a, b grid) float64 {
 	sum := 0
 	for i := range a {
@@ -47,8 +50,7 @@ func distance(a, b grid) float64 {
 var errNoGrid = errors.New("arts: no picture to compare")
 
 // gridStore keeps one file per key, <dir>/<key>.grid. A grid is written once, through a temp
-// file and a rename, so two writers write the same bytes and a crash leaves no half file. The
-// dir name carries the sampling's version, and a new sampling starts a new dir.
+// file and a rename, so two writers write the same bytes and a crash leaves no half file.
 type gridStore struct {
 	dir string
 

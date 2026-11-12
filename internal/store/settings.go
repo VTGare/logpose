@@ -11,63 +11,12 @@ import (
 )
 
 const (
-	// SettingSimDir is the sim's folder, saved whenever logpose finds it, so it's known the next
-	// time logpose starts without the sim running.
-	SettingSimDir = "sim_dir"
-	// SettingSimDirChosen is a sim folder the user picked. It wins over the folder logpose
-	// finds.
-	SettingSimDirChosen = "sim_dir_chosen"
 	// SettingYou is the user's names, one per line. Empty means the name in the most games.
 	SettingYou = "you"
-	// SettingTheme is "dark" or "light". Empty follows Windows.
-	SettingTheme = "theme"
-	// SettingColorblind is "1" for blue and orange wins and losses.
-	SettingColorblind = "colorblind"
-	// SettingCloseQuits is "1" when closing the window quits logpose.
-	SettingCloseQuits = "close_quits"
-	// SettingStartHidden is "1" when a start with Windows stays in the tray.
-	SettingStartHidden = "start_hidden"
-	// SettingSidebarWidth is the sidebar's width in DIPs. Empty means the default.
-	SettingSidebarWidth = "sidebar_width"
-	// SettingCardPanelWidth is the width in DIPs of the Cards page's card panel. Empty means
-	// the default.
-	SettingCardPanelWidth = "card_panel_width"
-	// SettingCardSort is the Cards page's sort, a key such as "cost", with " reversed" after it
-	// for the key's other direction. Empty means by set.
-	SettingCardSort = "card_sort"
-	// SettingCardList is "1" when the Cards page shows a list instead of images.
-	SettingCardList = "card_list"
-	// SettingArtOff is "1" when card art isn't downloaded. Empty means it is.
-	SettingArtOff = "art_off"
-	// SettingArtCap is how many MB of large card images are kept. Empty means the default.
-	SettingArtCap = "art_cap_mb"
-	// SettingShortcutsOffered is "1" once the user answered the offer of shortcuts.
-	SettingShortcutsOffered = "shortcuts_offered"
-	// SettingDeckChanges is "1" when a build's list marks the cards changed from the list before.
-	SettingDeckChanges = "deck_show_changes"
-	// SettingFolded is the IDs of the tiles the user collapsed, comma separated.
-	SettingFolded = "folded_tiles"
-	// SettingTables is the JSON of each table's sort, column order and widths, by table ID.
-	SettingTables = "tables"
-	// SettingUpdateManual is "1" when updates aren't downloaded until the user asks. Empty means
-	// they download by themselves.
-	SettingUpdateManual = "update_manual"
-	// SettingUpdateChecked is when logpose last asked for a newer version, in Unix ms.
-	SettingUpdateChecked = "update_checked"
-	// SettingLastVersion is the version of logpose that ran last.
-	SettingLastVersion = "last_version"
-	// SettingStartFormat is the format pages start on, StartLatestFormat or StartAllFormats.
-	// Empty means the user hasn't picked.
-	SettingStartFormat = "start_format"
 )
 
-// The values of SettingStartFormat.
-const (
-	StartLatestFormat = "latest"
-	StartAllFormats   = "all"
-)
-
-// Setting returns a setting's value, or "" when it isn't set.
+// Setting returns a setting's value, or "" when it isn't set. Settings are free-form, and only
+// the keys the engine reads are named here.
 func (s *Store) Setting(ctx context.Context, key string) (string, error) {
 	var v string
 	err := s.read.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, key).Scan(&v)
@@ -77,21 +26,33 @@ func (s *Store) Setting(ctx context.Context, key string) (string, error) {
 	return v, err
 }
 
-// Settings returns every setting that is set.
 func (s *Store) Settings(ctx context.Context) (map[string]string, error) {
-	rows, err := s.read.QueryContext(ctx, `SELECT key, value FROM settings`)
+	out := make(map[string]string)
+	err := s.each(ctx, `SELECT key, value FROM settings`, nil, func(rows *sql.Rows) error {
+		var k, v string
+		err := rows.Scan(&k, &v)
+		out[k] = v
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
-	out := make(map[string]string)
-	for rows.Next() {
-		var k, v string
-		if err := rows.Scan(&k, &v); err != nil {
-			return nil, errors.Join(err, rows.Close())
+	return out, nil
+}
+
+// ChangeSetting sets a setting to what change makes of its value, in one transaction.
+func (s *Store) ChangeSetting(ctx context.Context, key string, change func(string) string) error {
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		var cur string
+		err := tx.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, key).Scan(&cur)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
 		}
-		out[k] = v
-	}
-	return out, errors.Join(rows.Err(), rows.Close())
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO settings (key, value) VALUES (?, ?)
+			ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, change(cur))
+		return err
+	})
 }
 
 func (s *Store) SetSetting(ctx context.Context, key, value string) error {
@@ -118,6 +79,9 @@ func (s *Store) LocalPlayers(ctx context.Context) ([]string, error) {
 	return []string{me}, nil
 }
 
+// JoinNames writes names for SettingYou.
+func JoinNames(names []string) string { return strings.Join(names, "\n") }
+
 // SplitNames reads SettingYou.
 func SplitNames(s string) []string {
 	var out []string
@@ -136,20 +100,19 @@ type PlayerCount struct {
 
 // PlayerCounts returns every player with their number of games, most games first.
 func (s *Store) PlayerCounts(ctx context.Context) ([]PlayerCount, error) {
-	rows, err := s.read.QueryContext(ctx, `
-		SELECT player, count(*) FROM game_players GROUP BY player ORDER BY count(*) DESC, player`)
+	var out []PlayerCount
+	err := s.each(ctx, `
+		SELECT player, count(*) FROM game_players GROUP BY player ORDER BY count(*) DESC, player`, nil,
+		func(rows *sql.Rows) error {
+			var p PlayerCount
+			err := rows.Scan(&p.ID, &p.Games)
+			out = append(out, p)
+			return err
+		})
 	if err != nil {
 		return nil, err
 	}
-	var out []PlayerCount
-	for rows.Next() {
-		var p PlayerCount
-		if err := rows.Scan(&p.ID, &p.Games); err != nil {
-			return nil, errors.Join(err, rows.Close())
-		}
-		out = append(out, p)
-	}
-	return out, errors.Join(rows.Err(), rows.Close())
+	return out, nil
 }
 
 // Backup writes a copy of the database to path. VACUUM INTO refuses a file that exists, so it

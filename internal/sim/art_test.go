@@ -6,6 +6,7 @@ import (
 	"image/jpeg"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/VTGare/logpose/internal/sim"
 
@@ -95,6 +96,21 @@ var _ = Describe("SimArt", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(kept).To(HaveLen(2))
 		Expect(os.ReadFile(art.OwnFile("OP07-019"))).To(Equal([]byte("second")))
+	})
+
+	It("offers the user's file kept last when a JPEG and a PNG were kept", func() {
+		Expect(os.WriteFile(path("OP07-019_OVERRIDE.jpg"), []byte("jpeg"), 0o600)).To(Succeed())
+		Expect(art.UseOwn("OP07-019")).To(Succeed())
+		Expect(os.WriteFile(path("OP07-019_OVERRIDE.png"), []byte("png"), 0o600)).To(Succeed())
+		Expect(art.UseOwn("OP07-019")).To(Succeed())
+		jpg := filepath.Join(art.Dir, "kept", "OP07-019_OVERRIDE.jpg")
+		png := filepath.Join(art.Dir, "kept", "OP07-019_OVERRIDE.png")
+		old := time.Now().Add(-time.Hour)
+		Expect(os.Chtimes(jpg, old, old)).To(Succeed())
+		Expect(art.OwnFile("OP07-019")).To(Equal(png))
+
+		Expect(os.Chtimes(png, old.Add(-time.Hour), old.Add(-time.Hour))).To(Succeed())
+		Expect(art.OwnFile("OP07-019")).To(Equal(jpg))
 	})
 
 	It("reports a user's file as the printing it was matched to", func() {

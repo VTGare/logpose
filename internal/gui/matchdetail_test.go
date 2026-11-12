@@ -2,14 +2,26 @@ package gui
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/simlog"
+	"github.com/VTGare/logpose/internal/stats"
+	"github.com/VTGare/logpose/internal/store"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+// hover rests the pointer on the element showing text until its tooltip shows.
+func hover(tt *ui.Tester, text string) {
+	r, ok := tt.Find(text)
+	Expect(ok).To(BeTrue(), text)
+	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Advance(time.Second)
+	tt.Frame()
+}
 
 var _ = Describe("match detail", func() {
 	var fa *fakeActions
@@ -27,10 +39,9 @@ var _ = Describe("match detail", func() {
 		s.Matches[0].Me.Mulliganed = true
 		s.Matches[0].Me.HandAfter = []string{"OP17-058"}
 		s.Matches[0].Opp.HandBefore = []string{"OP17-058"}
-		v, tt := open(s)
+		_, tt := open(s)
 		Expect(tt.Click("Matches")).To(Succeed())
 		Expect(tt.Click("19:00")).To(Succeed())
-		Expect(v.detail.fingerprint).To(Equal("0"))
 		Expect(fa.loaded).To(Equal([]string{"0"}))
 		for _, text := range []string{"Win", "12 turns · Concession", "Opening hands", "You mulliganed", "Sent back", "Opp kept", "went first", "went second", "Reading the log"} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
@@ -38,33 +49,33 @@ var _ = Describe("match detail", func() {
 		Expect(tt.HasText("All games")).To(BeFalse())
 
 		Expect(tt.Click("Back to matches")).To(Succeed())
-		Expect(v.detail.fingerprint).To(BeEmpty())
+		Expect(tt.HasText("Opening hands")).To(BeFalse())
 		Expect(tt.HasText("10 games · 5–5")).To(BeTrue())
 	})
 
 	It("opens a match from its tile on the overview and goes back there", func() {
-		v, tt := open(testSnapshot(1))
+		_, tt := open(testSnapshot(1))
 		Expect(tt.Click("Open the match against Opp")).To(Succeed())
-		Expect(v.page).To(Equal(pageOverview))
-		Expect(v.detail.fingerprint).To(Equal("0"))
+		Expect(tt.HasText("Opening hands")).To(BeTrue())
 		Expect(tt.Click("Back to overview")).To(Succeed())
-		Expect(v.detail.fingerprint).To(BeEmpty())
-		Expect(v.page).To(Equal(pageOverview))
+		Expect(tt.HasText("Opening hands")).To(BeFalse())
+		Expect(tt.HasText("Open the match against Opp")).To(BeTrue())
 	})
 
 	It("closes the match when its page is picked in the sidebar", func() {
-		v, tt := open(testSnapshot(1))
+		_, tt := open(testSnapshot(1))
 		Expect(tt.Click("Open the match against Opp")).To(Succeed())
 		Expect(tt.Click("Overview")).To(Succeed())
-		Expect(v.detail.fingerprint).To(BeEmpty())
+		Expect(tt.HasText("Opening hands")).To(BeFalse())
+		Expect(tt.HasText("Open the match against Opp")).To(BeTrue())
 	})
 
 	It("closes the match when another page is picked", func() {
-		v, tt := open(testSnapshot(1))
+		_, tt := open(testSnapshot(1))
 		Expect(tt.Click("Open the match against Opp")).To(Succeed())
 		Expect(tt.Click("Matches")).To(Succeed())
 		tt.Frame()
-		Expect(v.detail.fingerprint).To(BeEmpty())
+		Expect(tt.HasText("Opening hands")).To(BeFalse())
 		Expect(tt.HasText("Back to overview")).To(BeFalse())
 	})
 
@@ -73,7 +84,7 @@ var _ = Describe("match detail", func() {
 		v.openMatch(v.snap.Matches[1])
 		v.setTimeline(matchTimeline{Fingerprint: "0", Me: []int{9}})
 		tt.Frame()
-		Expect(v.detail.timeline).To(BeNil())
+		Expect(tt.HasText("Reading the log")).To(BeTrue())
 
 		v.setTimeline(matchTimeline{
 			Fingerprint: "1",
@@ -81,7 +92,10 @@ var _ = Describe("match detail", func() {
 			MeHand: []int{5, 6, 4}, OppHand: []int{5, 7, 6},
 			MeBoard: []int{0, 2, 1}, OppBoard: []int{0, 1, 3},
 		})
-		v.detail.lifePoint = 1
+		tt.Frame()
+		chart, ok := tt.Find("Life by turn")
+		Expect(ok).To(BeTrue())
+		tt.Move(chart.X+chart.W/2, chart.Y+chart.H/2)
 		tt.Frame()
 		for _, text := range []string{
 			"Life", "Hand", "Board", "End of turn 1", "You: life 5, hand 6, board 2", "Opp: life 3, hand 7, board 1",
@@ -90,7 +104,8 @@ var _ = Describe("match detail", func() {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
 		Expect(tt.Click("Board")).To(Succeed())
-		Expect(v.detail.flowTab).To(Equal(2))
+		_, board := tt.Find("Board by turn")
+		Expect(board).To(BeTrue())
 	})
 
 	It("bookmarks the match from its page", func() {
@@ -112,13 +127,12 @@ var _ = Describe("match detail", func() {
 	It("shows only bookmarked matches when asked, with a star by the date", func() {
 		s := testSnapshot(3)
 		s.Matches[1].Bookmarked = true
-		v, tt := open(s)
+		_, tt := open(s)
 		Expect(tt.Click("Matches")).To(Succeed())
 		_, starred := tt.Find("Bookmarked")
 		Expect(starred).To(BeTrue())
 		Expect(tt.HasText("3 games · 2–1")).To(BeTrue())
 		Expect(tt.Click("Bookmarked · 1")).To(Succeed())
-		Expect(v.matches.bookmarked).To(Equal(1))
 		Expect(tt.HasText("1 game · 0–1")).To(BeTrue(), fmt.Sprint(tt.Texts()))
 	})
 
@@ -139,7 +153,21 @@ var _ = Describe("match detail", func() {
 		Expect(tt.Click("Auto: Ranked")).To(Succeed())
 		Expect(tt.Click("Friendly")).To(Succeed())
 		Expect(fa.types).To(Equal([]string{"0=2"}))
-		Expect(v.typeNote(s.Matches[0])).To(Equal("Counted as a friendly, as you set it."))
+		hover(tt, "Friendly")
+		Expect(tt.HasText("Counted as a friendly, as you set it.")).To(BeTrue(), fmt.Sprint(tt.Texts()))
+	})
+
+	It("says why the guess counts a game as it does, from every stored game in its lobby", func() {
+		s := testSnapshot(3)
+		g := s.Matches[0].Game
+		g.Fingerprint = "other"
+		ms := stats.Matches([]store.Game{s.Matches[0].Game, g}, me)
+		s.Matches[0] = ms[0]
+		v, tt := open(s)
+		v.openMatch(s.Matches[0])
+		tt.Frame()
+		hover(tt, "Auto: Friendly")
+		Expect(tt.HasText("Counted as a friendly, since its lobby has 2 games.")).To(BeTrue(), fmt.Sprint(tt.Texts()))
 	})
 
 	It("offers no game type choice in a private lobby", func() {
@@ -177,12 +205,11 @@ var _ = Describe("match detail", func() {
 		v, tt := open(s)
 		v.openMatch(s.Matches[1])
 		tt.Frame()
-		Expect(v.detail.note).To(Equal("old note"))
 		Expect(tt.Click("Match note")).To(Succeed())
 		tt.Type(" and more")
 		Expect(tt.Click("Overview")).To(Succeed())
 		Expect(fa.notes).To(Equal([]string{"1=old note and more"}))
-		Expect(v.detail.fingerprint).To(BeEmpty())
+		Expect(tt.HasText("Match note")).To(BeFalse())
 	})
 
 	It("lists key moments with their cards in table talk", func() {
@@ -193,9 +220,12 @@ var _ = Describe("match detail", func() {
 		v.setTimeline(matchTimeline{Fingerprint: "0", Moments: []simlog.Moment{
 			{
 				Turn: 3, Player: me,
-				Reasons: []simlog.Reason{{Kind: simlog.ReasonBoard, Player: me, N: 3}},
-				Played:  []string{"OP13-001", "OP17-058", "OP17-058"},
-				Board:   []string{"OP17-058", "OP13-001"},
+				Reasons:    []simlog.Reason{{Kind: simlog.ReasonBoard, Player: me, N: 3}},
+				Played:     []string{"OP13-001", "OP17-058", "OP17-058"},
+				Characters: []string{"OP13-001", "OP17-058", "OP17-058"},
+				Board:      []string{"OP17-058", "OP13-001"},
+				New:        2,
+				Gone:       []string{"OP17-058"},
 			},
 			{
 				Turn: 4, Player: "Opp#2",
@@ -249,9 +279,11 @@ var _ = Describe("match detail", func() {
 		})
 
 		It("opens the match", func() {
-			v, tt := rightClick()
+			_, tt := rightClick()
 			Expect(choose(tt, "Open match")).To(Succeed())
-			Expect(v.detail.fingerprint).To(Equal("0"))
+			tt.Frame()
+			Expect(tt.HasText("Opening hands")).To(BeTrue())
+			Expect(fa.loaded).To(Equal([]string{"0"}))
 		})
 
 		It("bookmarks the match", func() {
@@ -267,28 +299,31 @@ var _ = Describe("match detail", func() {
 		})
 
 		It("opens the match to write a note", func() {
-			v, tt := rightClick()
+			_, tt := rightClick()
 			Expect(choose(tt, "Add note…")).To(Succeed())
-			Expect(v.detail.fingerprint).To(Equal("0"))
+			Expect(fa.loaded).To(Equal([]string{"0"}))
 			tt.Frame()
 			tt.Type("close game")
-			Expect(v.detail.note).To(Equal("close game"))
+			Expect(tt.Click("Opening hands")).To(Succeed())
+			Expect(fa.notes).To(Equal([]string{"0=close game"}))
 		})
 
 		It("filters to the opponent, shown as a pill that removes it", func() {
-			v, tt := rightClick()
+			_, tt := rightClick()
 			Expect(choose(tt, "Filter to games vs Opp")).To(Succeed())
-			Expect(v.filter.opp).To(Equal("Opp#2"))
 			tt.Frame()
 			Expect(tt.Click("Remove the filter vs Opp")).To(Succeed())
-			Expect(v.filter.opp).To(BeEmpty())
+			_, pill := tt.Find("Remove the filter vs Opp")
+			Expect(pill).To(BeFalse())
 		})
 
 		It("filters to the matchup", func() {
-			v, tt := rightClick()
+			_, tt := rightClick()
 			Expect(choose(tt, "Filter to Monkey D. Luffy vs Kaido")).To(Succeed())
-			Expect(v.filter.deck).To(Equal("OP13-001"))
-			Expect(v.filter.oppLeader).To(Equal("OP17-058"))
+			tt.Frame()
+			_, pill := tt.Find("Remove the filter vs Kaido")
+			Expect(pill).To(BeTrue())
+			Expect(tt.HasText("Monkey D. Luffy")).To(BeTrue())
 		})
 	})
 })

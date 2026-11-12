@@ -46,3 +46,10 @@ var _ = DescribeTable("SearchTargets",
 		"[Counter] Up to 1 of your Leader or Character cards gains +4000 power during this battle.",
 		[]string(nil)),
 )
+
+var _ = Describe("Keywords", func() {
+	It("lists each bracketed word once and folds DON!! counts", func() {
+		effect := "[DON!! x2] [When Attacking] Draw 1 card. [Blocker] [DON!! x1] [When Attacking] K.O. up to 1 of your opponent's Characters."
+		Expect(Keywords(effect)).To(Equal([]string{"DON!!", "When Attacking", "Blocker"}))
+	})
+})

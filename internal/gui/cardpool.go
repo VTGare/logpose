@@ -3,7 +3,6 @@ package gui
 import (
 	"cmp"
 	"maps"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -30,7 +29,6 @@ type cardsState struct {
 	viewed   string
 	// versions is the head key of the art whose version list is open.
 	versions string
-	// viewer is whether the art viewer is open over the page.
 	viewer   bool
 	more     bool
 	wall     ui.ListState
@@ -47,23 +45,68 @@ type cardsState struct {
 // cardChip is a filter picked from the suggestions or More filters, such as a trait. out
 // hides the cards that have the value instead of showing only them.
 type cardChip struct {
-	field string
+	field *chipField
 	value string
 	out   bool
 }
 
-const (
-	chipTrait     = "Trait"
-	chipKeyword   = "Keyword"
-	chipAttribute = "Attribute"
-	chipSet       = "Set"
-	chipRarity    = "Rarity"
-	chipBlock     = "Block"
-	chipLegality  = "Legality"
-	chipCounter   = "Counter"
-)
+// chipField is a kind of chip. suggest offers its values in the search, and more is its place
+// under More filters, where 0 leaves it out.
+type chipField struct {
+	name    string
+	values  func(p *cardPool) []string
+	match   func(pc poolCard, v string) bool
+	suggest bool
+	more    int
+}
 
-var cardKinds = []string{"All", "Leader", "Character", "Event", "Stage"}
+// chipFields are in the order the search suggests them.
+var chipFields = []*chipField{
+	{
+		name: "Trait", suggest: true,
+		values: func(p *cardPool) []string { return p.traits },
+		match:  func(pc poolCard, v string) bool { return slices.Contains(pc.card.Traits, v) },
+	},
+	{
+		name: "Keyword", suggest: true, more: 3,
+		values: func(p *cardPool) []string { return p.keywords },
+		match:  func(pc poolCard, v string) bool { return slices.Contains(pc.keywords, v) },
+	},
+	{
+		name: "Attribute", suggest: true, more: 1,
+		values: func(*cardPool) []string { return []string{"Slash", "Strike", "Ranged", "Special", "Wisdom"} },
+		match:  func(pc poolCard, v string) bool { return slices.Contains(pc.card.Attributes, v) },
+	},
+	{
+		name: "Set", suggest: true,
+		values: func(p *cardPool) []string { return p.sets },
+		match: func(pc poolCard, v string) bool {
+			return slices.ContainsFunc(pc.card.Prints, func(p cards.Print) bool { return p.Set == v })
+		},
+	},
+	{
+		name: "Rarity", suggest: true, more: 6,
+		values: func(p *cardPool) []string { return p.rarities },
+		match:  func(pc poolCard, v string) bool { return pc.card.Rarity == v },
+	},
+	{
+		name: "Counter", more: 2,
+		values: func(*cardPool) []string { return []string{counterChip(0), counterChip(1000), counterChip(2000)} },
+		match:  func(pc poolCard, v string) bool { return counterChip(pc.card.Counter) == v },
+	},
+	{
+		name: "Block", more: 4,
+		values: func(*cardPool) []string { return []string{"1", "2", "3", "4", "5", "X"} },
+		match:  func(pc poolCard, v string) bool { return pc.card.Block == v },
+	},
+	{
+		name: "Legality", more: 5,
+		values: func(*cardPool) []string { return legalityLabels() },
+		match:  func(pc poolCard, v string) bool { return legalityOf(pc.card.Legality).label == v },
+	},
+}
+
+var cardKinds = []string{"All", cards.Leader, cards.Character, cards.Event, cards.Stage}
 
 const maxCost = 10
 
@@ -75,6 +118,7 @@ type cardPool struct {
 	// suggestions are every chip a search can turn into, as "Supernovas · Trait".
 	suggestions []string
 	chips       map[string]cardChip
+	traits      []string
 	keywords    []string
 	sets        []string
 	rarities    []string
@@ -87,9 +131,6 @@ type poolCard struct {
 	keywords []string
 }
 
-// keywordRe finds the bracketed keywords in an effect. "DON!! x2" and the like count as one.
-var keywordRe = regexp.MustCompile(`\[([^\]]+)\]`)
-
 // minKeywordCards is how many cards a bracketed word needs to be offered as a keyword. It
 // leaves out one-off brackets.
 const minKeywordCards = 15
@@ -98,7 +139,7 @@ func newCardPool(db *cards.DB) *cardPool {
 	p := &cardPool{db: db, chips: make(map[string]cardChip)}
 	traits, kw, sets, rarities := make(map[string]bool), make(map[string]int), make(map[string]bool), make(map[string]bool)
 	for _, c := range db.All() {
-		pc := poolCard{card: c, keywords: keywordsOf(c.Effect)}
+		pc := poolCard{card: c, keywords: cards.Keywords(c.Effect)}
 		pc.hay = strings.ToLower(strings.Join([]string{c.Name, c.Code, strings.Join(c.Traits, " "), c.Effect}, "\n"))
 		p.cards = append(p.cards, pc)
 		for _, t := range c.Traits {
@@ -116,7 +157,7 @@ func newCardPool(db *cards.DB) *cardPool {
 			rarities[c.Rarity] = true
 		}
 	}
-	slices.SortStableFunc(p.cards, func(a, b poolCard) int { return compareCodes(a.card.Code, b.card.Code) })
+	slices.SortStableFunc(p.cards, func(a, b poolCard) int { return cards.CompareCodes(a.card.Code, b.card.Code) })
 	names := make(map[string]bool)
 	for _, pc := range p.cards {
 		names[pc.card.Name] = true
@@ -130,64 +171,18 @@ func newCardPool(db *cards.DB) *cardPool {
 	slices.Sort(p.keywords)
 	p.sets = slices.Sorted(maps.Keys(sets))
 	p.rarities = slices.Sorted(maps.Keys(rarities))
-	add := func(field string, values []string) {
-		for _, v := range values {
-			s := v + " · " + field
+	p.traits = slices.Sorted(maps.Keys(traits))
+	for _, f := range chipFields {
+		if !f.suggest {
+			continue
+		}
+		for _, v := range f.values(p) {
+			s := v + " · " + f.name
 			p.suggestions = append(p.suggestions, s)
-			p.chips[s] = cardChip{field: field, value: v}
+			p.chips[s] = cardChip{field: f, value: v}
 		}
 	}
-	add(chipTrait, slices.Sorted(maps.Keys(traits)))
-	add(chipKeyword, p.keywords)
-	add(chipAttribute, attributeNames)
-	add(chipSet, p.sets)
-	add(chipRarity, p.rarities)
 	return p
-}
-
-var attributeNames = []string{"Slash", "Strike", "Ranged", "Special", "Wisdom"}
-
-func keywordsOf(effect string) []string {
-	var out []string
-	for _, m := range keywordRe.FindAllStringSubmatch(effect, -1) {
-		k := m[1]
-		if strings.HasPrefix(k, "DON!!") {
-			k = "DON!!"
-		}
-		if !slices.Contains(out, k) {
-			out = append(out, k)
-		}
-	}
-	return out
-}
-
-// compareCodes puts the newest sets first: main boosters, then extra boosters, premium
-// boosters, starter decks and promos, each by number from the highest, and cards in a set by
-// number.
-func compareCodes(a, b string) int {
-	sa, na := splitCode(a)
-	sb, nb := splitCode(b)
-	return cmp.Or(cmp.Compare(setRank(sa), setRank(sb)), -cmp.Compare(setNumber(sa), setNumber(sb)), cmp.Compare(sa, sb), cmp.Compare(na, nb))
-}
-
-func splitCode(code string) (set string, num int) {
-	set, n, _ := strings.Cut(code, "-")
-	num, _ = strconv.Atoi(n)
-	return set, num
-}
-
-func setRank(set string) int {
-	for i, p := range []string{"OP", "EB", "PRB", "ST", "P"} {
-		if strings.TrimRight(set, "0123456789") == p {
-			return i
-		}
-	}
-	return 9
-}
-
-func setNumber(set string) int {
-	n, _ := strconv.Atoi(strings.TrimLeft(set, "ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
-	return n
 }
 
 // cardSort is the Cards page's order. flip turns the key's first direction around.
@@ -263,7 +258,7 @@ type sortKey struct {
 var sortKeys = []sortKey{
 	{
 		id: sortSet, title: "Set", dirs: [2]string{"By number", "Reversed"}, desc: true,
-		compare: func(a, b cards.Card) int { return compareCodes(a.Code, b.Code) },
+		compare: func(a, b cards.Card) int { return cards.CompareCodes(a.Code, b.Code) },
 	},
 	{
 		id: sortName, title: "Name", dirs: [2]string{"A to Z", "Z to A"},
@@ -272,12 +267,12 @@ var sortKeys = []sortKey{
 	{
 		id: sortCost, title: "Cost", dirs: [2]string{"Lowest first", "Highest first"},
 		compare: func(a, b cards.Card) int { return cmp.Compare(a.Cost, b.Cost) },
-		last:    func(c cards.Card) bool { return c.Cost < 0 },
+		last:    cards.Card.IsLeader,
 	},
 	{
 		id: sortPower, title: "Power", dirs: [2]string{"Highest first", "Lowest first"}, desc: true,
 		compare: func(a, b cards.Card) int { return cmp.Compare(b.Power, a.Power) },
-		last:    func(c cards.Card) bool { return !hasPower(c) },
+		last:    func(c cards.Card) bool { return !c.HasPower() },
 	},
 	{
 		id: sortCounter, title: "Counter", dirs: [2]string{"Highest first", "Lowest first"}, desc: true,
@@ -335,14 +330,14 @@ func sortCards(cs []cards.Card, by cardSort) {
 				return cmp.Compare(boolInt(la), boolInt(lb))
 			}
 			if la {
-				return cmp.Or(k.compare(a, b), compareCodes(a.Code, b.Code))
+				return cmp.Or(k.compare(a, b), cards.CompareCodes(a.Code, b.Code))
 			}
 		}
 		r := k.compare(a, b)
 		if by.flip {
 			r = -r
 		}
-		return cmp.Or(r, compareCodes(a.Code, b.Code))
+		return cmp.Or(r, cards.CompareCodes(a.Code, b.Code))
 	})
 }
 
@@ -358,11 +353,17 @@ func (s *cardsState) results(db *cards.DB, by cardSort) []cards.Card {
 		return s.shown
 	}
 	s.key = key
-	words := strings.Fields(strings.ToLower(s.query))
+	var tests []func(poolCard) bool
+	for _, f := range cardFilters {
+		if f.test == nil || f.key(s) == "" {
+			continue
+		}
+		tests = append(tests, f.test(s))
+	}
 	s.shown = s.shown[:0]
 	s.curve = [maxCost + 1]int{}
 	for _, pc := range s.pool.cards {
-		if !s.matches(pc, words) {
+		if !allPass(tests, pc) {
 			continue
 		}
 		cost := pc.card.Cost
@@ -377,104 +378,114 @@ func (s *cardsState) results(db *cards.DB, by cardSort) []cards.Card {
 	return s.shown
 }
 
-func (s *cardsState) filterKey() string {
-	var b strings.Builder
-	b.WriteString(s.query)
-	for _, c := range s.colors {
-		b.WriteString("|" + string(c))
-	}
-	b.WriteString("|" + strconv.Itoa(s.kind))
-	for _, c := range s.costs {
-		b.WriteString("|c" + strconv.Itoa(c))
-	}
-	for _, c := range s.chips {
-		op := "="
-		if c.out {
-			op = "!="
-		}
-		b.WriteString("|" + c.field + op + c.value)
-	}
-	return b.String()
+// cardFilter is one of the Cards page's filters.
+type cardFilter struct {
+	// key is the filter's part of the results' cache key, or "" while it's off.
+	key func(*cardsState) string
+	// test makes the filter's check for one card. Cost has none, since results checks it after
+	// counting the curve.
+	test  func(*cardsState) func(poolCard) bool
+	clear func(*cardsState)
 }
 
-// matches checks every filter but cost, which results checks after counting the curve.
-func (s *cardsState) matches(pc poolCard, words []string) bool {
-	c := pc.card
-	for _, w := range words {
-		if !strings.Contains(pc.hay, w) {
-			return false
-		}
-	}
-	if len(s.colors) > 0 && !slices.ContainsFunc(c.Colors, func(col cards.Color) bool { return slices.Contains(s.colors, col) }) {
-		return false
-	}
-	if s.kind > 0 && c.Type != cardKinds[s.kind] {
-		return false
-	}
-	byField := make(map[string][]string)
-	for _, ch := range s.chips {
-		if ch.out {
-			if chipMatches(pc, ch.field, ch.value) {
-				return false
+var cardFilters = []cardFilter{
+	{
+		key: func(s *cardsState) string { return s.query },
+		test: func(s *cardsState) func(poolCard) bool {
+			words := strings.Fields(strings.ToLower(s.query))
+			return func(pc poolCard) bool {
+				return !slices.ContainsFunc(words, func(w string) bool { return !strings.Contains(pc.hay, w) })
 			}
-			continue
-		}
-		byField[ch.field] = append(byField[ch.field], ch.value)
+		},
+		clear: func(s *cardsState) { s.query = "" },
+	},
+	{
+		key: func(s *cardsState) string { return joinAll(s.colors, func(c cards.Color) string { return string(c) }) },
+		test: func(s *cardsState) func(poolCard) bool {
+			return func(pc poolCard) bool {
+				return slices.ContainsFunc(pc.card.Colors, func(col cards.Color) bool { return slices.Contains(s.colors, col) })
+			}
+		},
+		clear: func(s *cardsState) { s.colors = nil },
+	},
+	{
+		key: func(s *cardsState) string {
+			if s.kind == 0 {
+				return ""
+			}
+			return cardKinds[s.kind]
+		},
+		test: func(s *cardsState) func(poolCard) bool {
+			return func(pc poolCard) bool { return pc.card.Type == cardKinds[s.kind] }
+		},
+		clear: func(s *cardsState) { s.kind = 0 },
+	},
+	{
+		key:   func(s *cardsState) string { return joinAll(s.costs, strconv.Itoa) },
+		clear: func(s *cardsState) { s.costs = nil },
+	},
+	{
+		key: func(s *cardsState) string {
+			return joinAll(s.chips, func(c cardChip) string {
+				if c.out {
+					return c.field.name + "!=" + c.value
+				}
+				return c.field.name + "=" + c.value
+			})
+		},
+		test:  chipsTest,
+		clear: func(s *cardsState) { s.chips = nil },
+	},
+}
+
+func joinAll[T any](xs []T, str func(T) string) string {
+	parts := make([]string, len(xs))
+	for i, x := range xs {
+		parts[i] = str(x)
 	}
-	for field, values := range byField {
-		if !slices.ContainsFunc(values, func(v string) bool { return chipMatches(pc, field, v) }) {
+	return strings.Join(parts, ",")
+}
+
+func allPass(tests []func(poolCard) bool, pc poolCard) bool {
+	for _, t := range tests {
+		if !t(pc) {
 			return false
 		}
 	}
 	return true
 }
 
-// chipMatches reports whether a card has a filter's value. Values of one field are either-or,
-// fields are all required, and a hidden value rules a card out whatever else it matches.
-func chipMatches(pc poolCard, field, v string) bool {
-	c := pc.card
-	switch field {
-	case chipTrait:
-		return slices.Contains(c.Traits, v)
-	case chipKeyword:
-		return slices.Contains(pc.keywords, v)
-	case chipAttribute:
-		return slices.Contains(c.Attributes, v)
-	case chipSet:
-		return slices.ContainsFunc(c.Prints, func(p cards.Print) bool { return p.Set == v })
-	case chipRarity:
-		return c.Rarity == v
-	case chipBlock:
-		return c.Block == v
-	case chipLegality:
-		return legalityLabel(c.Legality) == v
-	case chipCounter:
-		return counterLabel(c.Counter) == v
+// chipsTest checks the chips. Values of one field are either-or, fields are all required, and a
+// hidden value rules a card out whatever else it matches.
+func chipsTest(s *cardsState) func(poolCard) bool {
+	var out []cardChip
+	byField := make(map[*chipField][]string)
+	for _, ch := range s.chips {
+		if ch.out {
+			out = append(out, ch)
+		} else {
+			byField[ch.field] = append(byField[ch.field], ch.value)
+		}
 	}
-	return false
+	return func(pc poolCard) bool {
+		if slices.ContainsFunc(out, func(ch cardChip) bool { return ch.field.match(pc, ch.value) }) {
+			return false
+		}
+		for field, values := range byField {
+			if !slices.ContainsFunc(values, func(v string) bool { return field.match(pc, v) }) {
+				return false
+			}
+		}
+		return true
+	}
 }
 
-func legalityLabel(l cards.Legality) string {
-	switch l {
-	case cards.Banned:
-		return "Banned"
-	case cards.Restricted:
-		return "Restricted"
-	case cards.Rotated:
-		return "Rotated"
-	case cards.Legal:
-		return "Legal"
-	case cards.Unreleased:
-		return "Upcoming"
+func (s *cardsState) filterKey() string {
+	parts := make([]string, len(cardFilters))
+	for i, f := range cardFilters {
+		parts[i] = f.key(s)
 	}
-	return "Unknown"
-}
-
-func counterLabel(n int) string {
-	if n == 0 {
-		return "No counter"
-	}
-	return "+" + strconv.Itoa(n)
+	return strings.Join(parts, "|")
 }
 
 // takeSuggestion turns the search into a chip when it's one of the suggestions, which is what
@@ -492,7 +503,6 @@ func (s *cardsState) takeSuggestion() bool {
 	return true
 }
 
-// toggleChip adds a chip, or removes the one with its field and value.
 func (s *cardsState) toggleChip(ch cardChip) {
 	if i := s.chipIndex(ch.field, ch.value); i >= 0 {
 		s.chips = slices.Delete(s.chips, i, i+1)
@@ -502,7 +512,7 @@ func (s *cardsState) toggleChip(ch cardChip) {
 }
 
 // cycleChip moves a value from off to shown only, to hidden, and back to off.
-func (s *cardsState) cycleChip(field, value string) {
+func (s *cardsState) cycleChip(field *chipField, value string) {
 	i := s.chipIndex(field, value)
 	switch {
 	case i < 0:
@@ -514,15 +524,14 @@ func (s *cardsState) cycleChip(field, value string) {
 	}
 }
 
-// chipState says whether a value is picked, and if so whether it hides cards.
-func (s *cardsState) chipState(field, value string) (on, out bool) {
+func (s *cardsState) chipState(field *chipField, value string) (on, out bool) {
 	if i := s.chipIndex(field, value); i >= 0 {
 		return true, s.chips[i].out
 	}
 	return false, false
 }
 
-func (s *cardsState) chipIndex(field, value string) int {
+func (s *cardsState) chipIndex(field *chipField, value string) int {
 	return slices.IndexFunc(s.chips, func(c cardChip) bool { return c.field == field && c.value == value })
 }
 
@@ -543,11 +552,13 @@ func (s *cardsState) toggleCost(n int) {
 }
 
 func (s *cardsState) filtered() bool {
-	return s.query != "" || len(s.colors) > 0 || s.kind > 0 || len(s.costs) > 0 || len(s.chips) > 0
+	return slices.ContainsFunc(cardFilters, func(f cardFilter) bool { return f.key(s) != "" })
 }
 
 func (s *cardsState) clear() {
-	s.query, s.colors, s.kind, s.costs, s.chips = "", nil, 0, nil, nil
+	for _, f := range cardFilters {
+		f.clear(s)
+	}
 }
 
 // cardSync is a card refresh in progress, which the Cards page shows. It's zero between

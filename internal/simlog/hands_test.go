@@ -49,11 +49,14 @@ var _ = Describe("opening hands", func() {
 		lines = append(lines, drew(bob, "OP01-055", "ST32-003", "ST32-002", "OP08-036", "OP17-031")...)
 		lines = append(lines, by(alice, "Draw 1 Don"), by(alice, "End Turn"))
 		g := parse(logOf(lines...))[0]
+		draws := 0
 		for _, l := range g.Lines {
 			if strings.HasPrefix(l.Text, "Drew card from deck") {
 				Expect(l.Turn).To(BeZero(), l.Text)
+				draws++
 			}
 		}
+		Expect(draws).To(Equal(5))
 		Expect(g.Mulligans[bobID].Before).To(HaveLen(5))
 	})
 

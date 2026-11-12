@@ -13,14 +13,22 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+// fixture is a rematch log that holds two games.
 func fixture() []simlog.Game {
-	f, err := os.Open(filepath.Join("..", "importer", "testdata", "2026-11-05T15.52.10.log"))
+	f, err := os.Open(filepath.Join("testdata", "rematch.log"))
 	Expect(err).NotTo(HaveOccurred())
 	defer func() { _ = f.Close() }()
 	games, err := simlog.Parse(f)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(games).To(HaveLen(2))
 	return games
+}
+
+// storedByOlderParser makes every stored game look parsed by an older logpose, so Reparse
+// parses it again.
+func storedByOlderParser(ctx context.Context, st *Store) {
+	_, err := st.write.ExecContext(ctx, `UPDATE games SET parser_version = 0`)
+	Expect(err).NotTo(HaveOccurred())
 }
 
 // closed is the game as the sim saves it once it ends, with the END line its .partial.log lacks.
@@ -79,12 +87,10 @@ var _ = Describe("Store", func() {
 
 	It("stores the log compressed", func() {
 		g := fixture()[0]
-		g.Text = strings.Repeat(g.Text, 20)
+		g.Text = strings.Repeat(g.Text, 2000)
 		_, err := st.SaveGame(ctx, &g, src)
 		Expect(err).NotTo(HaveOccurred())
-		var size int
-		Expect(st.read.QueryRowContext(ctx, `SELECT length(log) FROM games`).Scan(&size)).To(Succeed())
-		Expect(size).To(BeNumerically("<", len(g.Text)/5))
+		Expect(st.Size()).To(BeNumerically("<", len(g.Text)/2))
 	})
 
 	It("keeps the card names the logs give", func() {
@@ -120,12 +126,14 @@ var _ = Describe("Store", func() {
 		full := closed(early)
 		_, err := st.SaveGame(ctx, &early, src)
 		Expect(err).NotTo(HaveOccurred())
-		_, err = st.SaveGame(ctx, &full, src)
+		saved, err := st.SaveGame(ctx, &full, src)
 		Expect(err).NotTo(HaveOccurred())
+		Expect(saved).To(Equal(Completed))
 		Expect(st.GameLog(ctx, full.Fingerprint)).To(Equal(full.Text))
 
-		_, err = st.SaveGame(ctx, &early, src)
+		saved, err = st.SaveGame(ctx, &early, src)
 		Expect(err).NotTo(HaveOccurred())
+		Expect(saved).To(Equal(Kept))
 		Expect(st.GameLog(ctx, full.Fingerprint)).To(Equal(full.Text))
 	})
 
@@ -138,8 +146,7 @@ var _ = Describe("Store", func() {
 		Expect(st.SetGameNote(ctx, "stale", "kept 2 counters")).To(Succeed())
 		Expect(st.SetGameType(ctx, "stale", TypeRanked)).To(Succeed())
 		Expect(st.SetBookmark(ctx, "stale", true)).To(Succeed())
-		_, err = st.write.ExecContext(ctx, `UPDATE games SET parser_version = 0`)
-		Expect(err).NotTo(HaveOccurred())
+		storedByOlderParser(ctx, st)
 
 		_, err = st.Reparse(ctx)
 		Expect(err).NotTo(HaveOccurred())
@@ -160,8 +167,7 @@ var _ = Describe("Store", func() {
 		_, err := st.SaveGame(ctx, &stale, src)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(st.SetGameNote(ctx, "stale", "misplay on turn 4")).To(Succeed())
-		_, err = st.write.ExecContext(ctx, `UPDATE games SET parser_version = 0`)
-		Expect(err).NotTo(HaveOccurred())
+		storedByOlderParser(ctx, st)
 		_, err = st.SaveGame(ctx, &full, src)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -172,6 +178,51 @@ var _ = Describe("Store", func() {
 		Expect(list).To(HaveLen(1))
 		Expect(list[0].Note).To(Equal("misplay on turn 4"))
 		Expect(st.GameLog(ctx, full.Fingerprint)).To(Equal(full.Text))
+	})
+
+	It("keeps the old fingerprint's copy when it was saved later in the game", func() {
+		early := fixture()[1]
+		stale := closed(early)
+		stale.Fingerprint = "stale"
+		_, err := st.SaveGame(ctx, &stale, src)
+		Expect(err).NotTo(HaveOccurred())
+		storedByOlderParser(ctx, st)
+		_, err = st.SaveGame(ctx, &early, src)
+		Expect(err).NotTo(HaveOccurred())
+
+		_, err = st.Reparse(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		list, err := st.Games(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(list).To(HaveLen(1))
+		Expect(list[0].Fingerprint).To(Equal(early.Fingerprint))
+		Expect(st.GameLog(ctx, early.Fingerprint)).To(Equal(stale.Text))
+	})
+
+	It("keeps what the user set on both copies when it merges them", func() {
+		stale := fixture()[1]
+		full := closed(stale)
+		stale.Fingerprint = "stale"
+		_, err := st.SaveGame(ctx, &stale, src)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.SetGameNote(ctx, "stale", "misplay on turn 4")).To(Succeed())
+		Expect(st.SetGameType(ctx, "stale", TypeFriendly)).To(Succeed())
+		Expect(st.SetBookmark(ctx, "stale", true)).To(Succeed())
+		storedByOlderParser(ctx, st)
+		_, err = st.SaveGame(ctx, &full, src)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.SetGameNote(ctx, full.Fingerprint, "won at 1 life")).To(Succeed())
+		Expect(st.SetGameType(ctx, full.Fingerprint, TypeRanked)).To(Succeed())
+
+		_, err = st.Reparse(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		list, err := st.Games(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(list).To(HaveLen(1))
+		Expect(list[0].Note).To(Equal("won at 1 life\nmisplay on turn 4"))
+		Expect(list[0].Type).To(Equal(TypeFriendly))
+		Expect(list[0].Bookmarked).To(BeTrue())
+		Expect(list[0].Players).To(HaveLen(2))
 	})
 
 	It("lists games newest first, with their players", func() {
@@ -203,10 +254,11 @@ var _ = Describe("Store", func() {
 
 	It("parses games again after a parser update", func() {
 		g := fixture()[0]
-		_, err := st.SaveGame(ctx, &g, src)
+		misread := g
+		misread.End = simlog.End{}
+		_, err := st.SaveGame(ctx, &misread, src)
 		Expect(err).NotTo(HaveOccurred())
-		_, err = st.write.ExecContext(ctx, `UPDATE games SET parser_version = 0, end_kind = 'unknown', loser = ''`)
-		Expect(err).NotTo(HaveOccurred())
+		storedByOlderParser(ctx, st)
 
 		n, err := st.Reparse(ctx)
 		Expect(err).NotTo(HaveOccurred())
@@ -234,8 +286,7 @@ var _ = Describe("Store", func() {
 		Expect(st.SetGameType(ctx, g.Fingerprint, TypeFriendly)).To(Succeed())
 		Expect(typeOf()).To(Equal(TypeFriendly))
 		Expect(st.SetGameType(ctx, g.Fingerprint, TypeRanked)).To(Succeed())
-		_, err = st.write.ExecContext(ctx, `UPDATE games SET parser_version = 0`)
-		Expect(err).NotTo(HaveOccurred())
+		storedByOlderParser(ctx, st)
 		_, err = st.Reparse(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(typeOf()).To(Equal(TypeRanked))
@@ -261,8 +312,7 @@ var _ = Describe("Store", func() {
 
 		Expect(st.SetGameNote(ctx, g.Fingerprint, "  kept 2 counters\n")).To(Succeed())
 		Expect(noteOf()).To(Equal("kept 2 counters"))
-		_, err = st.write.ExecContext(ctx, `UPDATE games SET parser_version = 0`)
-		Expect(err).NotTo(HaveOccurred())
+		storedByOlderParser(ctx, st)
 		_, err = st.Reparse(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(noteOf()).To(Equal("kept 2 counters"))
@@ -283,8 +333,7 @@ var _ = Describe("Store", func() {
 		Expect(bookmarked()).To(BeFalse())
 		Expect(st.SetBookmark(ctx, g.Fingerprint, true)).To(Succeed())
 		Expect(st.SetBookmark(ctx, g.Fingerprint, true)).To(Succeed())
-		_, err = st.write.ExecContext(ctx, `UPDATE games SET parser_version = 0`)
-		Expect(err).NotTo(HaveOccurred())
+		storedByOlderParser(ctx, st)
 		_, err = st.Reparse(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(bookmarked()).To(BeTrue())
@@ -301,10 +350,10 @@ var _ = Describe("Store", func() {
 	})
 
 	It("keeps settings", func() {
-		Expect(st.Setting(ctx, SettingSimDir)).To(BeEmpty())
-		Expect(st.SetSetting(ctx, SettingSimDir, `E:\Games\OPTCG`)).To(Succeed())
-		Expect(st.SetSetting(ctx, SettingSimDir, `D:\OPTCGSim`)).To(Succeed())
-		Expect(st.Setting(ctx, SettingSimDir)).To(Equal(`D:\OPTCGSim`))
+		Expect(st.Setting(ctx, "sim_dir")).To(BeEmpty())
+		Expect(st.SetSetting(ctx, "sim_dir", `E:\Games\OPTCG`)).To(Succeed())
+		Expect(st.SetSetting(ctx, "sim_dir", `D:\OPTCGSim`)).To(Succeed())
+		Expect(st.Setting(ctx, "sim_dir")).To(Equal(`D:\OPTCGSim`))
 	})
 
 	It("reads the play time of 1.45a logs as UTC", func() {
@@ -336,6 +385,29 @@ var _ = Describe("Store", func() {
 		list, err := st.Games(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(list[0].PlayedAt).To(BeTemporally("==", src.PlayedAt))
+	})
+
+	It("counts the write-ahead log in the database's size", func() {
+		g := fixture()[0]
+		_, err := st.SaveGame(ctx, &g, src)
+		Expect(err).NotTo(HaveOccurred())
+		main, err := os.Stat(path)
+		Expect(err).NotTo(HaveOccurred())
+		wal, err := os.Stat(path + "-wal")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Size()).To(Equal(main.Size() + wal.Size()))
+	})
+
+	It("gives the sim version of the newest game", func() {
+		Expect(st.LatestSimVersion(ctx)).To(BeEmpty())
+		games := fixture()
+		older, newer := games[0], games[1]
+		older.SimVersion, newer.SimVersion = "1.45a", "1.44a"
+		_, err := st.SaveGame(ctx, &newer, Source{File: "b.log", PlayedAt: time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = st.SaveGame(ctx, &older, Source{File: "a.log", PlayedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.LatestSimVersion(ctx)).To(Equal("1.44a"))
 	})
 
 	It("reopens an existing database without applying migrations again", func() {

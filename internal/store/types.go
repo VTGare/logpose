@@ -5,7 +5,6 @@ import (
 	"database/sql"
 )
 
-// GameType is the type the user set for a game.
 type GameType int
 
 const (

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/VTGare/logpose/internal/importer"
@@ -17,6 +16,15 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+// storedByOlderParser makes every game in the database at path look parsed by an older logpose.
+func storedByOlderParser(ctx context.Context, path string) {
+	db, err := sql.Open("sqlite", path)
+	Expect(err).NotTo(HaveOccurred())
+	_, err = db.ExecContext(ctx, `UPDATE games SET parser_version = 0`)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(db.Close()).To(Succeed())
+}
 
 // testdata holds a rematch session as the sim saves it: the first file has game 1, and the
 // second, saved after game 2, has both.
@@ -104,20 +112,35 @@ var _ = Describe("Dir", func() {
 
 		games, err := st.Games(ctx)
 		Expect(err).NotTo(HaveOccurred())
+		Expect(games).To(HaveLen(2))
 		for _, g := range games {
 			text, err := st.GameLog(ctx, g.Fingerprint)
 			Expect(err).NotTo(HaveOccurred())
-			again, err := simlog.Parse(strings.NewReader(text))
+			again, err := simlog.ParseOne(text)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(again).To(HaveLen(1))
-			Expect(again[0].Fingerprint).To(Equal(g.Fingerprint))
+			Expect(again.Fingerprint).To(Equal(g.Fingerprint))
 		}
 	})
 
-	It("finds the local player as the one in the most games", func() {
-		_, err := importer.Dir(ctx, st, "testdata")
+	It("parses again the games an older parser stored", func() {
+		path := filepath.Join(GinkgoT().TempDir(), "old.db")
+		old, err := store.Open(ctx, path)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(st.LocalPlayer(ctx)).To(Equal("Alice#1111"))
+		DeferCleanup(func() { Expect(old.Close()).To(Succeed()) })
+		_, err = importer.Dir(ctx, old, "testdata")
+		Expect(err).NotTo(HaveOccurred())
+		storedByOlderParser(ctx, path)
+
+		r, err := importer.Dir(ctx, old, "testdata")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(r).To(Equal(importer.Result{Files: 2, Games: 3, Reparsed: 2}))
+	})
+
+	It("stops at a log it can't read", func() {
+		dir := GinkgoT().TempDir()
+		Expect(os.Mkdir(filepath.Join(dir, "2026-11-05T15.37.33.log"), 0o700)).To(Succeed())
+		_, err := importer.Dir(ctx, st, dir)
+		Expect(err).To(MatchError(ContainSubstring("2026-11-05T15.37.33.log")))
 	})
 })
 
@@ -160,7 +183,6 @@ var _ = Describe("Watcher", func() {
 		dir := GinkgoT().TempDir()
 		data, err := os.ReadFile(filepath.Join("testdata", "2026-11-05T15.37.33.log"))
 		Expect(err).NotTo(HaveOccurred())
-		// The game needs more moves than go into a fingerprint, so a growing log keeps its own.
 		moves := func(from, to int) []byte {
 			var b []byte
 			for seq := from; seq < to; seq++ {
@@ -169,6 +191,17 @@ var _ = Describe("Watcher", func() {
 			return b
 		}
 		started := append(slices.Clone(data), moves(100, 170)...)
+		grown := append(slices.Clone(started), moves(170, 180)...)
+		ended := append(slices.Clone(grown), "RZ1|END|999|1|opponent_concede|ab12\n"...)
+		// A fingerprint covers only a game's first moves, so all three are copies of one game
+		// once it has enough of them.
+		fingerprint := func(text []byte) string {
+			g, err := simlog.ParseOne(string(text))
+			Expect(err).NotTo(HaveOccurred())
+			return g.Fingerprint
+		}
+		Expect(fingerprint(grown)).To(Equal(fingerprint(started)))
+		Expect(fingerprint(ended)).To(Equal(fingerprint(started)))
 		partial := filepath.Join(dir, "2026-11-05T15.37.33.partial.log")
 		Expect(os.WriteFile(partial, started, 0o600)).To(Succeed())
 
@@ -177,12 +210,10 @@ var _ = Describe("Watcher", func() {
 		go func() { _ = w.Run(ctx) }()
 		Eventually(results).Should(Receive(HaveField("New", 1)))
 
-		grown := append(started, moves(170, 180)...)
 		Expect(os.WriteFile(partial, grown, 0o600)).To(Succeed())
 		Consistently(results, 150*time.Millisecond).ShouldNot(Receive())
 		Expect(st.Games(ctx)).To(HaveLen(1))
 
-		ended := append(grown, "RZ1|END|999|1|opponent_concede|ab12\n"...)
 		Expect(os.WriteFile(filepath.Join(dir, "2026-11-05T15.37.33.log"), ended, 0o600)).To(Succeed())
 		Expect(os.Remove(partial)).To(Succeed())
 		Eventually(results).Should(Receive(And(HaveField("New", 0), HaveField("Updated", 1))))
@@ -202,12 +233,7 @@ var _ = Describe("Watcher", func() {
 		_, err = importer.Dir(ctx, st, dir)
 		Expect(err).NotTo(HaveOccurred())
 
-		// An older logpose stored this game.
-		db, err := sql.Open("sqlite", path)
-		Expect(err).NotTo(HaveOccurred())
-		_, err = db.ExecContext(ctx, `UPDATE games SET parser_version = 0`)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(db.Close()).To(Succeed())
+		storedByOlderParser(ctx, path)
 
 		results := make(chan importer.Result, 4)
 		w := &importer.Watcher{Dir: dir, Store: st, Interval: 20 * time.Millisecond, OnImport: func(r importer.Result) { results <- r }}

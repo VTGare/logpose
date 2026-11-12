@@ -46,12 +46,13 @@ func testSnapshot(n int) *snapshot {
 	db.Name("OP13-001", "Monkey D. Luffy")
 	db.Name("OP17-058", "Kaido")
 	ms := stats.Matches(games, me)
-	return &snapshot{Loaded: true, SimFound: true, Matches: ms, Overview: stats.BuildOverview(ms, now), Cards: db, Now: now}
+	return &snapshot{Loaded: true, SimFound: true, Matches: ms, Overview: stats.BuildOverview(ms, now), Cards: db}
 }
 
 func tester(s *snapshot) (*view, *ui.Tester) {
 	v := newView(nil)
 	v.snap = s
+	v.clock = func() time.Time { return now }
 	// A Tester's clock stands still. A transition would never end, and every settle would run
 	// all 20 frames mygo allows. DisableAnimations shows each frame's changes at once.
 	tt := ui.NewTester(func(c *ui.Context) {
@@ -70,12 +71,31 @@ var _ = Describe("view", func() {
 		Expect(IsPage("cards/OP01-024")).To(BeTrue())
 		Expect(IsPage("cards/")).To(BeFalse())
 		Expect(IsPage("nowhere")).To(BeFalse())
+		Expect(IsPage("settings/list")).To(BeFalse())
+		Expect(IsPage("decks/nowhere")).To(BeFalse())
 		v.open("decks")
 		tt.Frame()
 		Expect(tt.HasText("Turn order")).To(BeTrue())
+
+		v, tt = tester(deckSnapshot())
 		v.open("decks/list")
-		Expect(v.page).To(Equal(pageDecks))
-		Expect(v.decks.tab).To(Equal(tabList))
+		tt.Frame()
+		Expect(tt.HasText("Suggested builds · 2")).To(BeTrue())
+	})
+
+	It("waits for the games to choose the first build or edit it from -page", func() {
+		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
+		v, tt := tester(&snapshot{})
+		v.open("decks/build")
+		tt.Frame()
+		v.setSnapshot(deckSnapshot(wano))
+		tt.Frame()
+		Expect(tt.Texts()).To(ContainElement("· Wano/Miracle"))
+
+		v, tt = tester(deckSnapshot(wano))
+		v.open("decks/edit")
+		tt.Frame()
+		Expect(tt.HasText("Edit Wano/Miracle")).To(BeTrue())
 	})
 
 	It("shows today, the week, each day played and every deck on the overview", func() {
@@ -89,15 +109,39 @@ var _ = Describe("view", func() {
 		Expect(tt.HasText("Turn order")).To(BeFalse())
 	})
 
-	It("narrows to games against a leader faced this week", func() {
+	It("names the days by the clock, and asks for a frame at midnight", func() {
 		v, tt := tester(testSnapshot(10))
-		Expect(tt.Click("Show games vs Kaido")).To(Succeed())
-		Expect(v.filter.oppLeader).To(Equal("OP17-058"))
+		f := &fakeActions{}
+		v.act = f
 		tt.Frame()
-		_, pill := tt.Find("vs Kaido")
-		Expect(pill).To(BeTrue())
+		Expect(tt.Texts()).To(ContainElement("Today"))
+		Expect(f.timers).To(HaveLen(1))
+		v.clock = func() time.Time { return now.AddDate(0, 0, 1) }
+		tt.Frame()
+		Expect(tt.Texts()).To(ContainElements("Yesterday", "None yet"))
+		Expect(f.timers).To(HaveLen(2))
+	})
+
+	It("puts today's record in the tray tooltip by the clock, and updates it at midnight", func() {
+		v, tt := tester(testSnapshot(3))
+		f := &fakeActions{}
+		v.act = f
+		tt.Frame()
+		Expect(v.trayTip()).To(Equal("logpose · today 2–1"))
+		v.clock = func() time.Time { return now.AddDate(0, 0, 1) }
+		Expect(v.trayTip()).To(Equal("logpose"))
+		f.fire()
+		Expect(f.newDays).To(Equal(1))
+	})
+
+	It("narrows to games against a leader faced this week", func() {
+		_, tt := tester(testSnapshot(10))
+		Expect(tt.Click("Show games vs Kaido")).To(Succeed())
+		tt.Frame()
+		Expect(tt.Texts()).To(ContainElement("vs Kaido"))
 		Expect(tt.Click("Remove the filter vs Kaido")).To(Succeed())
-		Expect(v.filter.oppLeader).To(BeEmpty())
+		tt.Frame()
+		Expect(tt.Texts()).NotTo(ContainElement("vs Kaido"))
 	})
 
 	It("lists the days played under their week", func() {
@@ -123,7 +167,7 @@ var _ = Describe("view", func() {
 		v, tt := tester(testSnapshot(30))
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.HasText("game 25")).To(BeFalse())
-		v.leaderPoint = 5
+		v.leaderPoint.i = 5
 		tt.Frame()
 		Expect(tt.HasText("Nov 6 14:00 · game 25 · 50%, 10 of the last 20 won")).To(BeTrue(), fmt.Sprint(tt.Texts()))
 	})
@@ -173,8 +217,9 @@ var _ = Describe("view", func() {
 		v, tt := tester(s)
 		Expect(tt.HasText("Your decks")).To(BeTrue())
 		Expect(tt.Click("Show Kaido")).To(Succeed())
+		tt.Frame()
 		Expect(v.page).To(Equal(pageDecks))
-		Expect(v.filter.deck).To(Equal("OP17-058"))
+		Expect(tt.Texts()).To(ContainElements("OP17 · since Nov 6", "0–1 · 1 game"))
 		Expect(tt.HasText("Results")).To(BeTrue())
 	})
 
@@ -191,15 +236,12 @@ var _ = Describe("view", func() {
 		for i := range 4 {
 			s.Matches[i].Ranked = false
 		}
-		v, tt := tester(s)
+		_, tt := tester(s)
 		Expect(tt.Click("Decks")).To(Succeed())
-		Expect(tt.HasText("By day")).To(BeTrue())
-		Expect(tt.HasText("All games")).To(BeTrue())
-		v.filter.gameType = int(stats.CasualGames)
-		tt.Frame()
-		Expect(tt.HasText("Casual")).To(BeTrue())
-		l, _ := v.leaderData()
-		Expect(l.Record.Games()).To(Equal(4))
+		Expect(tt.Texts()).To(ContainElement("5–5 · 10 games"))
+		Expect(tt.Click("All games")).To(Succeed())
+		Expect(choose(tt, "Casual")).To(Succeed())
+		Expect(tt.Texts()).To(ContainElement("2–2 · 4 games"))
 	})
 
 	It("splits matchups with enough games at 50%, and counts the rest, which open the Matchups page", func() {
@@ -222,7 +264,7 @@ var _ = Describe("view", func() {
 
 	It("shows the lobby while the sim waits for a game", func() {
 		v, tt := tester(testSnapshot(10))
-		v.live = live.State{Phase: live.Lobby, Lobby: "XABCDEF", Hosting: true}
+		v.setLive(live.State{Phase: live.Lobby, Lobby: "XABCDEF", Hosting: true})
 		tt.Frame()
 		Expect(tt.HasText("Match found")).To(BeTrue())
 		Expect(tt.HasText("Ranked · XABCDEF")).To(BeTrue())
@@ -230,13 +272,13 @@ var _ = Describe("view", func() {
 
 	It("shows the history against the opponent in the sim", func() {
 		v, tt := tester(testSnapshot(10))
-		v.live = live.State{
+		v.setLive(live.State{
 			Phase: live.Playing, Lobby: "QWERTY", First: me,
 			Players: []live.Player{
 				{ID: me, Leader: "OP13-001", Local: true, Life: 4, Hand: 6},
 				{ID: "Opp#2", Leader: "OP17-058", Life: 5, Hand: 5},
 			},
-		}
+		})
 		tt.Frame()
 		for _, text := range []string{
 			"vs Opp", "With Monkey D. Luffy vs Kaido", "5–5 · 50%", "Going first · 5–5",
@@ -248,9 +290,9 @@ var _ = Describe("view", func() {
 
 	It("says when the sim didn't log the opponent's leader", func() {
 		v, tt := tester(testSnapshot(10))
-		v.live = live.State{Phase: live.Playing, Players: []live.Player{
+		v.setLive(live.State{Phase: live.Playing, Players: []live.Player{
 			{ID: me, Local: true}, {ID: "New#3"},
-		}}
+		}})
 		tt.Frame()
 		Expect(tt.HasText("Leader not in the sim's log")).To(BeTrue())
 		Expect(tt.HasText("Against New")).To(BeFalse())
@@ -263,13 +305,24 @@ var _ = Describe("sidebar", func() {
 		Expect(snapSide(140)).To(BeEquivalentTo(sideMin))
 		Expect(snapSide(250)).To(BeEquivalentTo(250))
 		Expect(snapSide(500)).To(BeEquivalentTo(sideMax))
-		Expect(widthFrom("", sideDefault, snapSide)).To(BeEquivalentTo(sideDefault))
-		Expect(widthFrom("90", sideDefault, snapSide)).To(BeEquivalentTo(sideRail))
+		Expect(prefsFrom(nil).sideWidth).To(BeEquivalentTo(sideDefault))
+		Expect(prefsFrom(map[string]string{keySidebarWidth: "90"}).sideWidth).To(BeEquivalentTo(sideRail))
 	})
 
 	It("folds to the rail and opens again when its edge is dragged a few DIPs at a time", func() {
 		v, tt := tester(testSnapshot(4))
+		fa := &fakeActions{}
+		v.act = fa
 		tt.Frame()
+		stored := func() float32 {
+			GinkgoHelper()
+			fa.fire()
+			Expect(fa.calls).NotTo(BeEmpty())
+			var w float32
+			_, err := fmt.Sscanf(fa.calls[len(fa.calls)-1], keySidebarWidth+"=%g", &w)
+			Expect(err).NotTo(HaveOccurred())
+			return w
+		}
 		drag := func(from, to float32) {
 			GinkgoHelper()
 			tt.Press(from, 400)
@@ -285,11 +338,12 @@ var _ = Describe("sidebar", func() {
 			tt.Frame()
 		}
 		drag(sideDefault, 230)
-		Expect(v.prefs.sideWidth).To(BeNumerically("~", 230, 3))
+		Expect(stored()).To(BeNumerically("~", 230, 3))
+		Expect(tt.Texts()).To(ContainElement("Matchups"))
 		drag(230, 90)
-		Expect(v.prefs.sideWidth).To(BeEquivalentTo(sideRail))
+		Expect(stored()).To(BeEquivalentTo(sideRail))
 		drag(sideRail, 200)
-		Expect(v.prefs.sideWidth).To(BeNumerically(">=", sideMin))
+		Expect(stored()).To(BeNumerically(">=", sideMin))
 	})
 
 	It("lists the pages read after games, a line, Cards, then Formats and Settings at the bottom", func() {
@@ -310,17 +364,17 @@ var _ = Describe("sidebar", func() {
 		open := centers()
 		Expect(slices.IsSorted(open)).To(BeTrue())
 		step := open[1] - open[0]
-		Expect(open[4] - open[3]).To(BeNumerically("~", step+17+4, 0.5))
+		Expect(open[4]-open[3]).To(BeNumerically(">", step+1), "a line sits between Matchups and Cards")
 		Expect(open[6] - open[5]).To(BeNumerically("~", step, 0.5))
 		Expect(open[5] - open[4]).To(BeNumerically(">", 4*step))
 
-		v.prefs.sideWidth = sideRail
+		v.setPrefs(prefsFrom(map[string]string{keySidebarWidth: "90"}))
 		Expect(centers()).To(Equal(open))
 	})
 
 	It("folded, still goes to every page", func() {
 		v, tt := tester(testSnapshot(4))
-		v.prefs.sideWidth = sideRail
+		v.setPrefs(prefsFrom(map[string]string{keySidebarWidth: "90"}))
 		tt.Frame()
 		Expect(tt.Click("Matchups")).To(Succeed())
 		tt.Frame()

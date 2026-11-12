@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"slices"
@@ -11,7 +12,6 @@ import (
 	"github.com/VTGare/logpose/internal/arts"
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/sim"
-	"github.com/VTGare/logpose/internal/store"
 )
 
 // The card panel is resized by dragging its edge. Narrower than panelSnap it folds to a strip.
@@ -36,9 +36,6 @@ func snapPanel(w float32) float32 {
 const (
 	tileMin = 128
 	tileGap = 12
-	// largeArtMin is the width from which a card is drawn from the full image. artCard's 240
-	// pixels look soft at 210 DIPs on a scaled display.
-	largeArtMin = 200
 )
 
 var cardColors = []cards.Color{cards.Red, cards.Green, cards.Blue, cards.Purple, cards.Black, cards.Yellow}
@@ -115,8 +112,6 @@ func (v *view) cardsMissing(c *ui.Context) {
 	})
 }
 
-// cardsReading fills the page while the first download runs, ticking off each set as it's
-// read, the latest on top.
 func (v *view) cardsReading(c *ui.Context) {
 	sync := v.cardSync
 	t := c.Theme()
@@ -132,7 +127,7 @@ func (v *view) cardsReading(c *ui.Context) {
 			ui.Column(c).Gap(6).Children(func() {
 				for i, set := range sync.named(5) {
 					ui.Row(c.Key(i)).Gap(8).AlignItems(ui.Center).Children(func() {
-						ui.Icon(c, iconCheck).Size(14, 14).TextColor(winColor)
+						ui.Icon(c, iconCheck).Size(14, 14).TextColor(winColor(t))
 						ui.Text(c, set.Set+" · "+cardCount(set.Cards)).FontSize(13)
 					})
 				}
@@ -157,14 +152,11 @@ func (v *view) cardSplit(c *ui.Context, list, panel func()) {
 	if total <= 0 {
 		total = 900
 	}
-	if v.prefs.panelWidth == 0 {
-		v.prefs.panelWidth = panelDefault
-	}
 	shown := max(total-v.prefs.panelWidth-1, 40)
 	size := shown
 	split := ui.Split(c, &size, list, panel).Grow(1).Basis(0).MinWidth(0)
 	if split.Changed() {
-		v.dragPane(&v.prefs.panelWidth, &v.panelDrag, shown-size, snapPanel, store.SettingCardPanelWidth)
+		v.dragPane(prefPanelWidth, &v.panelDrag, shown-size, snapPanel)
 	}
 	// Bounds is empty on the frame the page comes back, so the old width is kept until then.
 	if b := split.Bounds(); b.W > 0 && b.W != s.splitBox.W {
@@ -173,13 +165,11 @@ func (v *view) cardSplit(c *ui.Context, list, panel func()) {
 	}
 }
 
-// cardSearch searches names, codes, traits and effects as you type, and offers the filters
-// whose names hold what's typed. Picking one turns it into a chip.
 func (v *view) cardSearch(c *ui.Context) {
 	s := &v.cardsUI
 	field := ui.Autocomplete(c, &s.query, s.pool.suggestions).Label("Search cards").
 		Placeholder("Search names, effects and traits")
-	if pageEntered {
+	if v.entered {
 		field.Focus()
 	}
 	if field.Changed() && s.takeSuggestion() {
@@ -187,8 +177,6 @@ func (v *view) cardSearch(c *ui.Context) {
 	}
 }
 
-// quickFilters are the filters used most: colors, type and the cost curve, each a labelled
-// group of toggles.
 func (v *view) quickFilters(c *ui.Context) {
 	s := &v.cardsUI
 	ui.Row(c).Gap(18).Wrap().AlignItems(ui.End).Children(func() {
@@ -251,8 +239,6 @@ func joined(c *ui.Context, n int, item func(int) (string, bool), toggle, draw fu
 	})
 }
 
-// costCurve is a bar per cost, as tall as the number of cards at that cost that match the
-// other filters. Each bar picks its cost.
 func (v *view) costCurve(c *ui.Context) {
 	s := &v.cardsUI
 	t := c.Theme()
@@ -299,9 +285,6 @@ func (v *view) costCurve(c *ui.Context) {
 	})
 }
 
-// chipRow holds More filters, the chips picked from it and the suggestions, the count, the sort
-// and the switch between images and a list. The chips wrap in their own space, and the rest
-// stays on the first line.
 func (v *view) chipRow(c *ui.Context, count int) {
 	ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
 		ui.Row(c).Grow(1).Basis(0).MinWidth(0).Gap(8).Wrap().AlignItems(ui.Center).MinHeight(chipLineH).
@@ -322,15 +305,15 @@ func (v *view) chips(c *ui.Context) {
 		s.more = !s.more
 	}
 	ui.PopoverBase(c, more, &s.more, func(panel ui.Element) {
-		panel.Margin(6, 0, 0, 0).Padding(14).Radius(10).Background(t.Background).Border(1, t.Border).
-			Shadow(0, 12, 32, 0, ui.RGBA(0, 0, 0, 0.45))
+		popover(panel.Margin(6, 0, 0, 0).Padding(14), t)
 		v.moreFilters(c)
 	})
 	for i, ch := range s.chips {
 		b := ui.ButtonBase(c.Key(fmt.Sprint("chip", i, ch.field, ch.value))).Label("Remove "+ch.value).
-			Padding(5, 10, 5, 12).Radius(16).Background(t.Accent.Alpha(0.18)).Border(1, t.Accent).Gap(6).AlignItems(ui.Center)
+			Padding(5, 10, 5, 12).Radius(16).Gap(6).AlignItems(ui.Center)
+		tinted(b, t)
 		if ch.out {
-			b.Background(lossColor.Alpha(0.14)).Border(1, lossColor.Alpha(0.5))
+			b.Background(lossColor(t).Alpha(0.14)).Border(1, lossColor(t).Alpha(0.5))
 		}
 		if b.Clicked() {
 			s.toggleChip(ch)
@@ -371,13 +354,11 @@ func (v *view) viewControls(c *ui.Context, count int) {
 	v.sortPill(c)
 	view := boolInt(v.prefs.cardList)
 	if ui.Segmented(c, &view, "Images", "List").Label("Show as").Changed() {
-		v.prefs.cardList = view == 1
-		v.do(func(a actions) { a.SetSetting(store.SettingCardList, flag(v.prefs.cardList)) })
+		prefCardList.set(v, view == 1)
 	}
 }
 
-// sortPill names the sort and opens a menu of the keys and the two directions. It isn't tinted,
-// since sorting narrows nothing.
+// sortPill isn't tinted, since sorting narrows nothing.
 func (v *view) sortPill(c *ui.Context) {
 	t := c.Theme()
 	by := v.prefs.cardSort
@@ -406,18 +387,17 @@ func (v *view) sortPill(c *ui.Context) {
 }
 
 func (v *view) setCardSort(by cardSort) {
-	v.prefs.cardSort = by
-	v.do(func(a actions) { a.SetSetting(store.SettingCardSort, by.String()) })
+	prefCardSort.set(v, by)
 }
 
 func (v *view) moreFilters(c *ui.Context) {
 	s := &v.cardsUI
 	t := c.Theme()
-	group := func(field string, values []string) {
-		ui.Column(c.Key(field)).Gap(6).Children(func() {
-			ui.Text(c, field).FontSize(12).TextColor(t.TextMuted)
+	group := func(field *chipField) {
+		ui.Column(c.Key(field.name)).Gap(6).Children(func() {
+			ui.Text(c, field.name).FontSize(12).TextColor(t.TextMuted)
 			ui.Row(c).Gap(6).Wrap().MaxWidth(520).Children(func() {
-				for _, val := range values {
+				for _, val := range field.values(s.pool) {
 					on, out := s.chipState(field, val)
 					if filterToggle(c.Key(val), val, on, out).Clicked() {
 						s.cycleChip(field, val)
@@ -427,12 +407,16 @@ func (v *view) moreFilters(c *ui.Context) {
 		})
 	}
 	ui.Column(c).Gap(14).Children(func() {
-		group(chipAttribute, attributeNames)
-		group(chipCounter, []string{"No counter", "+1000", "+2000"})
-		group(chipKeyword, s.pool.keywords)
-		group(chipBlock, []string{"1", "2", "3", "4", "5", "X"})
-		group(chipLegality, []string{"Legal", "Rotated", "Banned", "Restricted", "Upcoming"})
-		group(chipRarity, s.pool.rarities)
+		var more []*chipField
+		for _, f := range chipFields {
+			if f.more > 0 {
+				more = append(more, f)
+			}
+		}
+		slices.SortFunc(more, func(a, b *chipField) int { return cmp.Compare(a.more, b.more) })
+		for _, f := range more {
+			group(f)
+		}
 		ui.Text(c, "Click once to show only these, twice to hide them, three times to clear. For traits and sets, "+
 			"type a few letters in the search box.").FontSize(12).TextColor(faintColor(t)).MaxWidth(520).Wrap()
 	})
@@ -447,9 +431,9 @@ func filterToggle(c *ui.Context, label string, on, out bool) ui.Element {
 		Background(ui.Transparent).Gap(5).AlignItems(ui.Center)
 	switch {
 	case out:
-		b.Background(lossColor.Alpha(0.14)).Border(1, lossColor.Alpha(0.5))
+		b.Background(lossColor(t).Alpha(0.14)).Border(1, lossColor(t).Alpha(0.5))
 	case on:
-		b.Background(t.Accent.Alpha(0.18)).Border(1, t.Accent)
+		tinted(b, t)
 	}
 	return b.Children(func() {
 		col := t.TextMuted
@@ -508,9 +492,8 @@ const captionH = 20
 func tileWidthMin(c *ui.Context) float32 {
 	code, _ := c.MeasureText(0, ui.Span{Text: "PRB02-000", Size: 12, Weight: 500})
 	var tag float32
-	for _, l := range []cards.Legality{cards.Banned, cards.Restricted, cards.Rotated, cards.Unreleased} {
-		name, _ := legalityTag(l)
-		w, _ := c.MeasureText(0, ui.Span{Text: name, Size: 11.5})
+	for _, l := range legalities {
+		w, _ := c.MeasureText(0, ui.Span{Text: l.tag, Size: 11.5})
 		tag = max(tag, w)
 	}
 	// The sim icon is 12 wide, and the row has a 6 gap between each of its four parts.
@@ -520,7 +503,7 @@ func tileWidthMin(c *ui.Context) float32 {
 func (v *view) cardTile(c *ui.Context, card cards.Card, w float32) {
 	s := &v.cardsUI
 	t := c.Theme()
-	h := w * 7 / 5
+	h := cardHeight(w)
 	selected := card.Code == s.selected
 	ui.Column(c).Width(w).Gap(5).Children(func() {
 		box := ui.ButtonBase(c).Label(card.Name+" "+card.Code).Size(w, h).Radius(6).Background(ui.Transparent).
@@ -537,7 +520,7 @@ func (v *view) cardTile(c *ui.Context, card cards.Card, w float32) {
 		}
 		at := box.AnimateTo("lift", up, ui.Animation{Duration: hoverTime})
 		box.Translate(0, -3*at).Shadow(0, 2+8*at, 6+14*at, 0, ui.RGBA(0, 0, 0, 0.3+0.25*at))
-		box.Children(func() { v.printArt(c, card.Code, w, h) })
+		box.Children(func() { v.cardImage(c, card.Code, w).Radius(6) })
 		ui.Row(c).Height(captionH).Gap(6).AlignItems(ui.Center).Children(func() {
 			col := t.TextMuted
 			if selected {
@@ -548,8 +531,8 @@ func (v *view) cardTile(c *ui.Context, card cards.Card, w float32) {
 				ui.Icon(c, iconSim).Size(12, 12).TextColor(simGold).Tooltip("The sim shows other art for this card")
 			}
 			ui.Spacer(c)
-			if tag, tc := legalityTag(card.Legality); tag != "" {
-				ui.Text(c, tag).FontSize(11.5).TextColor(tc).MaxLines(1)
+			if l := legalityOf(card.Legality); l.tag != "" {
+				ui.Text(c, l.tag).FontSize(11.5).TextColor(l.tagColor(t)).MaxLines(1)
 			}
 		})
 		// The selected card is marked by a bar under it, as a selected tab is.
@@ -560,43 +543,60 @@ func (v *view) cardTile(c *ui.Context, card cards.Card, w float32) {
 	})
 }
 
-// legalityTag names what keeps a card out of Standard, under its tile. Bans are red. Rotation
-// and sets not out yet aren't bans, so they're muted.
-func legalityTag(l cards.Legality) (string, ui.Color) {
-	switch l {
-	case cards.Banned:
-		return "Banned", lossColor
-	case cards.Restricted:
-		return "Restricted", warnColor
-	case cards.Rotated:
-		return "Rotated", faintDark
-	case cards.Unreleased:
-		return "Upcoming", oppColor
-	}
-	return "", ui.Color{}
+// legality words a card legality: label is its More filters value, tag names what keeps a
+// card out of Standard under its tile, and badge says it on the card's panel. Bans are red.
+// Rotation and sets not out yet aren't bans, so their tags are muted.
+type legality struct {
+	is                cards.Legality
+	label, tag, badge string
+	tagColor          func(*ui.Theme) ui.Color
+	ink, back         func(*ui.Theme) ui.Color
 }
 
-// printArt is a printing's image, or a block in the card's colors while it loads.
-func (v *view) printArt(c *ui.Context, key string, w, h float32) ui.Element {
-	kind := artFull
-	switch {
-	case w >= largeArtMin:
-		kind = artLarge
-	case w > webSmallWidth:
-		kind = artCard
-	}
-	art := v.art.get(key, kind)
-	if art == nil && kind != artFull {
-		art = v.art.get(key, artFull)
-	}
-	if art == nil {
-		base, _, _ := strings.Cut(key, "_")
-		return ui.Box(c).Size(w, h).Radius(6).Background(colorsOf(v.snap.card(base))[0].Card.Alpha(0.35))
-	}
-	return ui.Image(c, art).Size(w, h).Fit(ui.Cover).Radius(6)
+func themed(col ui.Color) func(*ui.Theme) ui.Color { return func(*ui.Theme) ui.Color { return col } }
+
+// legalities are in the More filters' order.
+var legalities = []legality{
+	{
+		is: cards.Legal, label: "Legal", badge: "Legal in Standard",
+		ink: themed(ui.Hex("#8FD8A3")), back: func(t *ui.Theme) ui.Color { return winColor(t).Alpha(0.14) },
+	},
+	{
+		is: cards.Rotated, label: "Rotated", tag: "Rotated", badge: "Rotated out of Standard", tagColor: themed(faintDark),
+		ink: func(t *ui.Theme) ui.Color { return t.TextMuted }, back: func(t *ui.Theme) ui.Color { return t.Surface },
+	},
+	{
+		is: cards.Banned, label: "Banned", tag: "Banned", badge: "Banned", tagColor: lossColor,
+		ink: themed(hideColor), back: func(t *ui.Theme) ui.Color { return lossColor(t).Alpha(0.16) },
+	},
+	{
+		is: cards.Restricted, label: "Restricted", tag: "Restricted", badge: "Restricted to 1 copy", tagColor: themed(warnColor),
+		ink: themed(warnColor), back: themed(warnColor.Alpha(0.16)),
+	},
+	{
+		is: cards.Unreleased, label: "Upcoming", tag: "Upcoming", badge: "Not out yet", tagColor: themed(oppColor),
+		ink: themed(oppColor), back: themed(oppColor.Alpha(0.14)),
+	},
 }
 
-// cardList shows the cards as rows with their numbers and the start of their text.
+// legalityOf is how a legality reads. One the card data doesn't give has no words.
+func legalityOf(l cards.Legality) legality {
+	for _, e := range legalities {
+		if e.is == l {
+			return e
+		}
+	}
+	return legality{}
+}
+
+func legalityLabels() []string {
+	out := make([]string, len(legalities))
+	for i, l := range legalities {
+		out[i] = l.label
+	}
+	return out
+}
+
 func (v *view) cardRows(c *ui.Context, shown []cards.Card) {
 	s := &v.cardsUI
 	t := c.Theme()
@@ -612,7 +612,7 @@ func (v *view) cardRows(c *ui.Context, shown []cards.Card) {
 		}
 		row.PopoverMenu(v.cardMenu(card))
 		row.Children(func() {
-			v.printArt(c, card.Code, rowArtW, 42)
+			v.cardImage(c, card.Code, rowArtW).Radius(6)
 			ui.Column(c).Width(rowNameW).Children(func() {
 				ui.Text(c, card.Name).FontWeight(600).MaxLines(1).Ellipsis("…")
 				ui.Text(c, card.Code+" · "+card.Type).FontSize(12).TextColor(t.TextMuted)
@@ -620,7 +620,7 @@ func (v *view) cardRows(c *ui.Context, shown []cards.Card) {
 			num := func(s string) { ui.Text(c, s).Width(rowNumW).TextAlign(ui.End) }
 			num(costText(card))
 			num(printedPower(card))
-			num(counterShort(card.Counter))
+			num(counterText(card.Counter, true, "–"))
 			first, _, _ := strings.Cut(card.Effect, "\n")
 			ui.Text(c, first).Grow(1).Basis(0).MinWidth(0).TextColor(t.TextMuted).MaxLines(1).Ellipsis("…")
 		})
@@ -636,8 +636,6 @@ const (
 	rowPadX  = 8
 )
 
-// cardHeader titles the list's columns. Name and Set sit together over the name and the code
-// under it. A click sorts as the pill does.
 func (v *view) cardHeader(c *ui.Context) {
 	t := c.Theme()
 	by := v.prefs.cardSort
@@ -666,31 +664,33 @@ func (v *view) cardHeader(c *ui.Context) {
 }
 
 func costText(c cards.Card) string {
-	if c.Cost < 0 {
+	if c.IsLeader() {
 		return fmt.Sprintf("%d life", c.Life)
 	}
 	return fmt.Sprint(c.Cost)
 }
 
 func printedPower(c cards.Card) string {
-	if !hasPower(c) {
+	if !c.HasPower() {
 		return "–"
 	}
 	return fmt.Sprint(c.Power)
 }
 
-// hasPower is false for events, stages and cards without data. Some characters print 0 power.
-func hasPower(c cards.Card) bool { return c.Type == "Character" || c.Type == "Leader" }
-
-func counterShort(n int) string {
-	if n == 0 {
-		return "–"
+// counterText writes a counter as "+1000", or "+1k" when short. none stands for no counter.
+func counterText(n int, short bool, none string) string {
+	switch {
+	case n == 0:
+		return none
+	case short:
+		return fmt.Sprintf("+%dk", n/1000)
 	}
-	return fmt.Sprintf("+%dk", n/1000)
+	return fmt.Sprintf("+%d", n)
 }
 
-// cardDetail is the selected card: its art beside its name, numbers and legality, then its
-// text, traits and printings.
+// counterChip is a counter as the More filters name it.
+func counterChip(n int) string { return counterText(n, false, "No counter") }
+
 func (v *view) cardDetail(c *ui.Context, card cards.Card) {
 	t := c.Theme()
 	info, loaded := v.simArtFor(card)
@@ -711,9 +711,8 @@ func (v *view) cardDetail(c *ui.Context, card cards.Card) {
 				if art.Clicked() {
 					v.cardsUI.viewer = true
 				}
-				art.Children(func() { v.printArt(c, key, artW, artW*7/5) })
-				// A preview no bigger than the card adds nothing.
-				if artW < previewWidth(c)*0.85 {
+				art.Children(func() { v.cardImage(c, key, artW).Radius(6) })
+				if needsPreview(c, artW) {
 					v.cardPreview(c, art, key)
 				}
 				ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(8).Children(func() {
@@ -728,7 +727,7 @@ func (v *view) cardDetail(c *ui.Context, card cards.Card) {
 					cardStats(c, card)
 				})
 			})
-			v.detailTabs(c, key, ca, info, loaded)
+			v.detailTabs(c, key, len(v.artEntries(card, ca, info, loaded)))
 			if v.cardsUI.tab == tabArt {
 				v.artChoices(c, card, info, loaded)
 				return
@@ -738,17 +737,16 @@ func (v *view) cardDetail(c *ui.Context, card cards.Card) {
 	})
 }
 
-// The card panel's tabs.
 const (
 	tabCard = iota
 	tabArt
 )
 
 // detailTabs switches the panel between the card's text and its art. key is the picture shown
-// large, which the buttons save and copy.
-func (v *view) detailTabs(c *ui.Context, key string, ca arts.CardArts, info simArtInfo, loaded bool) {
+// large, which the buttons save and copy, and pictures how many the Art tab offers.
+func (v *view) detailTabs(c *ui.Context, key string, pictures int) {
 	t := c.Theme()
-	labels := []string{"Card", fmt.Sprintf("Art · %d", artCount(ca, info, loaded))}
+	labels := []string{"Card", fmt.Sprintf("Art · %d", pictures)}
 	ui.Column(c).Children(func() {
 		ui.Row(c).AlignItems(ui.End).Gap(6).Children(func() {
 			v.tabList(c, labels)
@@ -766,7 +764,6 @@ func (v *view) detailTabs(c *ui.Context, key string, ca arts.CardArts, info simA
 	})
 }
 
-// tabList is the panel's tabs, with the chosen one underlined.
 func (v *view) tabList(c *ui.Context, labels []string) {
 	t := c.Theme()
 	s := &v.cardsUI
@@ -787,18 +784,6 @@ func (v *view) tabList(c *ui.Context, labels []string) {
 			})
 		}
 	})
-}
-
-// artCount is how many pictures the Art tab offers.
-func artCount(ca arts.CardArts, info simArtInfo, loaded bool) int {
-	n := len(ca.Arts)
-	if info.ownFile != "" {
-		n++
-	}
-	if loaded && !info.noSim {
-		n++
-	}
-	return n
 }
 
 // simArtLine names the art the sim shows when it isn't the sim's own. A click opens the Art tab.
@@ -828,8 +813,6 @@ func (v *view) simArtLine(c *ui.Context, ca arts.CardArts, info simArtInfo, load
 	})
 }
 
-// cardFacts is the Card tab: the effect, traits, block, set and what the card can't share a
-// deck with.
 func (v *view) cardFacts(c *ui.Context, card cards.Card) {
 	t := c.Theme()
 	if card.Effect != "" {
@@ -853,7 +836,6 @@ func (v *view) cardFacts(c *ui.Context, card cards.Card) {
 	}
 }
 
-// panelStrip is the folded card panel. Clicking it opens the panel again.
 func (v *view) panelStrip(c *ui.Context) {
 	t := c.Theme()
 	b := ui.ButtonBase(c).Label("Show card details").Fill().Margin(0, 0, 18, 8).Radius(10).
@@ -862,8 +844,7 @@ func (v *view) panelStrip(c *ui.Context) {
 		b.Background(t.SurfaceHover)
 	}
 	if b.Clicked() {
-		v.prefs.panelWidth = panelDefault
-		v.savePane(v.prefs.panelWidth, store.SettingCardPanelWidth)
+		prefPanelWidth.set(v, panelDefault)
 	}
 	b.Tooltip("Show card details")
 	b.Children(func() {
@@ -880,20 +861,12 @@ func colorNames(cols []cards.Color) string {
 }
 
 func legalityBadge(c *ui.Context, card cards.Card) {
-	text, col, back := "Legal in Standard", ui.Hex("#8FD8A3"), winColor.Alpha(0.14)
-	switch card.Legality {
-	case cards.Banned:
-		text, col, back = "Banned", ui.Hex("#F29A93"), lossColor.Alpha(0.16)
-	case cards.Restricted:
-		text, col, back = "Restricted to 1 copy", warnColor, warnColor.Alpha(0.16)
-	case cards.Rotated:
-		text, col, back = "Rotated out of Standard", c.Theme().TextMuted, c.Theme().Surface
-	case cards.Unreleased:
-		text, col, back = "Not out yet", oppColor, oppColor.Alpha(0.14)
-	case "":
+	t := c.Theme()
+	l := legalityOf(card.Legality)
+	if l.badge == "" {
 		return
 	}
-	ui.Text(c, text).FontSize(12).TextColor(col).Padding(3, 9).Radius(11).Background(back).AlignSelf(ui.Start)
+	ui.Text(c, l.badge).FontSize(12).TextColor(l.ink(t)).Padding(3, 9).Radius(11).Background(l.back(t)).AlignSelf(ui.Start)
 }
 
 func cardStats(c *ui.Context, card cards.Card) {
@@ -905,28 +878,21 @@ func cardStats(c *ui.Context, card cards.Card) {
 		})
 	}
 	ui.Row(c).Gap(18).Wrap().Children(func() {
-		if card.Cost >= 0 {
+		if !card.IsLeader() {
 			stat(fmt.Sprint(card.Cost), "Cost")
 		} else {
 			stat(fmt.Sprint(card.Life), "Life")
 		}
-		if hasPower(card) {
+		if card.HasPower() {
 			stat(fmt.Sprint(card.Power), "Power")
 		}
-		if card.Type == "Character" {
-			stat(counterLabelShort(card.Counter), "Counter")
+		if card.Type == cards.Character {
+			stat(counterText(card.Counter, false, "–"), "Counter")
 		}
 		if len(card.Attributes) > 0 {
 			stat(strings.Join(card.Attributes, "/"), "Attribute")
 		}
 	})
-}
-
-func counterLabelShort(n int) string {
-	if n == 0 {
-		return "–"
-	}
-	return fmt.Sprintf("+%d", n)
 }
 
 func tags(c *ui.Context, values []string) {

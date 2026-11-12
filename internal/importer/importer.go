@@ -3,13 +3,11 @@ package importer
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"time"
 
-	"github.com/VTGare/logpose/internal/sim"
+	"github.com/VTGare/logpose/internal/simfile"
 	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/store"
 )
@@ -34,27 +32,15 @@ func (r *Result) add(o Result) {
 	r.Reparsed += o.Reparsed
 }
 
-// Dir imports every combat log in the sim's AutoSaved folder, oldest first, so each game keeps
-// the earliest file it was saved in.
+// Dir imports every combat log in the sim's AutoSaved folder, then parses again the games an
+// older parser stored. It stops at the first error.
 func Dir(ctx context.Context, st *store.Store, dir string) (Result, error) {
-	paths, err := filepath.Glob(filepath.Join(dir, "*.log"))
-	if err != nil {
-		return Result{}, err
-	}
-	slices.Sort(paths)
-	var total Result
-	for _, path := range paths {
-		r, err := File(ctx, st, path)
-		if err != nil {
-			return total, fmt.Errorf("importer: %s: %w", filepath.Base(path), err)
-		}
-		total.add(r)
-	}
-	return total, nil
+	w := Watcher{Dir: dir, Store: st}
+	return w.pass(ctx, func(err error) error { return err })
 }
 
 func File(ctx context.Context, st *store.Store, path string) (Result, error) {
-	f, err := sim.OpenShared(path)
+	f, err := simfile.Open(path)
 	if err != nil {
 		return Result{}, err
 	}
@@ -75,10 +61,8 @@ func File(ctx context.Context, st *store.Store, path string) (Result, error) {
 		switch saved {
 		case store.Added:
 			r.New++
-		case store.Replaced:
-			if games[i].Closed {
-				r.Updated++
-			}
+		case store.Completed:
+			r.Updated++
 		}
 	}
 	return r, nil

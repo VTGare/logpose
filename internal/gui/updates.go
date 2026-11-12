@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-
-	"github.com/VTGare/logpose/internal/store"
 )
 
 type updatePhase int
@@ -24,7 +22,6 @@ const (
 	updateFailed
 )
 
-// updateState is where logpose's own update stands.
 type updateState struct {
 	// can is false for copies that can't replace themselves, such as dev builds.
 	can     bool
@@ -41,6 +38,15 @@ type updateState struct {
 // pending is true while a newer version is found, downloading or ready.
 func (u updateState) pending() bool {
 	return u.phase == updateFound || u.phase == updateDownloading || u.phase == updateReady
+}
+
+// busy is true while a check can't start: one is running, or a version is downloading or ready.
+func (u updateState) busy() bool {
+	return u.phase == updateChecking || u.phase == updateDownloading || u.phase == updateReady
+}
+
+func (u updateState) getting() string {
+	return fmt.Sprintf("Getting %s · %d%%", u.next, int(u.done*100))
 }
 
 func (v *view) setUpdate(u updateState) {
@@ -64,7 +70,7 @@ func (v *view) updateBox(c *ui.Context, wide bool) {
 	case updateFound:
 		title, action, icon = u.next+" is out", "Get it", iconSave
 	case updateDownloading:
-		title, action, icon = fmt.Sprintf("Getting %s · %d%%", u.next, int(u.done*100)), "", iconSave
+		title, action, icon = u.getting(), "", iconSave
 	}
 	run := func() {
 		switch u.phase {
@@ -138,8 +144,7 @@ func (v *view) updateNotes(c *ui.Context, anchor ui.Element) {
 	t := c.Theme()
 	u := v.upd
 	ui.PopoverBase(c, anchor, &v.updNotes, func(panel ui.Element) {
-		panel.Margin(0, 0, 6, 0).Padding(14, 16).Radius(10).Background(t.Background).Border(1, t.Border).Width(420).
-			Shadow(0, 12, 32, 0, ui.RGBA(0, 0, 0, 0.45))
+		popover(panel.Margin(0, 0, 6, 0).Padding(14, 16).Width(420), t)
 		ui.Column(c).Gap(6).Children(func() {
 			ui.Text(c, "logpose "+u.next).FontWeight(600)
 			ui.Text(c, "You have "+u.current+".").FontSize(12).TextColor(t.TextMuted)
@@ -184,7 +189,6 @@ func noteLines(md string) []noteLine {
 	return out
 }
 
-// updateSettings is the Updates part of Settings.
 func (v *view) updateSettings(c *ui.Context) {
 	u := v.upd
 	ui.Text(c, "Updates").FontSize(13).FontWeight(600)
@@ -192,7 +196,7 @@ func (v *view) updateSettings(c *ui.Context) {
 		if !u.can {
 			return
 		}
-		b := ui.Button(c, "Check now").Disabled(u.phase == updateChecking || u.phase == updateDownloading || u.phase == updateReady)
+		b := ui.Button(c, "Check now").Disabled(u.busy())
 		if b.Clicked() {
 			v.upd.phase = updateChecking
 			v.do(func(a actions) { a.CheckUpdate() })
@@ -201,8 +205,7 @@ func (v *view) updateSettings(c *ui.Context) {
 	divider(c)
 	auto := !v.prefs.updateManual
 	if switchRow(c, "Download updates by itself", "Off only tells you when there's one", &auto, !u.can) {
-		v.prefs.updateManual = !auto
-		v.do(func(a actions) { a.SetSetting(store.SettingUpdateManual, flag(!auto)) })
+		prefUpdateManual.set(v, !auto)
 	}
 	if u.phase == updateFailed {
 		ui.Text(c, u.err).FontSize(12).TextColor(warnColor).Wrap()
@@ -219,7 +222,7 @@ func (v *view) updateStatus() string {
 	case u.phase == updateFound:
 		return u.next + " is out"
 	case u.phase == updateDownloading:
-		return fmt.Sprintf("Getting %s · %d%%", u.next, int(u.done*100))
+		return u.getting()
 	case u.phase == updateReady:
 		return u.next + " is ready and runs when logpose starts again"
 	case u.phase == updateFailed:
@@ -227,5 +230,5 @@ func (v *view) updateStatus() string {
 	case u.checked.IsZero():
 		return "Not checked yet"
 	}
-	return "Up to date · checked " + dayAndTime(v.snap.Now, u.checked)
+	return "Up to date · checked " + dayAndTime(v.now(), u.checked)
 }

@@ -29,7 +29,7 @@ tasks:
       - PATH="$PWD/scripts:$PATH" go tool mygo build -platform windows/amd64
 
   test:
-    desc: Run the specs (extra go test args after --, e.g. task test -- ./internal/godot/...)
+    desc: Run the specs (extra go test args after --, e.g. task test -- ./internal/store/...)
     cmds:
       - go test -timeout {{.TEST_TIMEOUT}} {{.CLI_ARGS | default "./..."}}
 

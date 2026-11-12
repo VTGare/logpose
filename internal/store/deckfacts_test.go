@@ -15,7 +15,7 @@ import (
 )
 
 func deckGame() simlog.Game {
-	text, err := os.ReadFile(filepath.Join("..", "deck", "testdata", "luffy-samurai.log"))
+	text, err := os.ReadFile(filepath.Join("testdata", "luffy-samurai.log"))
 	Expect(err).NotTo(HaveOccurred())
 	games, err := simlog.Parse(strings.NewReader(string(text)))
 	Expect(err).NotTo(HaveOccurred())
@@ -45,11 +45,15 @@ var _ = Describe("Deck facts", func() {
 				want = f
 			}
 		}
-		_, err = st.SaveGame(ctx, &g, Source{File: "game.log", PlayedAt: time.Now()})
-		Expect(err).NotTo(HaveOccurred())
 	})
 
+	save := func(g *simlog.Game) {
+		_, err := st.SaveGame(ctx, g, Source{File: "game.log", PlayedAt: time.Now()})
+		Expect(err).NotTo(HaveOccurred())
+	}
+
 	It("reads back what the log says each deck did", func() {
+		save(&g)
 		got, err := st.DeckFacts(ctx, "Alice#1111")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got).To(HaveLen(1))
@@ -57,24 +61,26 @@ var _ = Describe("Deck facts", func() {
 	})
 
 	It("reads only the players asked for", func() {
+		save(&g)
 		got, err := st.DeckFacts(ctx, "Bob#2222")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got[g.Fingerprint].Player).To(Equal("Bob#2222"))
 		Expect(got[g.Fingerprint].List).NotTo(Equal(want.List))
 	})
 
-	It("fills them for a game stored before the deck parser", func() {
-		for _, table := range []string{"game_deck_cards", "game_card_events", "game_searches"} {
-			_, err := st.write.ExecContext(ctx, `DELETE FROM `+table)
-			Expect(err).NotTo(HaveOccurred())
-		}
-		_, err := st.write.ExecContext(ctx, `UPDATE games SET parser_version = ?`, simlog.Version)
+	It("fills them for a game stored by a parser that read no deck facts", func() {
+		misread := g
+		misread.Moves = nil
+		save(&misread)
+		got, err := st.DeckFacts(ctx, "Alice#1111")
 		Expect(err).NotTo(HaveOccurred())
+		Expect(got).To(BeEmpty())
+		storedByOlderParser(ctx, st)
 
 		n, err := st.Reparse(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(n).To(Equal(1))
-		got, err := st.DeckFacts(ctx, "Alice#1111")
+		got, err = st.DeckFacts(ctx, "Alice#1111")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got[g.Fingerprint]).To(Equal(want))
 	})

@@ -110,7 +110,6 @@ type comObject struct {
 	vtbl *[32]uintptr
 }
 
-// call runs the method in slot of obj.
 func call(obj *comObject, slot int, args ...uintptr) uintptr {
 	hr, _, _ := syscall.SyscallN(obj.vtbl[slot], append([]uintptr{uintptr(unsafe.Pointer(obj))}, args...)...)
 	return hr

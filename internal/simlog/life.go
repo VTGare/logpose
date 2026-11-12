@@ -37,7 +37,7 @@ func (g *Game) countByTurn(id string, count func(Check) int, dealt bool) []int {
 		if started = started || n > 0; !started {
 			continue
 		}
-		t := c.turn(g)
+		t := g.TurnOf(c.Line)
 		out[t], known[t] = n, true
 	}
 	first := -1
@@ -68,9 +68,34 @@ func (g *Game) lastTurn() int {
 	return g.Lines[len(g.Lines)-1].Turn
 }
 
-func (c Check) turn(g *Game) int {
-	if c.Line < len(g.Lines) {
-		return g.Lines[c.Line].Turn
+// TurnOf is the turn of the line at index i in Lines, as Move.Line and Check.Line give it. An
+// index past the last line is in the last line's turn.
+func (g *Game) TurnOf(i int) int {
+	if i < len(g.Lines) {
+		return g.Lines[i].Turn
 	}
 	return g.lastTurn()
 }
+
+// TurnPlayer is the ID of whoever ended turn t, or by turn order when the game ended in it.
+func (g *Game) TurnPlayer(t int) string {
+	for _, l := range g.Lines {
+		if l.Turn == t && l.Kind == LineEndTurn && l.Player != "" {
+			return l.Player
+		}
+	}
+	if g.First == "" || t == 0 {
+		return ""
+	}
+	if FirstPlayersTurn(t) {
+		return g.First
+	}
+	for _, p := range g.Players {
+		if p.ID() != g.First {
+			return p.ID()
+		}
+	}
+	return ""
+}
+
+func FirstPlayersTurn(t int) bool { return t%2 == 1 }

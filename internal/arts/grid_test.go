@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -21,8 +20,24 @@ type fakePictures struct {
 	pics  map[Key]image.Image
 	reads map[Key]int
 	total atomic.Int32
+	// started counts the reads, including those the gate holds.
+	started atomic.Int32
 	// gate, when set, holds every read until it closes.
 	gate chan struct{}
+}
+
+// waitWatch tells when a caller starts waiting on its context.
+type waitWatch struct {
+	context.Context
+	waiting chan struct{}
+}
+
+func (w waitWatch) Done() <-chan struct{} {
+	select {
+	case w.waiting <- struct{}{}:
+	default:
+	}
+	return w.Context.Done()
 }
 
 func newFakePictures() *fakePictures {
@@ -30,6 +45,7 @@ func newFakePictures() *fakePictures {
 }
 
 func (f *fakePictures) Picture(k Key) (image.Image, error) {
+	f.started.Add(1)
 	if f.gate != nil {
 		<-f.gate
 	}
@@ -109,13 +125,20 @@ var _ = Describe("grids", func() {
 			pics.gate = make(chan struct{})
 			var wg sync.WaitGroup
 			errs := make(chan error, 3)
-			for range 3 {
+			wg.Go(func() {
+				_, err := s.get(context.Background(), k, pics)
+				errs <- err
+			})
+			Eventually(pics.started.Load).Should(Equal(int32(1)))
+			waiting := make(chan struct{}, 2)
+			for range 2 {
 				wg.Go(func() {
-					_, err := s.get(context.Background(), k, pics)
+					_, err := s.get(waitWatch{context.Background(), waiting}, k, pics)
 					errs <- err
 				})
 			}
-			time.Sleep(20 * time.Millisecond)
+			Eventually(waiting).Should(Receive())
+			Eventually(waiting).Should(Receive())
 			close(pics.gate)
 			wg.Wait()
 			close(errs)

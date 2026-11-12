@@ -2,71 +2,61 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/VTGare/logpose/internal/replay"
+	"github.com/VTGare/logpose/internal/simlog"
 )
 
 // replayReport rebuilds every unique game's board and counts where it disagrees with the log.
-func replayReport(dir string, examples int, power func(string) int) error {
-	paths, err := filepath.Glob(filepath.Join(dir, "*.log"))
-	if err != nil {
-		return err
-	}
-	sort.Strings(paths)
-	seen := make(map[string]bool)
+func replayReport(dir string, examples int, power func(string) int, opts []replay.Option) error {
 	var games, clean, countClean, moves, checked, steps, guesses, corrected int
 	kinds := make(map[replay.IssueKind]int)
 	stepKinds := make(map[replay.Kind]int)
 	gamesWith := make(map[replay.IssueKind]int)
 	var shown []string
 	pw := newPowerReport()
-	for _, path := range paths {
-		gs, err := parseFile(path)
-		if err != nil {
-			return err
+	_, err := eachGame(dir, func(file string, i int, g *simlog.Game, seen bool) error {
+		if seen {
+			return nil
 		}
-		for i := range gs {
-			g := &gs[i]
-			if seen[g.Fingerprint] {
-				continue
-			}
-			seen[g.Fingerprint] = true
-			r, err := replay.Build(g, power)
-			if err != nil {
-				fmt.Printf("%s#%d: %v\n", filepath.Base(path), i, err)
-				continue
-			}
-			pw.add(r, fmt.Sprintf("%s#%d", filepath.Base(path), i))
-			games++
-			moves += len(g.Moves)
-			checked += len(g.Checks)
-			steps += len(r.Steps)
-			for _, st := range r.Steps {
-				stepKinds[st.Kind]++
-			}
-			guesses += r.Guesses
-			corrected += r.Corrected
-			if len(r.Issues) == 0 {
-				clean++
-			}
-			if r.Unverified < 0 {
-				countClean++
-			}
-			got := make(map[replay.IssueKind]bool)
-			for _, is := range r.Issues {
-				kinds[is.Kind]++
-				if !got[is.Kind] {
-					got[is.Kind] = true
-					gamesWith[is.Kind]++
-					if len(shown) < examples {
-						shown = append(shown, fmt.Sprintf("%s#%d %s", filepath.Base(path), i, is))
-					}
+		name := fmt.Sprintf("%s#%d", file, i)
+		r, err := replay.Build(g, power, opts...)
+		if err != nil {
+			fmt.Printf("%s: %v\n", name, err)
+			return nil
+		}
+		pw.add(g, r, name)
+		games++
+		moves += len(g.Moves)
+		checked += len(g.Checks)
+		steps += len(r.Steps)
+		for _, st := range r.Steps {
+			stepKinds[st.Kind]++
+		}
+		guesses += r.Guesses
+		corrected += r.Corrected
+		if len(r.Issues) == 0 {
+			clean++
+		}
+		if r.Unverified < 0 {
+			countClean++
+		}
+		got := make(map[replay.IssueKind]bool)
+		for _, is := range r.Issues {
+			kinds[is.Kind]++
+			if !got[is.Kind] {
+				got[is.Kind] = true
+				gamesWith[is.Kind]++
+				if len(shown) < examples {
+					shown = append(shown, fmt.Sprintf("%s %s", name, is))
 				}
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	fmt.Printf("games %d, moves %d, checks %d, steps %d\n", games, moves, checked, steps)
 	fmt.Printf("attacks %d, blocks %d, counters %d, effects during attacks %d, damage steps %d\n",
@@ -86,6 +76,14 @@ func replayReport(dir string, examples int, power func(string) int) error {
 	return nil
 }
 
+var kindNames = map[replay.Kind]string{
+	replay.KindLobby: "lobby", replay.KindOpeningHand: "opening", replay.KindMulligan: "mulligan",
+	replay.KindLife: "life", replay.KindTurnStart: "turn", replay.KindPlay: "play", replay.KindAttach: "attach",
+	replay.KindAttack: "attack", replay.KindBlock: "block", replay.KindCounter: "counter",
+	replay.KindDamage: "damage", replay.KindBattleEffect: "battle effect", replay.KindEffect: "effect",
+	replay.KindConcede: "concede", replay.KindDeckOut: "deck out",
+}
+
 // showSteps prints every step of the games in one log, with each side's counts after it.
 func showSteps(path string) error {
 	gs, err := parseFile(path)
@@ -100,11 +98,8 @@ func showSteps(path string) error {
 		}
 		fmt.Printf("game %d: %d steps, unverified from %d\n", gi, len(r.Steps), r.Unverified)
 		for i, s := range r.Steps {
-			title := s.Title
-			if s.Result != "" {
-				title += " → " + s.Result
-			}
-			fmt.Printf("%3d T%-2d %-6s %-16s %s  [%d moves]\n", i, s.Turn, s.Phase, short(s.Player), title, len(s.Moves))
+			fmt.Printf("%3d T%-2d %-13s %-16s %s  [%d moves]\n", i, s.Turn, kindNames[s.Kind], short(s.Player),
+				strings.Join(s.Cards, " "), len(s.Moves))
 			for o := 1; o <= 2; o++ {
 				fmt.Printf("        %s\n", sideLine(s.Board.Side(o)))
 			}
@@ -117,8 +112,8 @@ func showSteps(path string) error {
 }
 
 func short(id string) string {
-	name, _, _ := strings.Cut(id, "#")
-	return strings.TrimSuffix(name, "\u200b")
+	name, _ := simlog.SplitID(id)
+	return name
 }
 
 func sideLine(s *replay.Side) string {
@@ -127,7 +122,7 @@ func sideLine(s *replay.Side) string {
 		chars = append(chars, cardText(c))
 	}
 	return fmt.Sprintf("%-8s L%s life %d hand %d deck %d trash %d don %d/%d+%d [%s] stage %d",
-		short(s.Player), cardText(s.Leader), len(s.Life), len(s.Hand), s.DeckCount(), len(s.Trash),
+		short(s.Player), cardText(s.Leader), len(s.Life), len(s.Hand), len(s.Deck()), len(s.Trash),
 		s.DonActive(), s.DonRested(), s.DonAttached(), strings.Join(chars, " "), len(s.Stage))
 }
 

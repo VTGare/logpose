@@ -109,6 +109,78 @@ var _ = Describe("Assign", func() {
 	})
 })
 
+var _ = Describe("EditBuild", func() {
+	wano := store.Build{ID: 1, Leader: luffy, Core: []string{"W-1"}}
+	miracle := store.Build{ID: 2, Leader: luffy, Core: []string{"M-1"}}
+	inWano := deckGame(0, true, map[string]int{"W-1": 4})
+	both := deckGame(1, false, map[string]int{"W-1": 4, "M-1": 4})
+	inMiracle := deckGame(2, true, map[string]int{"M-1": 4, "N-1": 4})
+	gs := []stats.DeckGame{inWano, both, inMiracle}
+
+	It("shows the games a build has and the ones it gets with a new core", func() {
+		edited := wano
+		edited.Core = []string{"W-1", "M-1"}
+		e := stats.EditBuild(gs, []store.Build{wano, miracle}, edited)
+		Expect(e.Now).To(Equal(map[string]bool{inWano.Fingerprint: true}))
+		Expect(e.After).To(Equal(map[string]bool{both.Fingerprint: true}))
+		Expect(e.Others).To(Equal(map[string]bool{inMiracle.Fingerprint: true}))
+		Expect(e.Before).To(Equal(record(1, 0)))
+		Expect(e.With).To(Equal(record(0, 1)))
+		Expect(e.Conflicts).To(BeZero())
+	})
+
+	It("previews a new build, counting the games that would fit two builds", func() {
+		e := stats.EditBuild(gs, []store.Build{wano, miracle}, store.Build{Leader: luffy, Core: []string{"N-1"}})
+		Expect(e.Now).To(BeEmpty())
+		Expect(e.After).To(BeEmpty())
+		Expect(e.Conflicts).To(Equal(2))
+	})
+
+	It("counts the games that ran each card", func() {
+		e := stats.EditBuild(gs, nil, wano)
+		Expect(e.Games).To(Equal(map[string]int{"W-1": 2, "M-1": 2, "N-1": 1}))
+		Expect(e.Staples).To(BeEmpty())
+	})
+})
+
+var _ = Describe("Builds", func() {
+	wano := store.Build{ID: 1, Leader: luffy, Core: []string{"W-1"}}
+	miracle := store.Build{ID: 2, Leader: luffy, Core: []string{"M-1"}}
+	searched := func(i int, list map[string]int) stats.DeckGame {
+		g := deckGame(i, true, list)
+		g.Facts.Searches = []deck.Search{{Source: "GARP", Taken: "X-1"}}
+		return g
+	}
+	both := searched(2, map[string]int{"W-1": 4, "M-1": 4, "GARP": 4})
+	inWano := searched(1, map[string]int{"W-1": 4, "GARP": 4})
+	none := searched(0, map[string]int{"GARP": 4})
+	split := stats.Builds([]stats.DeckGame{both, inWano, none}, []store.Build{wano, miracle}, nil,
+		library(cards.Card{Code: "GARP", Name: "Garp", Effect: "Look at 5 cards from the top of your deck; reveal up to 1 {Navy} type card and add it to your hand."}))
+
+	It("says which build each game is in", func() {
+		id, ok := split.In(inWano.Fingerprint)
+		Expect(ok).To(BeTrue())
+		Expect(id).To(Equal(int64(1)))
+		_, ok = split.In(none.Fingerprint)
+		Expect(ok).To(BeFalse())
+		id, ok = split.In(both.Fingerprint)
+		Expect(ok).To(BeTrue())
+		Expect(id).To(BeZero())
+	})
+
+	It("keeps the games in no build, and suggests from those and the ones that fit two builds", func() {
+		Expect(split.Unbuilt).To(HaveLen(1))
+		Expect(split.Suggestions).To(HaveLen(1))
+		Expect(split.Suggestions[0].Games).To(HaveLen(2))
+		Expect(split.Suggestions[0].Games[0].Fingerprint).To(Equal(both.Fingerprint))
+	})
+
+	It("names a suggestion by what its searchers look for, and keys it by its core", func() {
+		Expect(split.Suggestions[0].Name).To(Equal("Navy"))
+		Expect(split.Suggestions[0].Key).To(Equal("GARP"))
+	})
+})
+
 var _ = Describe("Suggest", func() {
 	It("calls a card in 95% of the games a staple", func() {
 		var gs []stats.DeckGame
@@ -152,7 +224,7 @@ var _ = Describe("Suggest", func() {
 			searched(2, map[string]int{"GARP": 4, "OTAMA": 4, "W-1": 2}, "OTAMA"),
 			searched(3, map[string]int{"PLAIN": 4}),
 		}
-		sugs := stats.Suggest(gs, nil)
+		sugs := stats.Builds(gs, nil, nil, library()).Suggestions
 		Expect(sugs).To(HaveLen(2))
 		Expect(sugs[0].Core).To(Equal([]string{"GARP", "OTAMA"}))
 		Expect(sugs[0].Games).To(HaveLen(2))
@@ -166,7 +238,7 @@ var _ = Describe("Suggest", func() {
 			g.Facts.Searches = []deck.Search{{Source: "ATLAS", Taken: "X-1"}, {Source: "LILITH", Taken: "X-1"}}
 			gs = append(gs, g)
 		}
-		sugs := stats.Suggest(gs, nil)
+		sugs := stats.Builds(gs, nil, nil, library()).Suggestions
 		Expect(sugs).To(HaveLen(1))
 		Expect(sugs[0].Games).To(HaveLen(3))
 	})
@@ -174,7 +246,7 @@ var _ = Describe("Suggest", func() {
 	It("leaves out a suggestion the user dismissed", func() {
 		g := deckGame(0, true, map[string]int{"KID": 4})
 		g.Facts.Searches = []deck.Search{{Source: "KID", Taken: "X-1"}}
-		Expect(stats.Suggest([]stats.DeckGame{g}, [][]string{{"KID"}})).To(BeEmpty())
+		Expect(stats.Builds([]stats.DeckGame{g}, nil, [][]string{{"KID"}}, library()).Suggestions).To(BeEmpty())
 	})
 })
 
@@ -203,6 +275,16 @@ var _ = Describe("Cards", func() {
 		cs := stats.Cards([]stats.DeckGame{onTime, late}, lib)
 		Expect(cs[0].OnCurve).To(Equal(record(1, 0)))
 		Expect(cs[0].OffCurve).To(Equal(record(0, 1)))
+	})
+
+	It("says a card cheap enough to be in hand from the opening hand has no curve numbers", func() {
+		g := deckGame(0, true, map[string]int{"BON": 4, "SAM": 4})
+		cs := stats.Cards([]stats.DeckGame{g}, lib)
+		curve := make(map[string]bool)
+		for _, c := range cs {
+			curve[c.Card] = c.Curve
+		}
+		Expect(curve).To(Equal(map[string]bool{"BON": true, "SAM": false}))
 	})
 
 	It("keeps apart the games that ended before the card could be paid for", func() {
@@ -260,10 +342,20 @@ var _ = Describe("Cards", func() {
 		Expect(byCard["SAM"].Shown).To(BeZero())
 	})
 
+	It("says whether a card is in the latest list", func() {
+		old := deckGame(0, true, map[string]int{"OLD": 4, "BON": 4})
+		latest := deckGame(1, true, map[string]int{"BON": 4})
+		cs := stats.Cards([]stats.DeckGame{latest, old}, lib)
+		Expect(cs).To(HaveLen(2))
+		Expect(cs[0].Card).To(Equal("BON"))
+		Expect(cs[0].Latest).To(BeTrue())
+		Expect(cs[1].Latest).To(BeFalse())
+	})
+
 	It("lists the latest list's cards first, characters by cost, events last", func() {
 		old := deckGame(0, true, map[string]int{"OLD": 4})
 		latest := deckGame(1, true, map[string]int{"SAM": 3, "SHA": 4, "BON": 4})
-		cs := stats.Cards([]stats.DeckGame{old, latest}, lib)
+		cs := stats.Cards([]stats.DeckGame{latest, old}, lib)
 		var order []string
 		for _, c := range cs {
 			order = append(order, c.Card)
@@ -293,7 +385,7 @@ var _ = Describe("Changes", func() {
 	It("lists each switch with the copies swapped", func() {
 		a := map[string]int{"BRO": 2, "JIN": 2}
 		b := map[string]int{"JIN": 4}
-		gs := []stats.DeckGame{deckGame(0, true, a), deckGame(1, true, a), deckGame(2, false, b), deckGame(3, true, a)}
+		gs := []stats.DeckGame{deckGame(3, true, a), deckGame(2, false, b), deckGame(1, true, a), deckGame(0, true, a)}
 		ch := stats.Changes(gs)
 		Expect(ch).To(HaveLen(3))
 		Expect(ch[0].Swaps).To(BeEmpty())

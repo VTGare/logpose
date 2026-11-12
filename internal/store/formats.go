@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"time"
 )
@@ -14,28 +15,22 @@ type Format struct {
 	Start time.Time
 }
 
-// SettingDismissedSets is the sets whose new-format suggestion the user dismissed,
-// comma-separated.
-const SettingDismissedSets = "dismissed_sets"
-
 // Formats returns every format, oldest first.
 func (s *Store) Formats(ctx context.Context) ([]Format, error) {
-	rows, err := s.read.QueryContext(ctx, `SELECT id, name, starts_at FROM formats ORDER BY starts_at`)
+	var out []Format
+	err := s.each(ctx, `SELECT id, name, starts_at FROM formats ORDER BY starts_at`, nil,
+		func(rows *sql.Rows) error {
+			var f Format
+			var at int64
+			err := rows.Scan(&f.ID, &f.Name, &at)
+			f.Start = time.UnixMilli(at)
+			out = append(out, f)
+			return err
+		})
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	var out []Format
-	for rows.Next() {
-		var f Format
-		var at int64
-		if err := rows.Scan(&f.ID, &f.Name, &at); err != nil {
-			return nil, err
-		}
-		f.Start = time.UnixMilli(at)
-		out = append(out, f)
-	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // AddFormat starts a format. Two formats can't start at the same moment.
@@ -59,7 +54,8 @@ func (s *Store) DeleteFormat(ctx context.Context, id int64) error {
 	return err
 }
 
-// SetLogFormat records the sim's format for a combat log, by its file name.
+// SetLogFormat records the sim's format for a combat log. file is its base name, as in
+// Source.File.
 func (s *Store) SetLogFormat(ctx context.Context, file, simFormat string) error {
 	_, err := s.write.ExecContext(ctx, `
 		INSERT INTO log_formats (source_file, sim_format) VALUES (?, ?)

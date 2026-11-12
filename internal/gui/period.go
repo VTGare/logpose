@@ -12,7 +12,6 @@ import (
 // periodCustom is filters.period for a range of days the user picked.
 const periodCustom = -1
 
-// periodState is the period panel's state.
 type periodState struct {
 	open bool
 	// month is the first day of the left of the two months shown.
@@ -23,13 +22,7 @@ type periodState struct {
 	cursor time.Time
 }
 
-// day is t's local midnight.
-func day(t time.Time) time.Time {
-	y, m, d := t.Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.Local)
-}
-
-func (v *view) today() time.Time { return day(v.snap.Now) }
+func (v *view) today() time.Time { return stats.DayStart(v.now()) }
 
 // customEnd is the last day of the custom period.
 func (v *view) customEnd() time.Time {
@@ -49,22 +42,9 @@ func (v *view) periodBounds() (since, until time.Time) {
 		return f.from, f.to.AddDate(0, 0, 1)
 	}
 	if d := periods[f.period].days; d > 0 {
-		since = v.snap.Now.AddDate(0, 0, -d)
+		since = v.now().AddDate(0, 0, -d)
 	}
 	return since, time.Time{}
-}
-
-// shortDay is "Oct 25", with the year when it isn't this one.
-func (v *view) shortDay(d time.Time) string {
-	if d.Year() != v.snap.Now.Year() {
-		return d.Format("Jan 2, 2006")
-	}
-	return d.Format("Jan 2")
-}
-
-// longDay is "Sun Oct 25", with the year when it isn't this one.
-func (v *view) longDay(d time.Time) string {
-	return d.Format("Mon ") + v.shortDay(d)
 }
 
 func (v *view) periodLabel() string {
@@ -73,20 +53,18 @@ func (v *view) periodLabel() string {
 	case f.period != periodCustom:
 		return periods[f.period].label
 	case f.ongoing:
-		return "Since " + v.shortDay(f.from)
+		return "Since " + v.date(f.from)
 	case f.from.Equal(f.to):
-		return v.longDay(f.from)
+		return v.weekday(f.from)
 	}
-	return v.shortDay(f.from) + " – " + v.shortDay(f.to)
+	return span(v.date(f.from), v.date(f.to))
 }
 
-// setRange sets a custom period from the first to the last day.
 func (v *view) setRange(first, last time.Time) {
 	v.filter.period = periodCustom
 	v.filter.from, v.filter.to = first, last
 	v.filter.ongoing = false
 	v.periodUI.anchor = false
-	v.resetPoints()
 }
 
 // pickDay is a click on a day in the calendar. The first click picks one day and the second
@@ -109,7 +87,6 @@ func (v *view) pickDay(d time.Time) {
 		v.setRange(d, d)
 	}
 	p.anchor = !f.ongoing
-	v.resetPoints()
 }
 
 func (v *view) setOngoing(on bool) {
@@ -120,7 +97,6 @@ func (v *view) setOngoing(on bool) {
 	f.ongoing = on
 	f.to = v.today()
 	v.periodUI.anchor = false
-	v.resetPoints()
 }
 
 // openPeriod shows the months holding the end of the period, or this month.
@@ -138,11 +114,8 @@ func (v *view) openPeriod() {
 // playDays is the record of each day played, in the filters' scope without the period.
 func (v *view) playDays() map[time.Time]stats.Record {
 	out := make(map[time.Time]stats.Record)
-	for _, m := range v.scopeAnyPeriod().Apply(v.snap.Matches) {
-		d := day(m.PlayedAt)
-		r := out[d]
-		r.Add(m.Result)
-		out[d] = r
+	for _, d := range stats.Days(v.scopeAnyPeriod().Apply(v.snap.Matches)) {
+		out[d.Date] = d.Record
 	}
 	return out
 }
@@ -158,8 +131,7 @@ func (v *view) periodPill(c *ui.Context) {
 	}
 	ui.PopoverBase(c, el, &p.open, func(panel ui.Element) {
 		t := c.Theme()
-		panel.Margin(6, 0, 0, 0).Padding(10).Radius(10).Background(t.Background).Border(1, t.Border).
-			Shadow(0, 12, 32, 0, ui.RGBA(0, 0, 0, 0.45))
+		popover(panel.Margin(6, 0, 0, 0).Padding(10), t)
 		v.periodKeys(panel)
 		ui.Row(c).Gap(10).AlignItems(ui.Stretch).Children(func() {
 			v.periodPresets(c)
@@ -192,7 +164,7 @@ func (v *view) periodKeys(panel ui.Element) {
 func (v *view) shiftMonths(n int) {
 	p := &v.periodUI
 	m := p.month.AddDate(0, n, 0)
-	if last := time.Date(v.snap.Now.Year(), v.snap.Now.Month()-1, 1, 0, 0, 0, 0, time.Local); m.After(last) {
+	if last := time.Date(v.now().Year(), v.now().Month()-1, 1, 0, 0, 0, 0, time.Local); m.After(last) {
 		m = last
 	}
 	p.month = m
@@ -218,7 +190,6 @@ func (v *view) periodPresets(c *ui.Context) {
 				v.filter.period = i
 				v.filter.from, v.filter.to, v.filter.ongoing = time.Time{}, time.Time{}, false
 				v.periodUI.open = false
-				v.resetPoints()
 			}
 		}
 		ui.Box(c).Height(1).Background(t.Border).Margin(4, 4)
@@ -260,7 +231,7 @@ func (v *view) periodCalendar(c *ui.Context) {
 			monthArrow(c, "Earlier month", iconPrevStep, false, func() { v.shiftMonths(-1) })
 			v.month(c.Key("m0"), p.month, played)
 			v.month(c.Key("m1"), p.month.AddDate(0, 1, 0), played)
-			atEnd := !p.month.AddDate(0, 1, 0).Before(time.Date(v.snap.Now.Year(), v.snap.Now.Month(), 1, 0, 0, 0, 0, time.Local))
+			atEnd := !p.month.AddDate(0, 1, 0).Before(time.Date(v.now().Year(), v.now().Month(), 1, 0, 0, 0, 0, time.Local))
 			monthArrow(c, "Later month", iconNextStep, atEnd, func() { v.shiftMonths(1) })
 		})
 		ui.Row(c).Gap(12).AlignItems(ui.Center).Padding(10, 0, 0, 0).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
@@ -291,20 +262,16 @@ func (v *view) periodSummary(c *ui.Context, played map[time.Time]stats.Record) {
 		return
 	}
 	end := v.customEnd()
-	name := v.longDay(f.from)
-	switch {
-	case f.ongoing:
-		name = "Since " + name
-	case !end.Equal(f.from):
-		name += " – " + v.longDay(end)
+	name := span(v.weekday(f.from), v.weekday(end))
+	if f.ongoing {
+		name = "Since " + v.weekday(f.from)
 	}
 	var r stats.Record
 	n := 0
 	for d, dr := range played {
 		if !d.Before(f.from) && !d.After(end) {
 			n++
-			r.Wins += dr.Wins
-			r.Losses += dr.Losses
+			r = r.Plus(dr)
 		}
 	}
 	ui.Text(c, name).FontSize(13).Bold()
@@ -346,8 +313,7 @@ func (v *view) month(c *ui.Context, first time.Time, played map[time.Time]stats.
 				ui.Text(c, d).FontSize(11).TextColor(faintColor(t)).Width(calCell).TextAlign(ui.Center)
 			}
 		})
-		lead := (int(first.Weekday()) + 6) % 7
-		start := first.AddDate(0, 0, -lead)
+		start := stats.WeekStart(first)
 		for w := range 6 {
 			ui.Row(c.Key(w)).Children(func() {
 				for i := range 7 {
@@ -406,7 +372,7 @@ func (v *view) dayCell(c *ui.Context, d time.Time, played map[time.Time]stats.Re
 	t := c.Theme()
 	sp := v.spot(d)
 	future := d.After(v.today())
-	b := ui.ButtonBase(c).Label("Pick "+v.longDay(d)).Size(calCell, 40).Background(ui.Transparent).Disabled(future)
+	b := ui.ButtonBase(c).Label("Pick "+v.weekday(d)).Size(calCell, 40).Background(ui.Transparent).Disabled(future)
 	sp.shape(b, t, b.Hovered() && !future)
 	if d.Equal(v.periodUI.cursor) && b.Focused() {
 		b.Border(1, t.Accent)
@@ -430,7 +396,7 @@ func (v *view) dayCell(c *ui.Context, d time.Time, played map[time.Time]stats.Re
 		switch {
 		case ok:
 			num.FontWeight(600)
-			ui.Text(c, record(r)).FontSize(10).FontWeight(500).TextColor(recordInk(r, sp.edge()))
+			ui.Text(c, record(r)).FontSize(10).FontWeight(500).TextColor(recordInk(t, r, sp.edge()))
 		case d.Equal(v.today()):
 			dot := t.Accent
 			if sp.edge() {
@@ -442,12 +408,12 @@ func (v *view) dayCell(c *ui.Context, d time.Time, played map[time.Time]stats.Re
 }
 
 // recordInk is a day's record in the result's color, or dark on the accent.
-func recordInk(r stats.Record, onFill bool) ui.Color {
+func recordInk(t *ui.Theme, r stats.Record, onFill bool) ui.Color {
 	switch {
 	case onFill:
 		return onAccent
 	case r.Losses > r.Wins:
-		return lossColor
+		return lossColor(t)
 	}
-	return winColor
+	return winColor(t)
 }

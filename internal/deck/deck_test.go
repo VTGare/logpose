@@ -52,7 +52,7 @@ var _ = Describe("Read", func() {
 	It("tells plays the player paid for from cards an effect put out", func() {
 		f := alice("luffy-searches.log")
 		Expect(count(f, PaidPlay)).To(Equal(12))
-		Expect(count(f, EffectPlay)).To(BeNumerically("<=", 4))
+		Expect(count(f, EffectPlay)).To(Equal(4))
 	})
 
 	It("counts characters discarded for their counter and counter events", func() {
@@ -101,12 +101,11 @@ var _ = Describe("Read", func() {
 	})
 
 	It("has nothing to read in a log without RZ1", func() {
-		games, err := simlog.Parse(strings.NewReader("Version is 1.30a\r\n"))
+		g, err := simlog.ParseOne("Version is 1.30a\n[Alice\u200b#1111] Chose to go First\n[Alice\u200b#1111] End Turn\n")
 		Expect(err).NotTo(HaveOccurred())
-		for i := range games {
-			facts, err := Read(&games[i])
-			Expect(err).NotTo(HaveOccurred())
-			Expect(facts).To(BeEmpty())
-		}
+		Expect(g.Turns).To(Equal(1))
+		facts, err := Read(g)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(facts).To(BeEmpty())
 	})
 })

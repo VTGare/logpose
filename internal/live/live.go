@@ -1,8 +1,9 @@
 package live
 
 import (
-	"strconv"
 	"strings"
+
+	"github.com/VTGare/logpose/internal/simlog"
 )
 
 type Phase int
@@ -56,13 +57,13 @@ func (s State) Opponent() (Player, bool) {
 	return Player{}, false
 }
 
-// Ranked reports whether the game is in one of the sim's rooms, or OPBounty numbered it. The
-// joiner's lobby code lacks the room letter when the sim's ranked panel joined.
-func (s State) Ranked() bool { return len(s.Lobby) == 7 || s.Match > 0 }
+// Ranked reports whether the game could be ranked. Stored games also need their lobby code to be
+// in no other game, which a game in progress can't know.
+func (s State) Ranked() bool { return simlog.CouldBeRanked(simlog.Lobby{Code: s.Lobby}, s.Match) }
 
 // Saved is a combat log the sim wrote, with the format its lobby validated decks against.
 type Saved struct {
-	// File is the log's name in the sim's AutoSaved folder.
+	// File is the log's base name, as store.Source.File has it.
 	File string
 	// Format is the sim's name for the format's slot, such as "Nationals", or "" when the log
 	// didn't say. SimVersion is the sim's version, such as "1.44a".
@@ -100,22 +101,15 @@ func (t *Tracker) State() State {
 	return s
 }
 
-const rzPrefix = "[ReplaySync] RZ1|"
+// rzPrefix comes before each RZ1 line in Player.log.
+const rzPrefix = "[ReplaySync] "
 
-// Line takes one line of Player.log and reports whether the state changed.
-func (t *Tracker) Line(line string) bool {
+// Line takes one line of Player.log.
+func (t *Tracker) Line(line string) {
 	line = strings.TrimRight(line, "\r")
-	before := t.State()
 	switch {
-	case strings.HasPrefix(line, rzPrefix+"META|"):
-		parts := strings.Split(line[len(rzPrefix):], "|")
-		if len(parts) == 3 {
-			t.state.Match, _ = strconv.Atoi(parts[2])
-		}
-	case strings.HasPrefix(line, rzPrefix):
-		if t.state.Phase == Playing {
-			t.rz(strings.Split(line[len(rzPrefix):], "|"))
-		}
+	case strings.HasPrefix(line, rzPrefix+"RZ1|"):
+		t.rz(line[len(rzPrefix):])
 	case strings.HasPrefix(line, "[CombatLog SaveMyLogLines] wrote OK"):
 		t.wrote(line)
 		t.reset()
@@ -139,9 +133,8 @@ func (t *Tracker) Line(line string) bool {
 	case line == "deck filled, do shuffle":
 		t.localNext = true
 	case strings.HasPrefix(line, "shuffle deck for "):
-		t.shuffled(playerID(strings.TrimPrefix(line, "shuffle deck for ")))
+		t.shuffled(simlog.PlayerID(strings.TrimSpace(strings.TrimPrefix(line, "shuffle deck for "))))
 	}
-	return !same(before, t.State())
 }
 
 func (t *Tracker) reset() {
@@ -179,71 +172,46 @@ func (t *Tracker) shuffled(id string) {
 	t.pending = id
 }
 
-func (t *Tracker) rz(parts []string) {
-	if len(parts) == 0 {
+func (t *Tracker) rz(line string) {
+	if match, ok := simlog.ParseMeta(line); ok {
+		t.state.Match = match
 		return
 	}
-	switch parts[0] {
-	case "HDR":
+	if t.state.Phase != Playing {
+		return
+	}
+	switch simlog.RZKind(line) {
 	case "PLY":
-		if len(parts) != 4 {
-			return
+		if pl, ok := simlog.ParsePlayer(line); ok {
+			p := t.add(pl.ID())
+			p.Owner, p.Leader = pl.Owner, pl.Leader
 		}
-		owner, err := strconv.Atoi(parts[1])
-		if err != nil {
-			return
-		}
-		p := t.add(playerID(parts[2]))
-		p.Owner, p.Leader = owner, parts[3]
 	case "CHK":
-		t.check(parts)
+		if c, ok := simlog.ParseCheck(line); ok {
+			if p := t.byOwner(c.Owner); p != nil {
+				p.Deck, p.Hand, p.Life = c.Deck, c.Hand, c.Life
+			}
+		}
 	default:
-		t.move(parts)
+		if m, ok := simlog.ParseMove(line); ok {
+			t.move(m)
+		}
 	}
 }
 
-func (t *Tracker) move(parts []string) {
-	if len(parts) < 7 {
-		return
-	}
-	seq, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return
-	}
-	owner, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return
-	}
-	if seq < t.lastSeq {
+func (t *Tracker) move(m simlog.Move) {
+	if m.Seq < t.lastSeq {
 		t.rematch()
 	}
-	t.lastSeq = seq
-	if p := t.player(t.pending); p != nil && p.Owner == 0 && t.byOwner(owner) == nil {
-		p.Owner = owner
+	t.lastSeq = m.Seq
+	if p := t.player(t.pending); p != nil && p.Owner == 0 && t.byOwner(m.Owner) == nil {
+		p.Owner = m.Owner
 	}
 	t.pending = ""
-	from, to := parts[3], parts[5]
-	if t.state.First == "" && from == "4" && to == "5" {
-		if p := t.byOwner(owner); p != nil {
+	if t.state.First == "" && m.From == simlog.ZoneDonDeck && m.To == simlog.ZoneDonField {
+		if p := t.byOwner(m.Owner); p != nil {
 			t.state.First = p.ID
 		}
-	}
-}
-
-func (t *Tracker) check(parts []string) {
-	if len(parts) != 13 {
-		return
-	}
-	n := make([]int, len(parts)-1)
-	for i := range n {
-		v, err := strconv.Atoi(parts[i+1])
-		if err != nil {
-			return
-		}
-		n[i] = v
-	}
-	if p := t.byOwner(n[1]); p != nil {
-		p.Deck, p.Hand, p.Life = n[2], n[3], n[5]
 	}
 }
 
@@ -280,11 +248,6 @@ func (t *Tracker) byOwner(owner int) *Player {
 		}
 	}
 	return nil
-}
-
-// playerID drops the zero-width space the sim puts before a player's tag.
-func playerID(s string) string {
-	return strings.ReplaceAll(strings.TrimSpace(s), "\u200b", "")
 }
 
 func same(a, b State) bool {

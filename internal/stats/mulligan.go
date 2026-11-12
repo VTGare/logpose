@@ -5,7 +5,6 @@ import (
 	"slices"
 )
 
-// KeepSplit is the games by whether the opening hand was kept or mulliganed.
 type KeepSplit struct {
 	Kept, Mulliganed Record
 }
@@ -32,6 +31,8 @@ type Mulligans struct {
 type DealtCard struct {
 	Card           string
 	Kept, SentBack Record
+	// Games are the games Kept and SentBack count.
+	Games []Match
 }
 
 // Dealt is the games the card was dealt in that have a result.
@@ -64,6 +65,10 @@ func ForMulligans(ms []Match) Mulligans {
 				d = &DealtCard{Card: c}
 				byCard[c] = d
 			}
+			if m.Result == Unknown {
+				continue
+			}
+			d.Games = append(d.Games, m)
 			if mul {
 				d.SentBack.Add(m.Result)
 			} else {

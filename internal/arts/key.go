@@ -31,14 +31,11 @@ type Key struct {
 // still gives the card and at the first '-' the set.
 const bandaiSuffix = "_bd"
 
-var (
-	limitlessKey = regexp.MustCompile(`^[A-Z0-9]+-\d+(?:_p\d+)?$`)
-	bandaiKey    = regexp.MustCompile(`^([A-Z0-9]+-\d+(?:_p\d+)?)_bd$`)
-)
+var bandaiKey = regexp.MustCompile(`^(` + cards.PrintKeyPattern + `)` + bandaiSuffix + `$`)
 
 // ParseKey reads a key's string form. "OP07-021_p1" is Limitless's, "OP07-021_p3_bd" Bandai's.
 func ParseKey(s string) (Key, error) {
-	if limitlessKey.MatchString(s) {
+	if cards.IsPrintKey(s) {
 		return Key{Limitless, s}, nil
 	}
 	if m := bandaiKey.FindStringSubmatch(s); m != nil {
@@ -54,24 +51,29 @@ func (k Key) String() string {
 	return k.Print
 }
 
-// Code is the card's code, the key up to its first '_'.
 func (k Key) Code() string {
 	code, _, _ := strings.Cut(k.Print, "_")
 	return code
 }
 
-// URL is where the site keeps the picture.
 func (k Key) URL() string {
 	if k.Source == Bandai {
-		return cards.BandaiArtURL(k.Print)
+		return bandaiArtURL(k.Print)
 	}
-	return cards.ArtURL(k.Print)
+	return limitlessArtURL(k.Print)
 }
 
 // Ext is the full image's file extension in the art folder, the site's own format.
 func (k Key) Ext() string {
 	if k.Source == Bandai {
-		return ".png"
+		return fullExts[1]
 	}
-	return ".webp"
+	return fullExts[0]
+}
+
+var fullExts = []string{".webp", ".png"}
+
+// limitlessArtURL is a printing's image on Limitless's image host, as <set>/<key>_EN.webp.
+func limitlessArtURL(key string) string {
+	return "https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/one-piece/" + cards.SetOf(key) + "/" + key + "_EN.webp"
 }

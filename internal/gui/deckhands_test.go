@@ -58,12 +58,11 @@ var _ = Describe("Hands tab", func() {
 	})
 
 	It("opens the hands a card was dealt in and shows all of them on request", func() {
-		v, tt := handsTester()
+		_, tt := handsTester()
 		Expect(tt.Click("Show the hands dealt Shanks")).To(Succeed())
 		tt.Frame()
-		Expect(v.decks.handsCard).To(Equal("SHK"))
 		Expect(tt.HasText("The 5 games you were dealt Shanks, newest first.")).To(BeTrue())
-		Expect(tt.HasText("First · ")).To(BeTrue())
+		Expect(tt.HasText("1st · ")).To(BeTrue())
 		Expect(tt.Click("Hide the hands dealt Shanks")).To(Succeed())
 		tt.Frame()
 		Expect(tt.HasText("you were dealt Shanks")).To(BeFalse())
@@ -73,22 +72,20 @@ var _ = Describe("Hands tab", func() {
 		Expect(tt.HasText("Show all 10")).To(BeTrue())
 		Expect(tt.Click("Show all 10")).To(Succeed())
 		tt.Frame()
-		Expect(v.decks.allHands).To(BeTrue())
 		Expect(tt.HasText("Show all 10")).To(BeFalse())
 	})
 
 	It("opens a match from its hand and goes back to the Hands tab", func() {
-		v, tt := handsTester()
+		_, tt := handsTester()
 		Expect(tt.Click("Show the hands dealt Shanks")).To(Succeed())
 		tt.Frame()
-		Expect(tt.Click("Open the match vs Kaido")).To(Succeed())
+		Expect(tt.Click("Open the match against Opp")).To(Succeed())
 		tt.Frame()
-		Expect(v.page).To(Equal(pageDecks))
-		Expect(v.detail.fingerprint).NotTo(BeEmpty())
+		Expect(tt.HasText("Back to decks")).To(BeTrue())
 		Expect(tt.Click("Back to decks")).To(Succeed())
 		tt.Frame()
-		Expect(v.detail.fingerprint).To(BeEmpty())
-		Expect(tt.HasText("Open the match vs Kaido")).To(BeTrue())
+		Expect(tt.HasText("Back to decks")).To(BeFalse())
+		Expect(tt.HasText("The 5 games you were dealt Shanks")).To(BeTrue())
 	})
 
 	It("says when there are too few games to compare", func() {
@@ -111,7 +108,7 @@ var _ = Describe("Hands tab", func() {
 		tt.Frame()
 		Expect(tt.HasText("Try a hand")).To(BeTrue())
 		Expect(tt.HasText("of which the logs name 12 cards")).To(BeTrue())
-		Expect(v.decks.tester.hand).To(HaveLen(5))
+		Expect(inHand(tt)).To(Equal(5))
 		Expect(tt.HasText("Before your first turn")).To(BeTrue())
 
 		Expect(tt.Click("Mulligan")).To(Succeed())
@@ -124,11 +121,11 @@ var _ = Describe("Hands tab", func() {
 		tt.Frame()
 		Expect(tt.HasText("Your turn 1 · 1 DON!!")).To(BeTrue())
 		Expect(tt.Texts()).To(ContainElement("Next turn"))
-		Expect(v.decks.tester.hand).To(HaveLen(5))
+		Expect(inHand(tt)).To(Equal(5), "no draw on turn 1 going first")
 		tt.Key(0, ui.KeyT)
 		tt.Frame()
 		Expect(tt.HasText("Your turn 2 · 3 DON!!")).To(BeTrue())
-		Expect(v.decks.tester.hand).To(HaveLen(6))
+		Expect(inHand(tt)).To(Equal(6))
 	})
 
 	It("hides the cards' records until the hand is kept or sent back", func() {
@@ -140,7 +137,19 @@ var _ = Describe("Hands tab", func() {
 		Expect(tt.HasText("Choose first")).To(BeTrue())
 		tt.Key(0, ui.KeyM)
 		tt.Frame()
-		Expect(v.decks.tester.mulliganed).To(BeTrue())
+		Expect(tt.Texts()).To(ContainElement("Sent back"))
 		Expect(tt.HasText("Choose first")).To(BeFalse())
 	})
 })
+
+// inHand counts the tester's hand by the cost each card shows. The specs have no card data, so
+// every cost is 0.
+func inHand(tt *ui.Tester) int {
+	n := 0
+	for _, text := range tt.Texts() {
+		if text == "Cost 0" {
+			n++
+		}
+	}
+	return n
+}

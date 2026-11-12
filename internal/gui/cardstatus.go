@@ -3,7 +3,6 @@ package gui
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -20,15 +19,6 @@ func (sv *stepView) glide(el ui.Element, id int) ui.Element {
 		return el
 	}
 	return el.Transition(ui.ElementTransition{Duration: sv.glideFor, Position: true, Match: cardMatch(id)})
-}
-
-// glideTime is how long cards take to move on a one-step change: shorter while playing fast,
-// and not at all at the fastest speed.
-func glideTime(playing bool, speed int) time.Duration {
-	if !playing {
-		return 250 * time.Millisecond
-	}
-	return []time.Duration{250 * time.Millisecond, 150 * time.Millisecond, 0}[speed]
 }
 
 func signed(n int) string {
@@ -57,7 +47,6 @@ func badgesOf(card replay.Card) statusBadge {
 			b.power += st.N
 		case replay.StatusCost:
 			b.cost = st.N
-		case replay.StatusRush:
 		default:
 			if icon := statusIcons[st.Kind]; icon != nil {
 				b.icons = append(b.icons, icon)
@@ -160,16 +149,14 @@ func (v *view) powerSum(p replay.Power) string {
 	return powerText(p) + " = " + b.String()
 }
 
-// chips draws a card's status chips down its top right corner, away from where the attack
-// arrow usually comes in.
 // badges draws a card's statuses over it: the power pill across its bottom edge, and the
 // icons down its top right corner, white on near black so they read on any art.
 func badges(c *ui.Context, b statusBadge, w, h float32) {
 	size := max(w*0.26, 16)
 	if b.power != 0 {
-		col := winColor
+		col := winColor(c.Theme())
 		if b.power < 0 {
-			col = lossColor
+			col = lossColor(c.Theme())
 		}
 		ui.Row(c).Absolute().Left(0).Right(0).Top(h - size*0.45).Justify(ui.Center).Children(func() {
 			ui.Text(c, signed(b.power)).FontSize(max(w*0.15, 10)).Bold().TextColor(pillText).Padding(0, 6).Radius(8).

@@ -10,12 +10,7 @@ import (
 	"github.com/VTGare/logpose/internal/stats"
 )
 
-// cheapCost is the highest cost that's paid by the player's first or second turn either way, so
-// the card's turn is the opening hand plus at most one draw. The player going first doesn't
-// draw on their first turn.
-const cheapCost = 2
-
-// The Cards tab's columns, in DIPs. The card column takes the rest.
+// The card column takes the rest.
 const (
 	rateColW   = 118
 	playedColW = 150
@@ -25,158 +20,131 @@ const (
 
 // cardsTab is how each card did in the games the scope counts: the latest list's cards first,
 // then the ones no longer in it.
-func (v *view) cardsTab(c *ui.Context, d leaderDecks) {
+func (v *view) cardsTab(c *ui.Context, d *deckData) {
 	t := c.Theme()
-	gs := d.scopedGames(v.decks.scope)
-	name := v.scopeName(d)
-	if name == "" {
-		name = v.snap.card(d.leader).Name
-	}
+	gs := d.deckGames
 	panel(c).Gap(0).Padding(8, 16, 16, 16).Children(func() {
 		if len(gs) == 0 {
-			ui.Text(c, "No games of "+name+" match these filters.").TextColor(t.TextMuted).Padding(8, 0)
+			noGames(c, d).Padding(8, 0)
 			return
 		}
-		var all stats.Record
-		for _, g := range gs {
-			all.Add(g.Result)
+		avg := d.stats.Record.Share()
+		tv := arrangeTable(v, "decks.cards", 12, v.cardCols(t, gs[0].Facts.List, len(gs), avg), "", false)
+		in := tv.sorted(slices.DeleteFunc(slices.Clone(d.cards), func(cs stats.CardStats) bool { return !cs.Latest }))
+		gone := tv.sorted(slices.DeleteFunc(slices.Clone(d.cards), func(cs stats.CardStats) bool { return cs.Latest }))
+		tv.header(c, 8)
+		for _, cs := range in {
+			cardRow(c.Key(cs.Card), tv, cs, false)
 		}
-		avg := 0.5
-		if all.Games() > 0 {
-			avg = float64(all.Wins) / float64(all.Games())
+		if len(gone) > 0 {
+			ui.Text(c.Key("cut"), "No longer in the list").FontSize(12).FontWeight(600).TextColor(t.TextMuted).Padding(14, 8, 4, 8)
 		}
-		latest := gs[len(gs)-1].Facts.List
-		tv := v.cardsTable()
-		list := stats.Cards(gs, v.snap.card)
-		in := slices.IndexFunc(list, func(cs stats.CardStats) bool { return latest[cs.Card] == 0 })
-		if in < 0 {
-			in = len(list)
-		}
-		v.sortCards(list[:in], tv)
-		v.sortCards(list[in:], tv)
-		v.tableHeader(c, tv, 8)
-		for i, cs := range list {
-			if i == in {
-				ui.Text(c.Key("cut"), "No longer in the list").FontSize(12).FontWeight(600).TextColor(t.TextMuted).Padding(14, 8, 4, 8)
-			}
-			v.cardRow(c.Key(cs.Card), tv, cs, latest[cs.Card], len(gs), avg, i >= in)
+		for _, cs := range gone {
+			cardRow(c.Key(cs.Card), tv, cs, true)
 		}
 		cardsNote(c, avg)
 	})
 }
 
-func (v *view) cardsTable() tableView {
-	return v.arrangeTable("decks.cards", 12, []tableCol{
-		{id: "card", title: "Card", asc: true},
-		{id: "open", title: "In starting hand", width: rateColW},
-		{id: "on", title: "In hand by its turn", width: rateColW},
-		{id: "off", title: "Not by its turn", width: rateColW},
-		{id: "played", title: "Played", width: playedColW, tip: "From left to right: played on curve, played later, put out by an effect, never played."},
-		{id: "search", title: "Searcher took it", width: searchColW},
-	}, "", false)
+// noGames says that the filters leave none of the scope's games.
+func noGames(c *ui.Context, d *deckData) ui.Element {
+	return ui.Text(c, "No games of "+d.name+" match these filters.").TextColor(c.Theme().TextMuted)
 }
 
-// sortCards sorts by the column chosen. With none, the cards keep the list's order.
-func (v *view) sortCards(cs []stats.CardStats, tv tableView) {
-	rate := func(r stats.Record) float64 {
-		x, _ := r.Rate()
-		return x
-	}
+// cardCols are the Cards tab's columns. With no sort chosen, the cards keep the list's order.
+// latest is the newest game's list, and total is the build's games, which a card's own count is
+// shown against when it was in fewer.
+func (v *view) cardCols(t *ui.Theme, latest map[string]int, total int, avg float64) []tableCol[stats.CardStats] {
 	share := func(r stats.Record, total int) float64 {
 		if total == 0 {
 			return 0
 		}
 		return float64(r.Games()) / float64(total)
 	}
-	cheap := func(cs stats.CardStats) bool { return max(v.snap.card(cs.Card).Cost, 0) <= cheapCost }
-	sortRows(cs, tv.sort, tv.desc, map[string]func(a, b stats.CardStats) int{
-		"card": func(a, b stats.CardStats) int { return cmp.Compare(v.snap.card(a.Card).Name, v.snap.card(b.Card).Name) },
-		"open": func(a, b stats.CardStats) int { return cmp.Compare(rate(a.Opening), rate(b.Opening)) },
-		"on":   func(a, b stats.CardStats) int { return cmp.Compare(rate(a.OnCurve), rate(b.OnCurve)) },
-		"off":  func(a, b stats.CardStats) int { return cmp.Compare(rate(a.OffCurve), rate(b.OffCurve)) },
-		"played": func(a, b stats.CardStats) int {
-			return cmp.Compare(share(a.PlayedOnCurve, a.Games), share(b.PlayedOnCurve, b.Games))
-		},
-		"search": func(a, b stats.CardStats) int {
-			return cmp.Compare(float64(a.Taken)/float64(max(a.Shown, 1)), float64(b.Taken)/float64(max(b.Shown, 1)))
-		},
-	}, map[string]func(stats.CardStats) bool{
-		"open":   func(cs stats.CardStats) bool { return cs.Opening.Games() < stats.MinGames },
-		"on":     func(cs stats.CardStats) bool { return cheap(cs) || cs.OnCurve.Games() < stats.MinGames },
-		"off":    func(cs stats.CardStats) bool { return cheap(cs) || cs.OffCurve.Games() < stats.MinGames },
-		"search": func(cs stats.CardStats) bool { return cs.Shown == 0 },
-	}, nil)
-}
-
-// cardRow is one card's numbers. total is the build's games, which the card's own count is
-// shown against when it was in fewer.
-func (v *view) cardRow(c *ui.Context, tv tableView, cs stats.CardStats, copies, total int, avg float64, cut bool) {
-	t := c.Theme()
-	row := ui.Row(c).Gap(tv.gap).Padding(6, 8).AlignItems(ui.Center)
-	if cut {
-		row.Opacity(0.7)
-	}
-	row.Children(func() {
-		for _, col := range tv.cols {
-			tv.cell(c, col, func() { v.cardCell(c, col, cs, copies, total, avg) })
-		}
-	})
-	ui.Box(c).Height(1).Background(t.Border.Alpha(0.3))
-}
-
-func (v *view) cardCell(c *ui.Context, col tableCol, cs stats.CardStats, copies, total int, avg float64) {
-	t := c.Theme()
-	card := v.snap.card(cs.Card)
-	cost := max(card.Cost, 0)
-	switch col.id {
-	case "card":
-		ui.Row(c).Gap(10).AlignItems(ui.Center).MinWidth(0).Children(func() {
-			v.cardArt(c, cs.Card, 30, 42)
-			ui.Column(c).Gap(1).MinWidth(0).Children(func() {
-				ui.Text(c, card.Name).FontSize(13).FontWeight(600).SingleLine().Tooltip(card.Name)
+	cost := func(cs stats.CardStats) int { return v.snap.card(cs.Card).PaidCost() }
+	return []tableCol[stats.CardStats]{
+		{
+			id: "card", title: "Card", asc: true,
+			by: func(a, b stats.CardStats) int { return cmp.Compare(v.snap.card(a.Card).Name, v.snap.card(b.Card).Name) },
+			cell: func(c *ui.Context, cs stats.CardStats) {
 				meta := cs.Card
-				if copies > 0 {
+				if copies := latest[cs.Card]; cs.Latest && copies > 0 {
 					meta += fmt.Sprintf(" · ×%d", copies)
 				}
 				if cs.Games < total {
 					meta += " · " + games(cs.Games)
 				}
-				ui.Text(c, meta).FontSize(11).TextColor(faintColor(t)).SingleLine()
-			})
-		})
-	case "open":
-		rateIn(c.Key("open"), cs.Opening, avg)
-	case "on":
-		if cost <= cheapCost {
-			sameAsOpening(c, cost)
-			return
-		}
-		rateIn(c.Key("on"), cs.OnCurve, avg).Tooltip("In hand by " + curveText(cost))
-	case "off":
-		if cost <= cheapCost {
-			ui.Text(c, "–").FontSize(13).TextColor(faintColor(t))
-			return
-		}
-		rateIn(c.Key("off"), cs.OffCurve, avg).Tooltip("Not in hand by " + curveText(cost))
-	case "played":
-		playedCell(c, cs)
-	case "search":
-		search := "–"
-		if cs.Shown > 0 {
-			search = fmt.Sprintf("%d of %d", cs.Taken, cs.Shown)
-		}
-		ui.Text(c, search).FontSize(13).TextColor(map[bool]ui.Color{true: t.Text, false: faintColor(t)}[cs.Shown > 0])
+				v.cardNameCell(c, cs.Card, meta)
+			},
+		},
+		{
+			id: "open", title: "In starting hand", width: rateColW,
+			by:   func(a, b stats.CardStats) int { return cmp.Compare(sortRate(a.Opening), sortRate(b.Opening)) },
+			few:  func(cs stats.CardStats) bool { return !cs.Opening.Enough() },
+			cell: func(c *ui.Context, cs stats.CardStats) { rateBar(c.Key("open"), cs.Opening, avg, 0) },
+		},
+		{
+			id: "on", title: "In hand by its turn", width: rateColW,
+			by:  func(a, b stats.CardStats) int { return cmp.Compare(sortRate(a.OnCurve), sortRate(b.OnCurve)) },
+			few: func(cs stats.CardStats) bool { return !cs.Curve || !cs.OnCurve.Enough() },
+			cell: func(c *ui.Context, cs stats.CardStats) {
+				if !cs.Curve {
+					sameAsOpening(c, cost(cs))
+					return
+				}
+				rateBar(c.Key("on"), cs.OnCurve, avg, 0).Tooltip("In hand by " + curveText(cost(cs)))
+			},
+		},
+		{
+			id: "off", title: "Not by its turn", width: rateColW,
+			by:  func(a, b stats.CardStats) int { return cmp.Compare(sortRate(a.OffCurve), sortRate(b.OffCurve)) },
+			few: func(cs stats.CardStats) bool { return !cs.Curve || !cs.OffCurve.Enough() },
+			cell: func(c *ui.Context, cs stats.CardStats) {
+				if !cs.Curve {
+					ui.Text(c, "–").FontSize(13).TextColor(faintColor(t))
+					return
+				}
+				rateBar(c.Key("off"), cs.OffCurve, avg, 0).Tooltip("Not in hand by " + curveText(cost(cs)))
+			},
+		},
+		{
+			id: "played", title: "Played", width: playedColW,
+			tip: "From left to right: played on curve, played later, put out by an effect, never played.",
+			by: func(a, b stats.CardStats) int {
+				return cmp.Compare(share(a.PlayedOnCurve, a.Games), share(b.PlayedOnCurve, b.Games))
+			},
+			cell: func(c *ui.Context, cs stats.CardStats) { playedCell(c, cs) },
+		},
+		{
+			id: "search", title: "Searcher took it", width: searchColW,
+			by: func(a, b stats.CardStats) int {
+				return cmp.Compare(float64(a.Taken)/float64(max(a.Shown, 1)), float64(b.Taken)/float64(max(b.Shown, 1)))
+			},
+			few: func(cs stats.CardStats) bool { return cs.Shown == 0 },
+			cell: func(c *ui.Context, cs stats.CardStats) {
+				search := "–"
+				if cs.Shown > 0 {
+					search = fmt.Sprintf("%d of %d", cs.Taken, cs.Shown)
+				}
+				ui.Text(c, search).FontSize(13).TextColor(map[bool]ui.Color{true: t.Text, false: faintColor(t)}[cs.Shown > 0])
+			},
+		},
 	}
 }
 
-// rateIn is a win rate with its record, and a bar of where the rate likely is with a tick at
-// avg, the build's own rate, as wide as its column. Below MinGames the rate reads "few".
-func rateIn(c *ui.Context, r stats.Record, avg float64) ui.Element {
-	return rateBar(c, r, avg, 0)
+func cardRow(c *ui.Context, tv tableView[stats.CardStats], cs stats.CardStats, cut bool) {
+	t := c.Theme()
+	row := ui.Row(c).Gap(tv.gap).Padding(6, 8).AlignItems(ui.Center)
+	if cut {
+		row.Opacity(0.7)
+	}
+	row.Children(func() { tv.cells(c, cs) })
+	ui.Box(c).Height(1).Background(t.Border.Alpha(0.3))
 }
 
-// rateBar is a rateIn whose bar is barW wide, or as wide as there's room for when barW is 0.
-// The bar is painted at the width it's laid out at, since a column can get less than it asks.
+// rateBar is a rateCell over a bar of where the rate likely is, with a tick at avg, the build's
+// own rate. The bar is barW wide, or as wide as there's room for when barW is 0. It's painted at
+// the width it's laid out at, since a column can get less than it asks.
 func rateBar(c *ui.Context, r stats.Record, avg float64, barW float32) ui.Element {
 	t := c.Theme()
 	col := ui.Column(c).Gap(1)
@@ -186,18 +154,10 @@ func rateBar(c *ui.Context, r stats.Record, avg float64, barW float32) ui.Elemen
 		col.Grow(1).Basis(0).MinWidth(0)
 	}
 	return col.Children(func() {
+		rateCell(c, r)
 		if r.Games() == 0 {
-			ui.Text(c, "–").FontSize(13).TextColor(faintColor(t))
 			return
 		}
-		ui.Row(c).Gap(6).AlignItems(ui.End).Children(func() {
-			if rate, ok := r.Rate(); ok {
-				ui.Text(c, pct(rate)).FontSize(13).FontWeight(600).SingleLine()
-			} else {
-				ui.Text(c, "few").FontSize(13).TextColor(faintColor(t)).SingleLine()
-			}
-			ui.Text(c, record(r)).FontSize(11).TextColor(faintColor(t)).SingleLine()
-		})
 		lo, hi := r.LikelyRange()
 		tip := fmt.Sprintf("Likely %s–%s from %s. The tick is the %s these games win.", pct(lo), pct(hi), record(r), pct(avg))
 		bar := ui.Box(c).Height(11).Tooltip(tip)
@@ -216,6 +176,18 @@ func rateBar(c *ui.Context, r stats.Record, avg float64, barW float32) ui.Elemen
 	})
 }
 
+// cardNameCell is a card's art and name with meta under the name, in a table's card column.
+func (v *view) cardNameCell(c *ui.Context, code, meta string) {
+	name := v.snap.card(code).Name
+	ui.Row(c).Gap(10).AlignItems(ui.Center).MinWidth(0).Children(func() {
+		v.card(c, code, 30)
+		ui.Column(c).Gap(1).MinWidth(0).Children(func() {
+			ui.Text(c, name).FontSize(13).FontWeight(600).SingleLine().Tooltip(name)
+			ui.Text(c, meta).FontSize(11).TextColor(faintColor(c.Theme())).SingleLine()
+		})
+	})
+}
+
 // playedCell splits the games into played on curve, played later, put out by an effect and
 // never played, as a bar and the games in each.
 func playedCell(c *ui.Context, cs stats.CardStats) {
@@ -224,7 +196,7 @@ func playedCell(c *ui.Context, cs stats.CardStats) {
 		r   stats.Record
 		col ui.Color
 	}{
-		{cs.PlayedOnCurve, winColor}, {cs.PlayedLater, warnColor}, {cs.ByEffect, t.Accent}, {cs.NeverPlayed, faintColor(t)},
+		{cs.PlayedOnCurve, winColor(t)}, {cs.PlayedLater, warnColor}, {cs.ByEffect, t.Accent}, {cs.NeverPlayed, faintColor(t)},
 	}
 	total := 0
 	for _, p := range parts {
@@ -261,7 +233,7 @@ func cardsNote(c *ui.Context, avg float64) {
 			})
 		}
 		ui.Text(c, "Played:").FontSize(12).TextColor(faintColor(t))
-		legend("on curve", winColor)
+		legend("on curve", winColor(t))
 		legend("later", warnColor)
 		legend("by an effect", t.Accent)
 		legend("never", faintColor(t))
@@ -277,11 +249,9 @@ func sameAsOpening(c *ui.Context, cost int) {
 			"the starting hand plus at most one draw.", cost))
 }
 
-// curveText names the turn a card of this cost can first be paid for. DON!! goes 1, 3, 5 and up
-// to 10 for the player going first, and 2, 4, 6 for the other.
+// curveText names the turn a card of this cost can first be paid for.
 func curveText(cost int) string {
-	first := (cost + 2) / 2
-	second := max((cost+1)/2, 1)
+	first, second := stats.PayTurn(cost, true), stats.PayTurn(cost, false)
 	turns := fmt.Sprintf("your %s turn going first and %s going second", ordinal(first), ordinal(second))
 	if first == second {
 		turns = fmt.Sprintf("your %s turn either way", ordinal(first))
