@@ -179,9 +179,10 @@ func (v *view) cardSearch(c *ui.Context) {
 
 func (v *view) quickFilters(c *ui.Context) {
 	s := &v.cardsUI
-	ui.Row(c).Gap(18).Wrap().AlignItems(ui.End).Children(func() {
+	// Sized so every filter fits on one row, with the longest power range, in the default window.
+	ui.Row(c).Gap(16).Wrap().AlignItems(ui.End).Children(func() {
 		filterGroup(c, "Color", func() {
-			joined(c, len(cardColors), func(i int) (string, bool) {
+			joined(c, len(cardColors), 26, 7, func(i int) (string, bool) {
 				col := cardColors[i]
 				return string(col), slices.Contains(s.colors, col)
 			}, func(i int) { s.toggleColor(cardColors[i]) }, func(i int) {
@@ -190,10 +191,11 @@ func (v *view) quickFilters(c *ui.Context) {
 			})
 		})
 		filterGroup(c, "Type", func() {
-			joined(c, len(cardKinds), func(i int) (string, bool) { return cardKinds[i], s.kind == i },
-				func(i int) { s.kind = i }, nil)
+			joined(c, len(cardKinds), 32, 8, func(i int) (string, bool) { return cardKinds[i], s.kind == i },
+				s.setKind, nil)
 		})
-		filterGroup(c, "Cost", func() { v.costCurve(c) })
+		filterGroup(c, "Cost", func() { v.costToggles(c) })
+		filterGroup(c, "Power", func() { v.powerPill(c) })
 	})
 }
 
@@ -204,14 +206,15 @@ func filterGroup(c *ui.Context, label string, body func()) {
 	})
 }
 
-// joined draws n toggles as one control split by hairlines. item names a toggle and says
-// whether it's on, and draw, when set, draws it instead of its name.
-func joined(c *ui.Context, n int, item func(int) (string, bool), toggle, draw func(int)) {
+// joined draws n toggles as one control split by hairlines, each at least width wide and padded
+// by pad on each side. item names a toggle and says whether it's on, and draw, when set, draws it
+// instead of its name.
+func joined(c *ui.Context, n int, width, pad float32, item func(int) (string, bool), toggle, draw func(int)) {
 	t := c.Theme()
 	ui.Row(c).Height(30).Radius(8).Border(1, t.Border).Clip().Children(func() {
 		for i := range n {
 			label, on := item(i)
-			b := ui.ButtonBase(c.Key(label)).Label(label).Height(30).MinWidth(32).Padding(0, 10).Center().
+			b := ui.ButtonBase(c.Key(label)).Label(label).Height(30).MinWidth(width).Padding(0, pad).Center().
 				Background(ui.Transparent)
 			if i < n-1 {
 				b.BorderWidth(0, 1, 0, 0).BorderColor(t.Border)
@@ -229,59 +232,133 @@ func joined(c *ui.Context, n int, item func(int) (string, bool), toggle, draw fu
 					draw(i)
 					return
 				}
-				col := t.TextMuted
-				if on {
-					col = ui.Hex("#CFE6FB")
-				}
-				ui.Text(c, label).FontSize(12.5).TextColor(col)
+				ui.Text(c, label).FontSize(12.5).TextColor(toggleText(t, on))
 			})
 		}
 	})
 }
 
-func (v *view) costCurve(c *ui.Context) {
+func toggleText(t *ui.Theme, on bool) ui.Color {
+	if on {
+		return onText
+	}
+	return t.TextMuted
+}
+
+var onText = ui.Hex("#CFE6FB")
+
+// powerPillWidth fits the longest power range, such as "10000 or less", and its clear button.
+const powerPillWidth = 150
+
+// emptyColor marks a value no card has under the other filters. It stays clickable.
+var emptyColor = ui.Hex("#5C5C64")
+
+// costToggles names each cost's count for assistive technology only, since the card count
+// already shows once a cost is picked.
+func (v *view) costToggles(c *ui.Context) {
 	s := &v.cardsUI
 	t := c.Theme()
-	top := 1
-	for _, n := range s.curve {
-		top = max(top, n)
-	}
-	ui.Row(c).Gap(3).AlignItems(ui.End).Height(50).Children(func() {
-		for cost, n := range s.curve {
-			on := slices.Contains(s.costs, cost)
-			label := fmt.Sprint(cost)
-			if cost == maxCost {
-				label += "+"
-			}
-			b := ui.ButtonBase(c.Key(cost)).Label(fmt.Sprintf("Cost %s, %s", label, cardCount(n))).Width(26).Height(50).
-				Background(ui.Transparent).Padding(0)
-			if b.Clicked() {
-				s.toggleCost(cost)
-			}
-			bar := ui.RGBA(255, 255, 255, 0.16)
-			text := t.TextMuted
-			switch {
-			case on:
-				bar, text = t.Accent, ui.Hex("#CFE6FB")
-			case b.Hovered():
-				bar = ui.RGBA(255, 255, 255, 0.28)
-			case n == 0:
-				bar = ui.RGBA(255, 255, 255, 0.06)
-			}
-			h := float32(2)
-			if n > 0 {
-				h = max(4, 18*float32(n)/float32(top))
-			}
-			b.Children(func() {
-				ui.Column(c).Fill().Gap(3).AlignItems(ui.Center).Justify(ui.End).Children(func() {
-					if n > 0 {
-						ui.Text(c, fmt.Sprint(n)).FontSize(10).TextColor(faintColor(t))
-					}
-					ui.Box(c).Width(22).Height(h).Radius(2).Background(bar)
-					ui.Text(c, label).FontSize(11).TextColor(text)
-				})
-			})
+	joined(c, len(s.curve), 26, 4, func(cost int) (string, bool) {
+		return fmt.Sprintf("Cost %d, %s", cost, cardCount(s.curve[cost])), slices.Contains(s.costs, cost)
+	}, s.toggleCost, func(cost int) {
+		col := toggleText(t, slices.Contains(s.costs, cost))
+		if s.curve[cost] == 0 && col != onText {
+			col = emptyColor
 		}
+		ui.Text(c, fmt.Sprint(cost)).FontSize(12.5).TextColor(col)
+	})
+}
+
+func (v *view) powerPill(c *ui.Context) {
+	s := &v.cardsUI
+	t := c.Theme()
+	all := s.pool.power
+	set := s.power != all
+	label := s.power.label(all)
+	// A fixed width keeps the popover, which hangs off the pill, from sliding under the pointer
+	// as the label changes during a drag.
+	box := ui.Row(c).Width(powerPillWidth).Height(30).Radius(8).Border(1, t.Border).AlignItems(ui.Center)
+	if set {
+		box.Background(t.Accent.Alpha(0.16)).Border(1, t.Accent.Alpha(0.55))
+	}
+	if !kindHasPower(s.kind) {
+		box.Tooltip(cardKinds[s.kind] + "s have no power").Opacity(0.45)
+	}
+	box.Children(func() {
+		open := ui.ButtonBase(c.Key("power")).Label("Power: "+label).Grow(1).Height(30).Padding(0, 10, 0, 12).
+			Gap(8).AlignItems(ui.Center).Justify(ui.SpaceBetween).Background(ui.Transparent).
+			Disabled(!kindHasPower(s.kind))
+		if open.Clicked() {
+			s.powerOpen = !s.powerOpen
+		}
+		ui.PopoverBase(c, box, &s.powerOpen, func(panel ui.Element) {
+			popover(panel.Margin(6, 0, 0, 0).Padding(16), t)
+			v.powerPopover(c)
+		})
+		open.Children(func() {
+			ui.Text(c, label).FontSize(12.5).TextColor(toggleText(t, set)).SingleLine()
+			if !set {
+				ui.Icon(c, iconChevron).FontSize(12).TextColor(t.TextMuted)
+			}
+		})
+		if !set {
+			return
+		}
+		x := ui.ButtonBase(c.Key("power clear")).Label("Clear the power range").Size(22, 22).Margin(0, 6, 0, 0).
+			Radius(11).Center().Background(ui.Transparent)
+		if x.Hovered() {
+			x.Background(t.SurfaceHover)
+		}
+		if x.Clicked() {
+			s.power = all
+		}
+		x.Children(func() { ui.Icon(c, iconClose).FontSize(11).TextColor(t.TextMuted) })
+	})
+}
+
+// powerPopover offers the three ways card text puts a threshold, besides the slider.
+func (v *view) powerPopover(c *ui.Context) {
+	s := &v.cardsUI
+	t := c.Theme()
+	all := s.pool.power
+	ui.Column(c).Width(340).Gap(8).Children(func() {
+		ui.RangeSlider(c, &s.power.lo, &s.power.hi, all.lo, all.hi, powerStep).Label("Power")
+		ui.Row(c).Justify(ui.SpaceBetween).Children(func() {
+			ui.Text(c, fmt.Sprint(all.lo)).FontSize(11.5).TextColor(faintColor(t))
+			ui.Text(c, fmt.Sprint(all.hi)).FontSize(11.5).TextColor(faintColor(t))
+		})
+		if s.power == all {
+			ui.Text(c, "Drag either end to narrow the power.").FontSize(12).TextColor(faintColor(t))
+			return
+		}
+		// The shortcuts work from the end that moved off the pool's end, the bottom if both did.
+		at := s.power.lo
+		if at == all.lo {
+			at = s.power.hi
+		}
+		type shortcut struct {
+			name string
+			r    powerRange
+		}
+		slots := []shortcut{
+			{fmt.Sprintf("Exactly %g", at), powerRange{at, at}},
+			{fmt.Sprintf("%g or less", at), powerRange{all.lo, at}},
+			{fmt.Sprintf("%g or more", at), powerRange{at, all.hi}},
+		}
+		ui.Row(c).Gap(6).Margin(6, 0, 0, 0).Children(func() {
+			for i, sc := range slots {
+				// At either end of the pool a shortcut repeats an earlier one or means any power. It
+				// stays in its slot, disabled, so the row keeps its width under the pointer.
+				off := sc.r == all || slices.ContainsFunc(slots[:i], func(o shortcut) bool { return o.r == sc.r })
+				b := filterToggle(c.Key(i), sc.name, s.power == sc.r, false).Disabled(off)
+				if off {
+					b.Opacity(0.4)
+				}
+				if b.Clicked() {
+					s.power = sc.r
+				}
+			}
+		})
 	})
 }
 
@@ -345,10 +422,18 @@ func (v *view) chips(c *ui.Context) {
 
 func (v *view) viewControls(c *ui.Context, count int) {
 	t := c.Theme()
+	status := ""
 	if sync := v.cardSync; sync.running() {
-		ui.Text(c, fmt.Sprintf("Updating · %d of %d sets", sync.done, sync.total)).FontSize(13).TextColor(t.Accent).SingleLine()
+		status = fmt.Sprintf("Updating · %d of %d sets", sync.done, sync.total)
 	} else if sync := v.artSync; sync.running() {
-		ui.Text(c, fmt.Sprintf("Reading Bandai's card list · %d of %d", sync.done, sync.total)).FontSize(13).TextColor(t.Accent).SingleLine()
+		status = fmt.Sprintf("Reading Bandai's card list · %d of %d", sync.done, sync.total)
+	}
+	// Faint, not the accent, so the status doesn't read as a link next to Clear all.
+	if status != "" {
+		ui.Row(c).Gap(6).AlignItems(ui.Center).Margin(0, 10, 0, 0).Children(func() {
+			ui.Spinner(c).FontSize(12)
+			ui.Text(c, status).FontSize(12.5).TextColor(faintColor(t)).SingleLine()
+		})
 	}
 	ui.Text(c, cardCount(count)).FontSize(13).TextColor(t.TextMuted).SingleLine()
 	v.sortPill(c)

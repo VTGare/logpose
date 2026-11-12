@@ -2,6 +2,7 @@ package gui
 
 import (
 	"cmp"
+	"fmt"
 	"maps"
 	"slices"
 	"strconv"
@@ -20,26 +21,46 @@ type cardsState struct {
 	query  string
 	colors []cards.Color
 	kind   int
-	// costs are the costs picked in the strip, where maxCost stands for that cost and more.
-	costs []int
-	chips []cardChip
+	costs  []int
+	power  powerRange
+	chips  []cardChip
 	// selected is the card shown on the right, and viewed the key of the picture it shows
 	// large: an art's version, or a sim: or file: key. Empty is the first art.
 	selected string
 	viewed   string
 	// versions is the head key of the art whose version list is open.
-	versions string
-	viewer   bool
-	more     bool
-	wall     ui.ListState
-	wallBox  ui.Rect
-	splitBox ui.Rect
+	versions  string
+	viewer    bool
+	more      bool
+	powerOpen bool
+	wall      ui.ListState
+	wallBox   ui.Rect
+	splitBox  ui.Rect
 
 	pool  *cardPool
 	key   string
 	shown []cards.Card
 	// curve counts the cards at each cost that match every filter but cost.
-	curve [maxCost + 1]int
+	curve []int
+}
+
+// powerRange is the cards from lo to hi power. The pool's own range means any power. The
+// slider takes float64s.
+type powerRange struct{ lo, hi float64 }
+
+// label names the range as card text does, such as "5000 or less". all is the pool's range.
+func (r powerRange) label(all powerRange) string {
+	switch {
+	case r == all:
+		return "Any"
+	case r.lo == r.hi:
+		return fmt.Sprint(r.lo)
+	case r.lo == all.lo:
+		return fmt.Sprintf("%g or less", r.hi)
+	case r.hi == all.hi:
+		return fmt.Sprintf("%g or more", r.lo)
+	}
+	return fmt.Sprintf("%g–%g", r.lo, r.hi)
 }
 
 // cardChip is a filter picked from the suggestions or More filters, such as a trait. out
@@ -108,7 +129,11 @@ var chipFields = []*chipField{
 
 var cardKinds = []string{"All", cards.Leader, cards.Character, cards.Event, cards.Stage}
 
-const maxCost = 10
+// kindHasPower counts All as having power.
+func kindHasPower(i int) bool { return i == 0 || cards.Card{Type: cardKinds[i]}.HasPower() }
+
+// powerStep is the gap between powers. Every card's power is a multiple of it.
+const powerStep = 1000
 
 // cardPool is the snapshot's cards with what searching and suggesting need, built once per
 // card database.
@@ -122,6 +147,8 @@ type cardPool struct {
 	keywords    []string
 	sets        []string
 	rarities    []string
+	maxCost     int
+	power       powerRange
 }
 
 type poolCard struct {
@@ -138,7 +165,16 @@ const minKeywordCards = 15
 func newCardPool(db *cards.DB) *cardPool {
 	p := &cardPool{db: db, chips: make(map[string]cardChip)}
 	traits, kw, sets, rarities := make(map[string]bool), make(map[string]int), make(map[string]bool), make(map[string]bool)
+	powered := false
 	for _, c := range db.All() {
+		p.maxCost = max(p.maxCost, c.Cost)
+		if c.HasPower() {
+			pw := float64(c.Power)
+			if !powered {
+				p.power, powered = powerRange{pw, pw}, true
+			}
+			p.power = powerRange{min(p.power.lo, pw), max(p.power.hi, pw)}
+		}
 		pc := poolCard{card: c, keywords: cards.Keywords(c.Effect)}
 		pc.hay = strings.ToLower(strings.Join([]string{c.Name, c.Code, strings.Join(c.Traits, " "), c.Effect}, "\n"))
 		p.cards = append(p.cards, pc)
@@ -182,6 +218,28 @@ func newCardPool(db *cards.DB) *cardPool {
 			p.chips[s] = cardChip{field: f, value: v}
 		}
 	}
+	return p
+}
+
+// follow keeps the filters that depend on the cards valid when the cards change. An end of the
+// power range left at the old pool's end moves to the new one, so "8000 or more" takes in a new
+// 14000 card.
+func (p *cardPool) follow(old *cardPool, s *cardsState) *cardPool {
+	if old == nil {
+		s.power = p.power
+		return p
+	}
+	if s.power.lo == old.power.lo {
+		s.power.lo = p.power.lo
+	}
+	if s.power.hi == old.power.hi {
+		s.power.hi = p.power.hi
+	}
+	s.power = powerRange{max(s.power.lo, p.power.lo), min(s.power.hi, p.power.hi)}
+	if s.power.lo > s.power.hi {
+		s.power = p.power
+	}
+	s.costs = slices.DeleteFunc(s.costs, func(c int) bool { return c > p.maxCost })
 	return p
 }
 
@@ -345,7 +403,7 @@ func sortCards(cs []cards.Card, by cardSort) {
 // worked out again only when those or the cards change.
 func (s *cardsState) results(db *cards.DB, by cardSort) []cards.Card {
 	if s.pool == nil || s.pool.db != db {
-		s.pool = newCardPool(db)
+		s.pool = newCardPool(db).follow(s.pool, s)
 		s.key = ""
 	}
 	key := s.filterKey() + "|sort " + by.String()
@@ -361,16 +419,16 @@ func (s *cardsState) results(db *cards.DB, by cardSort) []cards.Card {
 		tests = append(tests, f.test(s))
 	}
 	s.shown = s.shown[:0]
-	s.curve = [maxCost + 1]int{}
+	s.curve = make([]int, s.pool.maxCost+1)
 	for _, pc := range s.pool.cards {
 		if !allPass(tests, pc) {
 			continue
 		}
 		cost := pc.card.Cost
 		if cost >= 0 {
-			s.curve[min(cost, maxCost)]++
+			s.curve[cost]++
 		}
-		if len(s.costs) == 0 || (cost >= 0 && slices.Contains(s.costs, min(cost, maxCost))) {
+		if len(s.costs) == 0 || slices.Contains(s.costs, cost) {
 			s.shown = append(s.shown, pc.card)
 		}
 	}
@@ -419,6 +477,26 @@ var cardFilters = []cardFilter{
 			return func(pc poolCard) bool { return pc.card.Type == cardKinds[s.kind] }
 		},
 		clear: func(s *cardsState) { s.kind = 0 },
+	},
+	{
+		key: func(s *cardsState) string {
+			if s.pool == nil || s.power == s.pool.power {
+				return ""
+			}
+			return fmt.Sprint(s.power.lo, "-", s.power.hi)
+		},
+		test: func(s *cardsState) func(poolCard) bool {
+			r := s.power
+			return func(pc poolCard) bool {
+				pw := float64(pc.card.Power)
+				return pc.card.HasPower() && pw >= r.lo && pw <= r.hi
+			}
+		},
+		clear: func(s *cardsState) {
+			if s.pool != nil {
+				s.power = s.pool.power
+			}
+		},
 	},
 	{
 		key:   func(s *cardsState) string { return joinAll(s.costs, strconv.Itoa) },
@@ -541,6 +619,14 @@ func (s *cardsState) toggleColor(col cards.Color) {
 		return
 	}
 	s.colors = append(s.colors, col)
+}
+
+// setKind picks a type. A type without power drops the power range, which would match nothing.
+func (s *cardsState) setKind(i int) {
+	s.kind = i
+	if !kindHasPower(i) && s.pool != nil {
+		s.power = s.pool.power
+	}
 }
 
 func (s *cardsState) toggleCost(n int) {

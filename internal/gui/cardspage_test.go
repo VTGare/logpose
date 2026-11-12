@@ -116,6 +116,18 @@ var _ = Describe("printedPower", func() {
 	})
 })
 
+var _ = Describe("powerRange", func() {
+	It("names a range as card text does", func() {
+		all := powerRange{0, 13000}
+		for r, want := range map[powerRange]string{
+			all: "Any", {6000, 6000}: "6000", {0, 5000}: "5000 or less", {6000, 13000}: "6000 or more",
+			{6000, 8000}: "6000–8000",
+		} {
+			Expect(r.label(all)).To(Equal(want))
+		}
+	})
+})
+
 var _ = Describe("Cards page", func() {
 	var (
 		tt *ui.Tester
@@ -268,7 +280,13 @@ var _ = Describe("Cards page", func() {
 			"color":  func() { click(tt, "Green") },
 			"type":   func() { click(tt, "Leader") },
 			"cost":   func() { click(tt, "Cost 3, 1 card") },
-			"chip":   func() { searchCards(tt, "Supernovas · Trait") },
+			"power": func() {
+				click(tt, "Power: Any")
+				click(tt, "maximum")
+				tt.Key(0, ui.KeyLeft)
+				tt.Frame()
+			},
+			"chip": func() { searchCards(tt, "Supernovas · Trait") },
 		}
 		for name, f := range set {
 			f()
@@ -339,6 +357,105 @@ var _ = Describe("Cards page", func() {
 	It("picks a cost from the curve", func() {
 		click(tt, "Cost 2, 1 card")
 		Expect(shown()).To(Equal([]string{"OP01-024"}))
+	})
+
+	It("offers every cost up to the highest a card has", func() {
+		Expect(labelled(tt, "Cost 0, 0 cards")).To(BeTrue())
+		Expect(labelled(tt, "Cost 3, 1 card")).To(BeTrue())
+		Expect(labelled(tt, "Cost 4, 0 cards")).To(BeFalse())
+	})
+
+	// lowerPower opens the power range and moves its top down by n steps.
+	lowerPower := func(n int) {
+		GinkgoHelper()
+		click(tt, "Power: Any")
+		click(tt, "maximum")
+		for range n {
+			tt.Key(0, ui.KeyLeft)
+			tt.Frame()
+		}
+	}
+
+	It("narrows by a power range and offers the thresholds card text uses", func() {
+		lowerPower(2)
+		Expect(labelled(tt, "Power: 3000 or less")).To(BeTrue())
+		Expect(shown()).To(Equal([]string{"OP14-002", "OP01-024"}))
+		click(tt, "Exactly 3000")
+		Expect(shown()).To(Equal([]string{"OP01-024"}))
+		click(tt, "3000 or more")
+		Expect(shown()).To(Equal([]string{"OP14-020", "OP01-024"}))
+		click(tt, "Clear the power range")
+		Expect(labelled(tt, "Power: Any")).To(BeTrue())
+		Expect(shown()).To(HaveLen(4))
+	})
+
+	It("drops the power range for a type without power and keeps it closed", func() {
+		lowerPower(1)
+		click(tt, "Event")
+		Expect(shown()).To(Equal([]string{"OP14-018"}))
+		Expect(labelled(tt, "Power: Any")).To(BeTrue())
+		click(tt, "Power: Any")
+		Expect(labelled(tt, "Drag either end to narrow the power.")).To(BeFalse())
+	})
+
+	It("disables the shortcuts that repeat one or mean any power at the lowest power", func() {
+		lowerPower(3)
+		Expect(labelled(tt, "Power: 2000")).To(BeTrue())
+		for _, name := range []string{"2000 or less", "2000 or more"} {
+			Expect(labelled(tt, name)).To(BeTrue(), name)
+			_ = tt.Click(name)
+			tt.Frame()
+			Expect(labelled(tt, "Power: 2000")).To(BeTrue(), name)
+		}
+		Expect(shown()).To(Equal([]string{"OP14-002"}))
+	})
+
+	It("keeps the power slider in place while its range changes", func() {
+		wide := testCards()
+		wide["OP15-001"] = cards.Card{
+			Code: "OP15-001", Name: "Kaido", Type: "Character", Colors: []cards.Color{cards.Purple}, Cost: 10,
+			Power: 13000, Detailed: true, Legality: cards.Legal,
+		}
+		wide["OP15-002"] = cards.Card{
+			Code: "OP15-002", Name: "Pincers", Type: "Character", Colors: []cards.Color{cards.Red}, Cost: 1,
+			Detailed: true, Legality: cards.Legal,
+		}
+		_, tt, _ = cardsPage(wide)
+		// The default window, where the popover meets the window's edge.
+		tt.SetSize(1180, 780)
+		tt.Frame()
+		click(tt, "Power: Any")
+		click(tt, "maximum")
+		knob := func() float32 {
+			r, ok := tt.Find("minimum")
+			Expect(ok).To(BeTrue())
+			return r.X
+		}
+		at := knob()
+		for range 13 {
+			tt.Key(0, ui.KeyLeft)
+			tt.Frame()
+			Expect(knob()).To(Equal(at))
+		}
+	})
+
+	It("stretches an open end of the range to new cards", func() {
+		lowerPower(0)
+		click(tt, "minimum")
+		tt.Key(0, ui.KeyRight)
+		tt.Frame()
+		Expect(labelled(tt, "Power: 3000 or more")).To(BeTrue())
+		more := testCards()
+		more["OP15-001"] = cards.Card{
+			Code: "OP15-001", Name: "Kaido", Type: "Character", Colors: []cards.Color{cards.Purple}, Cost: 10,
+			Power: 12000, Detailed: true, Legality: cards.Legal, Rarity: "Super Rare",
+		}
+		db := cards.NewDB()
+		(&cards.Library{Cards: more}).Apply(db)
+		v.snap.Cards = db
+		tt.Frame()
+		Expect(labelled(tt, "Power: 3000 or more")).To(BeTrue())
+		Expect(shownCards(tt, more)).To(ContainElement("OP15-001"))
 	})
 
 	It("resizes the card panel by its edge, folds it, and opens it again", func() {
