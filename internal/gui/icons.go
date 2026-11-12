@@ -43,6 +43,7 @@ var (
 	iconUnblockable = mustSVG(svgBold + `<path d="M19.7 14a7 7 0 0 0 .3-2V5l-8-3-3.2 1.2"/><path d="M4.7 4.7 4 5v7c0 6 8 10 8 10a20 20 0 0 0 5.6-4.3"/><path d="m2 2 20 20"/></svg>`)
 	iconImmune      = mustSVG(svgBold + `<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 7.5l1 2.5 2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1z"/></svg>`)
 	iconMinus       = mustSVG(svgBold + `<path d="M6 12h12"/></svg>`)
+	iconSwap        = mustSVG(svgHead + `<path d="M4 9h14l-3-3M20 15H6l3 3"/></svg>`)
 	iconClose       = mustSVG(svgHead + `<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>`)
 	iconExpand      = mustSVG(svgHead + `<path d="M14 5h5v5M19 5l-6 6M10 19H5v-5M5 19l6-6"/></svg>`)
 	iconCheck       = mustSVG(svgHead + `<path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`)

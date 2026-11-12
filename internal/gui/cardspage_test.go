@@ -266,6 +266,39 @@ var _ = Describe("Cards page", func() {
 		Expect(tt.HasText("Life")).To(BeTrue())
 	})
 
+	It("shows cards with either trait, or with both once the joiner says and", func() {
+		searchCards(tt, "Supernovas · Trait")
+		searchCards(tt, "Straw Hat Crew · Trait")
+		Expect(shown()).To(Equal([]string{"OP14-002", "OP01-024"}))
+		click(tt, "Show cards with all of these traits")
+		Expect(shown()).To(Equal([]string{"OP01-024"}))
+		Expect(labelled(tt, "Show cards with any of these traits")).To(BeTrue())
+		click(tt, "Show cards with any of these traits")
+		Expect(shown()).To(Equal([]string{"OP14-002", "OP01-024"}))
+	})
+
+	It("starts a field from either-or again once its chips are gone", func() {
+		searchCards(tt, "Supernovas · Trait")
+		searchCards(tt, "Straw Hat Crew · Trait")
+		click(tt, "Show cards with all of these traits")
+		click(tt, "Remove Straw Hat Crew")
+		click(tt, "Remove Supernovas")
+		searchCards(tt, "Supernovas · Trait")
+		searchCards(tt, "Fallen Monk Pirates · Trait")
+		Expect(labelled(tt, "Show cards with all of these traits")).To(BeTrue())
+		Expect(shown()).To(Equal([]string{"OP14-002", "OP01-024"}))
+	})
+
+	It("offers no joiner for a field a card has one value of", func() {
+		searchCards(tt, "Super Rare · Rarity")
+		searchCards(tt, "Leader · Rarity")
+		Expect(shown()).To(Equal([]string{"OP14-020", "OP01-024"}))
+		tt.Frame()
+		Expect(slices.ContainsFunc(tt.Texts(), func(t string) bool {
+			return strings.HasPrefix(t, "Show cards with")
+		})).To(BeFalse())
+	})
+
 	It("filters by color from the quick row and clears", func() {
 		click(tt, "Green")
 		Expect(tt.HasText("2 cards")).To(BeTrue())

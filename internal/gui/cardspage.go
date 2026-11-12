@@ -385,24 +385,15 @@ func (v *view) chips(c *ui.Context) {
 		popover(panel.Margin(6, 0, 0, 0).Padding(14), t)
 		v.moreFilters(c)
 	})
-	for i, ch := range s.chips {
-		b := ui.ButtonBase(c.Key(fmt.Sprint("chip", i, ch.field, ch.value))).Label("Remove "+ch.value).
-			Padding(5, 10, 5, 12).Radius(16).Gap(6).AlignItems(ui.Center)
-		tinted(b, t)
-		if ch.out {
-			b.Background(lossColor(t).Alpha(0.14)).Border(1, lossColor(t).Alpha(0.5))
-		}
-		if b.Clicked() {
-			s.toggleChip(ch)
-		}
-		b.Children(func() {
-			col := t.Text
-			if ch.out {
-				col = hideColor
-				ui.Icon(c, iconMinus).Size(11, 11).TextColor(col)
+	order := s.chipOrder()
+	for i, ch := range order {
+		// The joiner sits with the chip after it, so a wrap never leaves it ending a line.
+		join := i > 0 && ch.field.several && !ch.out && !order[i-1].out && order[i-1].field == ch.field
+		ui.Row(c.Key(fmt.Sprint("chip", ch.field.name, ch.value))).Gap(8).AlignItems(ui.Center).Children(func() {
+			if join {
+				v.joiner(c, ch.field)
 			}
-			ui.Text(c, ch.value).FontSize(13).FontWeight(500).TextColor(col)
-			ui.Icon(c, iconClose).FontSize(11).TextColor(t.TextMuted)
+			v.chip(c, ch)
 		})
 	}
 	if s.filtered() {
@@ -418,6 +409,52 @@ func (v *view) chips(c *ui.Context) {
 			ui.Text(c, "Clear all").FontSize(13).TextColor(col)
 		})
 	}
+}
+
+func (v *view) chip(c *ui.Context, ch cardChip) {
+	s := &v.cardsUI
+	t := c.Theme()
+	b := ui.ButtonBase(c.Key("chip")).Label("Remove "+ch.value).Padding(5, 10, 5, 12).Radius(16).Gap(6).
+		AlignItems(ui.Center)
+	tinted(b, t)
+	if ch.out {
+		b.Background(lossColor(t).Alpha(0.14)).Border(1, lossColor(t).Alpha(0.5))
+	}
+	if b.Clicked() {
+		s.toggleChip(ch)
+	}
+	b.Children(func() {
+		col := t.Text
+		if ch.out {
+			col = hideColor
+			ui.Icon(c, iconMinus).Size(11, 11).TextColor(col)
+		}
+		ui.Text(c, ch.value).FontSize(13).FontWeight(500).TextColor(col)
+		ui.Icon(c, iconClose).FontSize(11).TextColor(t.TextMuted)
+	})
+}
+
+// joiner reads "or" or "and" between two shown chips of a field, and a click flips it.
+func (v *view) joiner(c *ui.Context, field *chipField) {
+	s := &v.cardsUI
+	t := c.Theme()
+	word, next := "or", "all"
+	if s.every[field] {
+		word, next = "and", "any"
+	}
+	does := fmt.Sprintf("Show cards with %s of these %ss", next, strings.ToLower(field.name))
+	b := ui.ButtonBase(c.Key("join")).Label(does).Tooltip(does).Height(24).Padding(0, 7, 0, 9).Radius(12).Gap(4).
+		AlignItems(ui.Center).Border(1, t.Accent.Alpha(0.45)).Background(ui.Transparent)
+	if b.Hovered() {
+		b.Background(t.SurfaceHover)
+	}
+	if b.Clicked() {
+		s.toggleEvery(field)
+	}
+	b.Children(func() {
+		ui.Text(c, word).FontSize(12).FontWeight(500).TextColor(onText)
+		ui.Icon(c, iconSwap).Size(11, 11).TextColor(faintColor(t))
+	})
 }
 
 func (v *view) viewControls(c *ui.Context, count int) {

@@ -24,6 +24,8 @@ type cardsState struct {
 	costs  []int
 	power  powerRange
 	chips  []cardChip
+	// every holds the fields whose shown chips must all match, not just one.
+	every map[*chipField]bool
 	// selected is the card shown on the right, and viewed the key of the picture it shows
 	// large: an art's version, or a sim: or file: key. Empty is the first art.
 	selected string
@@ -72,34 +74,36 @@ type cardChip struct {
 }
 
 // chipField is a kind of chip. suggest offers its values in the search, and more is its place
-// under More filters, where 0 leaves it out.
+// under More filters, where 0 leaves it out. several is set for fields a card can have more than
+// one value of, the only ones where requiring every chip can match anything.
 type chipField struct {
 	name    string
 	values  func(p *cardPool) []string
 	match   func(pc poolCard, v string) bool
 	suggest bool
+	several bool
 	more    int
 }
 
 // chipFields are in the order the search suggests them.
 var chipFields = []*chipField{
 	{
-		name: "Trait", suggest: true,
+		name: "Trait", suggest: true, several: true,
 		values: func(p *cardPool) []string { return p.traits },
 		match:  func(pc poolCard, v string) bool { return slices.Contains(pc.card.Traits, v) },
 	},
 	{
-		name: "Keyword", suggest: true, more: 3,
+		name: "Keyword", suggest: true, several: true, more: 3,
 		values: func(p *cardPool) []string { return p.keywords },
 		match:  func(pc poolCard, v string) bool { return slices.Contains(pc.keywords, v) },
 	},
 	{
-		name: "Attribute", suggest: true, more: 1,
+		name: "Attribute", suggest: true, several: true, more: 1,
 		values: func(*cardPool) []string { return []string{"Slash", "Strike", "Ranged", "Special", "Wisdom"} },
 		match:  func(pc poolCard, v string) bool { return slices.Contains(pc.card.Attributes, v) },
 	},
 	{
-		name: "Set", suggest: true,
+		name: "Set", suggest: true, several: true,
 		values: func(p *cardPool) []string { return p.sets },
 		match: func(pc poolCard, v string) bool {
 			return slices.ContainsFunc(pc.card.Prints, func(p cards.Print) bool { return p.Set == v })
@@ -505,14 +509,20 @@ var cardFilters = []cardFilter{
 	{
 		key: func(s *cardsState) string {
 			return joinAll(s.chips, func(c cardChip) string {
-				if c.out {
+				switch {
+				case c.out:
 					return c.field.name + "!=" + c.value
+				case s.every[c.field]:
+					return c.field.name + "&=" + c.value
 				}
 				return c.field.name + "=" + c.value
 			})
 		},
-		test:  chipsTest,
-		clear: func(s *cardsState) { s.chips = nil },
+		test: chipsTest,
+		clear: func(s *cardsState) {
+			s.chips = nil
+			s.every = nil
+		},
 	},
 }
 
@@ -533,11 +543,12 @@ func allPass(tests []func(poolCard) bool, pc poolCard) bool {
 	return true
 }
 
-// chipsTest checks the chips. Values of one field are either-or, fields are all required, and a
-// hidden value rules a card out whatever else it matches.
+// chipsTest checks the chips. Values of one field are either-or unless the field is in every,
+// fields are all required, and a hidden value rules a card out whatever else it matches.
 func chipsTest(s *cardsState) func(poolCard) bool {
 	var out []cardChip
 	byField := make(map[*chipField][]string)
+	every := maps.Clone(s.every)
 	for _, ch := range s.chips {
 		if ch.out {
 			out = append(out, ch)
@@ -550,7 +561,8 @@ func chipsTest(s *cardsState) func(poolCard) bool {
 			return false
 		}
 		for field, values := range byField {
-			if !slices.ContainsFunc(values, func(v string) bool { return field.match(pc, v) }) {
+			matches := func(v string) bool { return field.match(pc, v) }
+			if every[field] && !all(values, matches) || !slices.ContainsFunc(values, matches) {
 				return false
 			}
 		}
@@ -581,12 +593,64 @@ func (s *cardsState) takeSuggestion() bool {
 	return true
 }
 
+func all[T any](xs []T, f func(T) bool) bool {
+	return !slices.ContainsFunc(xs, func(x T) bool { return !f(x) })
+}
+
 func (s *cardsState) toggleChip(ch cardChip) {
 	if i := s.chipIndex(ch.field, ch.value); i >= 0 {
 		s.chips = slices.Delete(s.chips, i, i+1)
+		s.forgetEvery()
 		return
 	}
 	s.chips = append(s.chips, ch)
+}
+
+// chipOrder is the chips as the row shows them. Each field's shown chips sit together, in the
+// order the field was first picked, and the hidden chips come last.
+func (s *cardsState) chipOrder() []cardChip {
+	var fields []*chipField
+	for _, ch := range s.chips {
+		if !ch.out && !slices.Contains(fields, ch.field) {
+			fields = append(fields, ch.field)
+		}
+	}
+	out := make([]cardChip, 0, len(s.chips))
+	for _, f := range fields {
+		for _, ch := range s.chips {
+			if ch.field == f && !ch.out {
+				out = append(out, ch)
+			}
+		}
+	}
+	for _, ch := range s.chips {
+		if ch.out {
+			out = append(out, ch)
+		}
+	}
+	return out
+}
+
+// toggleEvery switches a field between any of its shown chips and all of them.
+func (s *cardsState) toggleEvery(field *chipField) {
+	if s.every[field] {
+		delete(s.every, field)
+		return
+	}
+	if s.every == nil {
+		s.every = make(map[*chipField]bool)
+	}
+	s.every[field] = true
+}
+
+// forgetEvery drops the fields with no shown chip left, so picking one of them again starts
+// from either-or.
+func (s *cardsState) forgetEvery() {
+	for field := range s.every {
+		if !slices.ContainsFunc(s.chips, func(c cardChip) bool { return c.field == field && !c.out }) {
+			delete(s.every, field)
+		}
+	}
 }
 
 // cycleChip moves a value from off to shown only, to hidden, and back to off.
@@ -600,6 +664,7 @@ func (s *cardsState) cycleChip(field *chipField, value string) {
 	default:
 		s.chips = slices.Delete(s.chips, i, i+1)
 	}
+	s.forgetEvery()
 }
 
 func (s *cardsState) chipState(field *chipField, value string) (on, out bool) {
