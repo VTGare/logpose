@@ -91,9 +91,9 @@ const (
 
 // handTester deals from the scope's latest list and plays it out turn by turn, with each card's
 // record from the games it was dealt in.
-func (v *view) handTester(c *ui.Context, gs []stats.DeckGame, dealt []stats.DealtCard) {
+func (pg *decksPage) handTester(c *ui.Context, e *env, gs []stats.DeckGame, dealt []stats.DealtCard) {
 	t := c.Theme()
-	s := &v.decks
+	s := pg
 	if len(gs) == 0 {
 		return
 	}
@@ -126,13 +126,13 @@ func (v *view) handTester(c *ui.Context, gs []stats.DeckGame, dealt []stats.Deal
 	if n < stats.DeckSize {
 		note = fmt.Sprintf("From the latest list, of which the logs name %d cards. Mulligan once, then draw turn by turn.", n)
 	}
-	v.foldTile(c, "hands.try", foldHead{label: "Try a hand"}, func() {
+	e.foldTile(c, "hands.try", foldHead{label: "Try a hand"}, func() {
 		ui.Text(c, note).FontSize(12).TextColor(t.TextMuted)
-		v.testerControls(c, list)
+		pg.testerControls(c, list)
 		if len(h.sent) > 0 {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, "Sent back").FontSize(12).TextColor(faintColor(t))
-				v.handCards(c, h.sent, "", sentThumbs, true)
+				handCards(c, e, h.sent, "", sentThumbs, true)
 			})
 		}
 		w := float32(testerCardW)
@@ -142,7 +142,7 @@ func (v *view) handTester(c *ui.Context, gs []stats.DeckGame, dealt []stats.Deal
 		hide := s.hideNumbers && !h.mulliganed && h.turn == 0
 		ui.Row(c).Gap(10).Wrap().Children(func() {
 			for i, code := range h.hand {
-				v.testerCard(c.Key(i), code, byCard[code], w, hide, h.turn > 0 && v.snap.card(code).PaidCost() <= h.don())
+				testerCard(c.Key(i), e, code, byCard[code], w, hide, h.turn > 0 && e.snap.card(code).PaidCost() <= h.don())
 			}
 		})
 		hint := "Keep, or mulligan once."
@@ -156,9 +156,9 @@ func (v *view) handTester(c *ui.Context, gs []stats.DeckGame, dealt []stats.Deal
 	})
 }
 
-func (v *view) testerControls(c *ui.Context, list map[string]int) {
+func (pg *decksPage) testerControls(c *ui.Context, list map[string]int) {
 	t := c.Theme()
-	s := &v.decks
+	s := pg
 	h := &s.tester
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Wrap().Children(func() {
 		order := 0
@@ -199,15 +199,15 @@ func (v *view) testerControls(c *ui.Context, list map[string]int) {
 
 // testerCard is a card of the hand with its cost and its record from the games it was dealt in,
 // outlined when it can be paid for this turn.
-func (v *view) testerCard(c *ui.Context, code string, dc stats.DealtCard, w float32, hide, payable bool) {
+func testerCard(c *ui.Context, e *env, code string, dc stats.DealtCard, w float32, hide, payable bool) {
 	t := c.Theme()
-	card := v.snap.card(code)
+	card := e.snap.card(code)
 	edge := ui.Transparent
 	if payable {
 		edge = winColor(t)
 	}
 	ui.Column(c).Width(w + 6).Gap(3).Children(func() {
-		ui.Box(c).Padding(2).Radius(8).Border(2, edge).Children(func() { v.card(c, code, w) })
+		ui.Box(c).Padding(2).Radius(8).Border(2, edge).Children(func() { e.card(c, code, w) })
 		ui.Text(c, card.Name).FontSize(13).FontWeight(600).SingleLine()
 		ui.Text(c, fmt.Sprintf("Cost %d", card.PaidCost())).FontSize(12).TextColor(faintColor(t))
 		switch {

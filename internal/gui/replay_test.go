@@ -53,13 +53,13 @@ var _ = Describe("replay", func() {
 	watch := func() loadedReplay {
 		v.page = pageMatches
 		v.openMatch(v.snap.Matches[0])
-		v.setTimeline(matchTimeline{Fingerprint: "0", Replayable: true})
+		v.matches.setTimeline(matchTimeline{Fingerprint: "0", Replayable: true})
 		tt.Frame()
 		Expect(tt.Click("Watch replay")).To(Succeed())
 		Expect(fa.replays).To(Equal([]string{"0"}))
 		Expect(tt.HasText("Building the replay")).To(BeTrue())
 		l := sixTurns()
-		v.setReplay(l)
+		v.matches.setReplay(l)
 		tt.Frame()
 		return l
 	}
@@ -95,7 +95,7 @@ var _ = Describe("replay", func() {
 		v.openMatch(v.snap.Matches[0])
 		tt.Frame()
 		Expect(tt.Click("Watch replay")).To(Succeed())
-		v.setTimeline(matchTimeline{Fingerprint: "0"})
+		v.matches.setTimeline(matchTimeline{Fingerprint: "0"})
 		tt.Frame()
 		Expect(tt.Click("Watch replay")).To(Succeed())
 		Expect(fa.replays).To(BeEmpty())
@@ -105,8 +105,8 @@ var _ = Describe("replay", func() {
 
 	It("says why a game without moves can't be replayed", func() {
 		v.page = pageMatches
-		v.openReplay(v.snap.Matches[0], -1)
-		v.setReplay(loadedReplay{Fingerprint: "0", Err: replay.ErrNoMoves})
+		v.matches.openReplay(&v.env, v.snap.Matches[0], -1)
+		v.matches.setReplay(loadedReplay{Fingerprint: "0", Err: replay.ErrNoMoves})
 		tt.Frame()
 		Expect(tt.HasText(noMovesText)).To(BeTrue())
 	})
@@ -119,16 +119,16 @@ var _ = Describe("replay", func() {
 		Expect(tt.HasText("Building the replay")).To(BeTrue())
 		Expect(fa.loaded).To(Equal([]string{"0"}))
 		Expect(fa.replays).To(BeEmpty())
-		v.setTimeline(matchTimeline{Fingerprint: "0", Replayable: true, Game: sixTurns().Game})
+		v.matches.setTimeline(matchTimeline{Fingerprint: "0", Replayable: true, Game: sixTurns().Game})
 		Expect(fa.replays).To(Equal([]string{"0"}))
-		v.setTimeline(matchTimeline{Fingerprint: "0", Replayable: true, Game: sixTurns().Game})
+		v.matches.setTimeline(matchTimeline{Fingerprint: "0", Replayable: true, Game: sixTurns().Game})
 		Expect(fa.replays).To(HaveLen(1))
 	})
 
 	It("says when the match's log can't be read", func() {
 		v.page = pageMatches
-		v.openReplay(v.snap.Matches[0], -1)
-		v.setTimeline(matchTimeline{Fingerprint: "0", Err: errors.New("no such game")})
+		v.matches.openReplay(&v.env, v.snap.Matches[0], -1)
+		v.matches.setTimeline(matchTimeline{Fingerprint: "0", Err: errors.New("no such game")})
 		tt.Frame()
 		Expect(fa.replays).To(BeEmpty())
 		Expect(tt.HasText("The game's log couldn't be read: no such game")).To(BeTrue())
@@ -139,7 +139,7 @@ var _ = Describe("replay", func() {
 		line := l.Replay.Steps[19].Lines[0]
 		v.page = pageMatches
 		v.openMatch(v.snap.Matches[0])
-		v.setTimeline(matchTimeline{
+		v.matches.setTimeline(matchTimeline{
 			Fingerprint: "0", Replayable: true, Me: []int{5, 4, 3}, Opp: []int{5, 5, 4},
 			Moments: []simlog.Moment{{
 				Turn: 5, Player: "Bob#2222", Line: line,
@@ -149,7 +149,7 @@ var _ = Describe("replay", func() {
 		tt.Frame()
 		Expect(tt.Click("Replay moment 1")).To(Succeed())
 		Expect(fa.replays).To(Equal([]string{"0"}))
-		v.setReplay(l)
+		v.matches.setReplay(l)
 		Expect(at(19)).To(BeTrue())
 		Expect(tt.HasText("Rocks D. Xebec attacked Monkey D. Garp")).To(BeTrue())
 	})
@@ -273,7 +273,7 @@ var _ = Describe("replay", func() {
 	// The specs' tester turns animations off, so this reads how long the mat glides cards for.
 	It("glides cards on a single step only, and not at the fastest speed", func() {
 		watch()
-		rs := v.detail.replay
+		rs := v.matches.detail.replay
 		Expect(tt.Click("Next step")).To(Succeed())
 		byHand := rs.glide
 		Expect(byHand).To(BeNumerically(">", 0))

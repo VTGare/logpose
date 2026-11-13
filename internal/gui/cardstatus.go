@@ -69,7 +69,7 @@ var statusNames = map[replay.StatusKind]string{
 
 // statusNotes say what each status does, whose effect it is, and when it ends, for the
 // card's hover preview.
-func (v *view) statusNotes(card replay.Card) []string {
+func (e *env) statusNotes(card replay.Card) []string {
 	var out []string
 	for _, st := range card.Statuses {
 		var what string
@@ -87,7 +87,7 @@ func (v *view) statusNotes(card replay.Card) []string {
 			what = statusNames[st.Kind]
 		}
 		if st.Source != "" {
-			what += " (" + v.snap.card(st.Source).Name + ")"
+			what += " (" + e.snap.card(st.Source).Name + ")"
 		}
 		switch {
 		case st.ForAttack:
@@ -110,7 +110,7 @@ func powerText(p replay.Power) string {
 
 // powerSum spells out how a power is made, as "7000 = 5000 + 1000 DON + 1000 counter (Nami)".
 // The sim shows power below 0 as 0, as "0: 5000 − 7000 (Charlotte Linlin) = −2000, shown as 0".
-func (v *view) powerSum(p replay.Power) string {
+func (e *env) powerSum(p replay.Power) string {
 	var b strings.Builder
 	total := 0
 	for i, part := range p.Parts {
@@ -140,7 +140,7 @@ func (v *view) powerSum(p replay.Power) string {
 			b.WriteString(" from effects not in the log")
 		}
 		if part.Source != "" {
-			b.WriteString(" (" + v.snap.card(part.Source).Name + ")")
+			b.WriteString(" (" + e.snap.card(part.Source).Name + ")")
 		}
 	}
 	if p.Floored() {

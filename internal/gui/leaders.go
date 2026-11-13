@@ -47,67 +47,67 @@ type deckData struct {
 
 // leaderDecks is the leader the deck filter names, or the most played one in scope, with its
 // games split into builds.
-func (v *view) leaderDecks() leaderDecks {
-	lc := &v.leaderStats
-	sc := v.scoped()
+func (pg *decksPage) leaderDecks(e *env) leaderDecks {
+	lc := &pg.leaderStats
+	sc := e.scoped()
 	if lc.gen == sc.gen {
 		return lc.decks
 	}
-	leader := v.filter.deck
+	leader := e.filter.deck
 	if leader == "" && len(sc.decks) > 0 {
 		leader = sc.decks[0].Leader
 	}
 	var split *leaderDecks
-	if lc.snap == v.snap && lc.decks.leader == leader {
+	if lc.snap == e.snap && lc.decks.leader == leader {
 		split = &lc.decks
 	}
-	*lc = leaderCache{snap: v.snap, gen: sc.gen, decks: v.splitLeader(leader, split)}
+	*lc = leaderCache{snap: e.snap, gen: sc.gen, decks: splitLeader(e, leader, split)}
 	return lc.decks
 }
 
-func (v *view) deckData(ld leaderDecks) *deckData {
-	lc := &v.leaderStats
-	sc := v.decks.scope
+func (pg *decksPage) deckData(e *env, ld leaderDecks) *deckData {
+	lc := &pg.leaderStats
+	sc := pg.scope
 	if lc.shown != nil && lc.shown.scope == sc {
 		return lc.shown
 	}
 	d := &deckData{leaderDecks: ld, scope: sc, tag: ld.scopeName(sc)}
 	d.name = d.tag
 	if d.name == "" {
-		d.name = v.snap.card(ld.leader).Name
+		d.name = e.snap.card(ld.leader).Name
 	}
-	d.stats = stats.ForLeader(ld.scopedMatches(sc, ld.anyTurn), ld.leader, v.filter.turn)
+	d.stats = stats.ForLeader(ld.scopedMatches(sc, ld.anyTurn), ld.leader, e.filter.turn)
 	d.games = ld.scopedMatches(sc, ld.matches)
 	d.days = stats.Days(d.games)
 	d.mulligans = stats.ForMulligans(d.games)
 	d.deckGames = ld.scopedGames(sc)
 	if len(d.deckGames) > 0 {
-		d.cards = stats.Cards(d.deckGames, v.snap.card)
+		d.cards = stats.Cards(d.deckGames, e.snap.card)
 		d.changes = stats.Changes(d.deckGames)
 		for _, ch := range d.changes {
-			d.lists = append(d.lists, stats.List(ch.Games[0].Facts.List, v.snap.card))
+			d.lists = append(d.lists, stats.List(ch.Games[0].Facts.List, e.snap.card))
 		}
 	}
 	lc.shown = d
 	return d
 }
 
-func (v *view) decksPage(c *ui.Context) {
-	ld := v.leaderDecks()
+func (pg *decksPage) draw(c *ui.Context, e *env) {
+	ld := pg.leaderDecks(e)
 	// Choosing a build changes the scope, so it comes before the scope's numbers.
-	v.chooseBuild(ld)
-	d := v.deckData(ld)
+	pg.chooseBuild(ld)
+	d := pg.deckData(e, ld)
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
-			if v.decks.edit != nil {
-				v.coreEditor(c, ld)
+			if pg.edit != nil {
+				pg.coreEditor(c, e, ld)
 				return
 			}
-			v.deckTabs(c, v.scoped().decks, ld.leader, "Show ", v.openLeader)
-			v.leaderHead(c, d)
-			v.buildRow(c, ld)
-			v.pageTabs(c)
-			deckPageTabs[v.decks.tab].draw(v, c, ld, d)
+			e.deckTabs(c, e.scoped().decks, ld.leader, "Show ", e.openLeader)
+			leaderHead(c, e, d)
+			pg.buildRow(c, e, ld)
+			pg.pageTabs(c)
+			deckPageTabs[pg.tab].draw(pg, c, e, ld, d)
 		})
 	})
 }
@@ -115,7 +115,7 @@ func (v *view) decksPage(c *ui.Context) {
 // deckTab is a tab of the Decks page. sub names it for -page, and Results, the default, has none.
 type deckTab struct {
 	label, sub string
-	draw       func(v *view, c *ui.Context, ld leaderDecks, d *deckData)
+	draw       func(pg *decksPage, c *ui.Context, e *env, ld leaderDecks, d *deckData)
 }
 
 const (
@@ -126,29 +126,29 @@ const (
 )
 
 var deckPageTabs = [...]deckTab{
-	tabResults: {label: "Results", draw: (*view).resultsTab},
-	tabList:    {label: "List", sub: "list", draw: func(v *view, c *ui.Context, _ leaderDecks, d *deckData) { v.listTab(c, d) }},
-	tabCards:   {label: "Cards", sub: "cards", draw: func(v *view, c *ui.Context, _ leaderDecks, d *deckData) { v.cardsTab(c, d) }},
-	tabHands:   {label: "Hands", sub: "hands", draw: func(v *view, c *ui.Context, _ leaderDecks, d *deckData) { v.handsTab(c, d) }},
+	tabResults: {label: "Results", draw: (*decksPage).resultsTab},
+	tabList:    {label: "List", sub: "list", draw: func(pg *decksPage, c *ui.Context, e *env, _ leaderDecks, d *deckData) { pg.listTab(c, e, d) }},
+	tabCards:   {label: "Cards", sub: "cards", draw: func(_ *decksPage, c *ui.Context, e *env, _ leaderDecks, d *deckData) { cardsTab(c, e, d) }},
+	tabHands:   {label: "Hands", sub: "hands", draw: func(pg *decksPage, c *ui.Context, e *env, _ leaderDecks, d *deckData) { pg.handsTab(c, e, d) }},
 }
 
-func (v *view) resultsTab(c *ui.Context, ld leaderDecks, d *deckData) {
+func (pg *decksPage) resultsTab(c *ui.Context, e *env, ld leaderDecks, d *deckData) {
 	l := d.stats
 	if d.scope.kind == scopeOverall && len(ld.builds) > 0 {
-		v.buildsTable(c, ld)
+		pg.buildsTable(c, e, ld)
 	}
 	ui.Row(c).Gap(16).AlignItems(ui.Start).Children(func() {
 		ui.Column(c).Grow(1).Basis(0).Gap(16).Children(func() {
-			v.rollingChart(c, d.tag, l.Rolling, d.games, v.leaderPoint.at(v.scoped().gen, d.scope))
-			v.leaderDays(c, d)
+			rollingChart(c, e, d.tag, l.Rolling, d.games, pg.leaderPoint.at(e.scoped().gen, d.scope))
+			leaderDays(c, e, d)
 		})
 		ui.Column(c).Width(320).Gap(16).Children(func() {
 			o := l.TurnOrder
 			sum := fmt.Sprintf("1st %s · 2nd %s", rateText(o.First), rateText(o.Second))
-			v.foldTile(c, "decks.turns", foldHead{label: "Turn order", tag: d.tag, summary: sum}, func() {
-				v.turnRows(c, o, v.filter.turn, v.setTurn)
+			e.foldTile(c, "decks.turns", foldHead{label: "Turn order", tag: d.tag, summary: sum}, func() {
+				e.turnRows(c, o, e.filter.turn, e.setTurn)
 			})
-			v.matchupLists(c, d.tag, l)
+			matchupLists(c, e, d.tag, l)
 		})
 	})
 }
@@ -190,22 +190,22 @@ func (e *env) deckTabs(c *ui.Context, all []stats.LeaderRecord, chosen, label st
 
 // leaderHead is the leader's art and numbers. With a build or No build chosen, it names that
 // over the leader and counts only its games.
-func (v *view) leaderHead(c *ui.Context, d *deckData) {
+func leaderHead(c *ui.Context, e *env, d *deckData) {
 	t := c.Theme()
 	l := d.stats
-	leader := v.snap.card(l.Leader).Name
+	leader := e.snap.card(l.Leader).Name
 	title, note := leader, cards.SetOf(l.Leader)
 	if d.scope.kind != scopeOverall {
 		title, note = d.tag, ""
 	}
 	if !l.First.IsZero() {
-		note = strings.TrimPrefix(note+" · since "+v.date(l.First), " · ")
+		note = strings.TrimPrefix(note+" · since "+e.date(l.First), " · ")
 	}
 	height := float32(150)
 	if title != leader {
 		height = 166
 	}
-	v.banner(c, l.Leader, height, func() {
+	e.banner(c, l.Leader, height, func() {
 		if title != leader {
 			ui.Text(c, leader+" ›").FontSize(12).TextColor(t.TextMuted)
 		}
@@ -242,22 +242,22 @@ func (v *view) leaderHead(c *ui.Context, d *deckData) {
 }
 
 // leaderDays is the leader's latest days played, like the Overview's.
-func (v *view) leaderDays(c *ui.Context, d *deckData) {
+func leaderDays(c *ui.Context, e *env, d *deckData) {
 	days := d.days
 	sum := ""
 	if len(days) > 0 {
-		sum = fmt.Sprintf("Latest %s, %s", v.date(days[0].Date), record(days[0].Record))
+		sum = fmt.Sprintf("Latest %s, %s", e.date(days[0].Date), record(days[0].Record))
 	}
-	v.foldTile(c, "decks.days", foldHead{label: "By day", tag: d.tag, summary: sum}, func() {
+	e.foldTile(c, "decks.days", foldHead{label: "By day", tag: d.tag, summary: sum}, func() {
 		for i, day := range days[:min(len(days), 5)] {
-			v.dayRow(c.Key(i), day)
+			e.dayRow(c.Key(i), day)
 		}
 	})
 }
 
 // matchupLists are the best and worst matchups with enough games, split at 50%, then the even
 // ones and a count of the rest, which the Matchups page lists in full.
-func (v *view) matchupLists(c *ui.Context, tag string, l stats.Leader) {
+func matchupLists(c *ui.Context, e *env, tag string, l stats.Leader) {
 	t := c.Theme()
 	var best, worst, even, few []stats.LeaderRecord
 	for _, mu := range stats.SortMatchups(l.Matchups, stats.BestFirst) {
@@ -278,9 +278,9 @@ func (v *view) matchupLists(c *ui.Context, tag string, l stats.Leader) {
 		if len(mus) == 0 {
 			return
 		}
-		v.foldTile(c, id, foldHead{label: title, tag: tag}, func() {
+		e.foldTile(c, id, foldHead{label: title, tag: tag}, func() {
 			for i, mu := range mus[:min(len(mus), 3)] {
-				v.matchupLine(c.Key(i), mu)
+				facedLine(c.Key(i), e, mu)
 			}
 		})
 	}
@@ -294,14 +294,14 @@ func (v *view) matchupLists(c *ui.Context, tag string, l stats.Leader) {
 	if len(even) > 0 {
 		names := make([]string, len(even))
 		for i, mu := range even {
-			names[i] = fmt.Sprintf("%s %s", shortName(v.snap.card(mu.Leader).Name), record(mu.Record))
+			names[i] = fmt.Sprintf("%s %s", shortName(e.snap.card(mu.Leader).Name), record(mu.Record))
 		}
 		titledTile(c, "Even", strings.Join(names, " · "), func() {})
 	}
 	if len(few) > 0 {
 		el := ui.Row(c).Label("Show every matchup")
 		if el.Clicked() {
-			v.page = pageMatchups
+			e.page = pageMatchups
 		}
 		el.Children(func() {
 			titledTile(c, "Rarely faced", fmt.Sprintf("%d under %d games", len(few), stats.MinGames), func() {}).Grow(1)
@@ -310,21 +310,21 @@ func (v *view) matchupLists(c *ui.Context, tag string, l stats.Leader) {
 }
 
 // matchupLine is one opposing leader with its record as a split bar, the record and the rate.
-func (v *view) matchupLine(c *ui.Context, mu stats.LeaderRecord) {
+func facedLine(c *ui.Context, e *env, mu stats.LeaderRecord) {
 	t := c.Theme()
-	name := v.snap.card(mu.Leader).Name
+	name := e.snap.card(mu.Leader).Name
 	el := ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(3, 6).Margin(0, -6).Radius(8).Label("Show games vs " + name).
-		PopoverMenu(v.opponentMenu("", mu.Leader))
+		PopoverMenu(e.opponentMenu("", mu.Leader))
 	if el.Hovered() {
 		el.Background(t.Surface)
 	}
 	if el.Clicked() {
-		v.showOpponentGames("", mu.Leader)
+		e.showOpponentGames("", mu.Leader)
 	}
 	el.Children(func() {
-		v.artStrip(c, mu.Leader, 42, 30)
+		e.artStrip(c, mu.Leader, 42, 30)
 		ui.Text(c, shortName(name)).FontWeight(500).SingleLine().Grow(1).Basis(0)
-		ui.Box(c).Width(40).Children(func() { v.splitBar(c, mu.Record.Share()) })
+		ui.Box(c).Width(40).Children(func() { e.splitBar(c, mu.Record.Share()) })
 		ui.Text(c, record(mu.Record)).Bold().Width(40).TextAlign(ui.End)
 		ui.Text(c, rateText(mu.Record)).FontSize(12).TextColor(t.TextMuted).Width(34).TextAlign(ui.End)
 	})
@@ -356,12 +356,12 @@ func (p *chartPick) at(gen int, scope deckScope) *int {
 
 // rollingChart is the rolling win rate on an axis that fits it, with 50% marked, over every game
 // as a win or loss square, grouped by day, and sel is the point under the pointer.
-func (v *view) rollingChart(c *ui.Context, tag string, pts []stats.Point, newest []stats.Match, sel *int) {
+func rollingChart(c *ui.Context, e *env, tag string, pts []stats.Point, newest []stats.Match, sel *int) {
 	t := c.Theme()
 	games := slices.Clone(newest)
 	slices.Reverse(games)
 	label := fmt.Sprintf("Win rate, last %d games", stats.RollingWindow)
-	v.foldTile(c, "decks.rolling", foldHead{label: label, tag: tag}, func() {
+	e.foldTile(c, "decks.rolling", foldHead{label: label, tag: tag}, func() {
 		if len(pts) < 2 || len(games) == 0 {
 			ui.Text(c, fmt.Sprintf("Shows up after %d games.", stats.RollingWindow+1)).TextColor(t.TextMuted)
 			return
@@ -399,10 +399,10 @@ func (v *view) rollingChart(c *ui.Context, tag string, pts []stats.Point, newest
 		}
 		describe := func(i int) string {
 			p := pts[i]
-			return fmt.Sprintf("%s · game %d · %s, %d of the last %d won", v.dateTime(p.At), p.Game, pct(p.Rate), p.Wins, stats.RollingWindow)
+			return fmt.Sprintf("%s · game %d · %s, %d of the last %d won", e.dateTime(p.At), p.Game, pct(p.Rate), p.Wins, stats.RollingWindow)
 		}
 		chart.Plot(c, chart.Axes{Left: left, Bottom: bottom, Label: axisLabel(c)}, func(area ui.Element) {
-			drawn := v.grow(area, "draw", 1, drawTime)
+			drawn := e.grow(area, "draw", 1, drawTime)
 			area.Label(label).Draw(func(p *ui.Painter, r ui.Rect) {
 				for k, d := range days {
 					if k%2 == 1 {
@@ -468,4 +468,23 @@ func dayRuns(games []stats.Match) []dayRun {
 		out[len(out)-1].end = i + 1
 	}
 	return out
+}
+
+func (pg *decksPage) open(e *env, sub string) {
+	switch sub {
+	case "nobuild":
+		pg.scope = deckScope{kind: scopeNoBuild}
+	case "build", "edit":
+		if d := pg.leaderDecks(e); len(d.builds) > 0 {
+			pg.scope = buildScope(d.builds[0].ID)
+			if sub == "edit" {
+				pg.startEdit(d.builds[0])
+			}
+		}
+	}
+	for i, tab := range deckPageTabs {
+		if tab.sub != "" && tab.sub == sub {
+			pg.tab = i
+		}
+	}
 }

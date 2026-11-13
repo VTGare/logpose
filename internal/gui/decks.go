@@ -13,7 +13,19 @@ import (
 	"github.com/VTGare/logpose/internal/store"
 )
 
-type decksState struct {
+type deckActions interface {
+	// SaveBuild calls saved with the build's ID on the main thread once it's stored.
+	SaveBuild(b store.Build, saved func(id int64))
+	DeleteBuild(id int64)
+	DismissSuggestion(d store.Dismissal)
+}
+
+type decksPage struct {
+	act deckActions
+
+	leaderPoint chartPick
+	leaderStats leaderCache
+
 	tab   int
 	scope deckScope
 	// naming is the core key of the suggestion being made a build, and name the name typed.
@@ -121,9 +133,9 @@ func (d leaderDecks) chosen(id int64) (store.Build, bool) {
 }
 
 // splitLeader splits the leader's games into builds, or takes the split from prev when it has one.
-func (v *view) splitLeader(leader string, prev *leaderDecks) leaderDecks {
+func splitLeader(e *env, leader string, prev *leaderDecks) leaderDecks {
 	d := leaderDecks{leader: leader}
-	sc := v.scoped()
+	sc := e.scoped()
 	for _, m := range sc.anyDeck {
 		if m.Me.Leader == leader {
 			d.matches = append(d.matches, m)
@@ -135,11 +147,11 @@ func (v *view) splitLeader(leader string, prev *leaderDecks) leaderDecks {
 		}
 	}
 	for _, m := range d.matches {
-		if g, ok := v.snap.Decks[m.Fingerprint]; ok {
+		if g, ok := e.snap.Decks[m.Fingerprint]; ok {
 			d.games = append(d.games, g)
 		}
 	}
-	for _, b := range v.snap.Builds {
+	for _, b := range e.snap.Builds {
 		if b.Leader == leader {
 			d.builds = append(d.builds, b)
 		}
@@ -147,13 +159,13 @@ func (v *view) splitLeader(leader string, prev *leaderDecks) leaderDecks {
 	if prev != nil {
 		d.all, d.split = prev.all, prev.split
 	} else {
-		for _, g := range v.snap.Decks {
+		for _, g := range e.snap.Decks {
 			if g.Me.Leader == leader {
 				d.all = append(d.all, g)
 			}
 		}
 		slices.SortFunc(d.all, func(a, b stats.DeckGame) int { return b.PlayedAt.Compare(a.PlayedAt) })
-		d.split = stats.Builds(d.all, d.builds, v.snap.Dismissed[leader], v.snap.card)
+		d.split = stats.Builds(d.all, d.builds, e.snap.Dismissed[leader], e.snap.card)
 	}
 	d.unbuilt = len(d.scopedMatches(deckScope{kind: scopeNoBuild}, d.matches))
 	if len(d.builds) > 0 {
@@ -185,11 +197,11 @@ func (d leaderDecks) scopeName(s deckScope) string {
 
 // buildRow chooses the scope: Overall, the leader's builds and No build, then a chip for a new
 // build and a link to the suggestions. Without builds, the suggestions get a chip of their own.
-func (v *view) buildRow(c *ui.Context, d leaderDecks) {
+func (pg *decksPage) buildRow(c *ui.Context, e *env, d leaderDecks) {
 	t := c.Theme()
-	s := &v.decks
+	s := pg
 	ui.Row(c).Gap(16).AlignItems(ui.Center).Children(func() {
-		ui.Row(c).Grow(1).Basis(0).Gap(8).AlignItems(ui.Center).Wrap().Children(func() { v.buildChips(c, d) })
+		ui.Row(c).Grow(1).Basis(0).Gap(8).AlignItems(ui.Center).Wrap().Children(func() { pg.buildChips(c, e, d) })
 		if len(d.games) == 0 {
 			return
 		}
@@ -206,15 +218,15 @@ func (v *view) buildRow(c *ui.Context, d leaderDecks) {
 		})
 	})
 	if b, ok := d.chosen(s.scope.build); ok && s.scope.kind == scopeBuild {
-		v.renameBar(c, b)
+		pg.renameBar(c, b)
 	}
 }
 
 // buildChips choose the scope the tabs show. Each build has its actions on right-click, and
 // the chosen one on its ⋯ too. Without builds, one chip opens List on the suggestions.
-func (v *view) buildChips(c *ui.Context, d leaderDecks) {
+func (pg *decksPage) buildChips(c *ui.Context, e *env, d leaderDecks) {
 	t := c.Theme()
-	s := &v.decks
+	s := pg
 	if len(d.builds) > 0 {
 		overall := deckScope{}
 		if buildChip(c.Key("overall"), "Overall", matchesMeta(d.matches), false, s.scope == overall) {
@@ -223,7 +235,7 @@ func (v *view) buildChips(c *ui.Context, d leaderDecks) {
 		ui.Box(c).Size(1, 34).Background(t.Border).Margin(0, 4)
 	}
 	for _, b := range d.builds {
-		v.savedBuildChip(c.Key(fmt.Sprint("b", b.ID)), d, b)
+		pg.savedBuildChip(c.Key(fmt.Sprint("b", b.ID)), e, d, b)
 	}
 	none := deckScope{kind: scopeNoBuild}
 	if len(d.builds) > 0 && (d.unbuilt > 0 || s.scope == none) {
@@ -238,22 +250,22 @@ func (v *view) buildChips(c *ui.Context, d leaderDecks) {
 		}
 	}
 	if len(d.games) > 0 && buildChip(c.Key("new"), "New build", "Pick its core", true, false) {
-		v.startEdit(store.Build{Leader: d.leader})
+		pg.startEdit(store.Build{Leader: d.leader})
 	}
 }
 
-func (v *view) savedBuildChip(c *ui.Context, d leaderDecks, b store.Build) {
+func (pg *decksPage) savedBuildChip(c *ui.Context, e *env, d leaderDecks, b store.Build) {
 	t := c.Theme()
-	s := &v.decks
+	s := pg
 	on := s.scope == buildScope(b.ID)
-	menu := func(m *ui.Menu) { v.buildMenu(m, d, b) }
+	menu := func(m *ui.Menu) { pg.buildMenu(e, m, d, b) }
 	group := ui.Row(c).AlignItems(ui.Stretch).Radius(10).Clip().Border(1, t.Border.Alpha(0.6))
 	if on {
 		group.Background(t.Accent.Alpha(0.12)).Border(1, t.Accent)
 	}
 	group.Children(func() {
 		chip := ui.ButtonBase(c).Label(b.Name).Column().Gap(1).Padding(7, 12).Background(ui.Transparent).
-			AlignItems(ui.Start).Tooltip(v.coreText(b)).PopoverMenu(menu)
+			AlignItems(ui.Start).Tooltip(coreText(e, b)).PopoverMenu(menu)
 		if !on && chip.Hovered() {
 			chip.Background(t.SurfaceHover)
 		}
@@ -262,7 +274,7 @@ func (v *view) savedBuildChip(c *ui.Context, d leaderDecks, b store.Build) {
 		}
 		chip.Children(func() {
 			ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
-				v.coreThumbs(c, b.Core)
+				coreThumbs(c, e, b.Core)
 				ui.Text(c, b.Name).FontSize(13).FontWeight(600).SingleLine()
 			})
 			ui.Text(c, matchesMeta(d.scopedMatches(buildScope(b.ID), d.matches))).FontSize(12).TextColor(faintColor(t)).SingleLine()
@@ -280,33 +292,33 @@ func (v *view) savedBuildChip(c *ui.Context, d leaderDecks, b store.Build) {
 	})
 }
 
-func (v *view) coreText(b store.Build) string {
+func coreText(e *env, b store.Build) string {
 	var names []string
 	for _, code := range b.Core {
-		names = append(names, v.snap.card(code).Name)
+		names = append(names, e.snap.card(code).Name)
 	}
 	return "Core: " + strings.Join(names, ", ")
 }
 
-func (v *view) buildMenu(m *ui.Menu, d leaderDecks, b store.Build) {
-	s := &v.decks
-	m.Item(v.coreText(b)).Disabled(true)
+func (pg *decksPage) buildMenu(e *env, m *ui.Menu, d leaderDecks, b store.Build) {
+	s := pg
+	m.Item(coreText(e, b)).Disabled(true)
 	m.Separator()
 	if m.Item("Edit core").Chosen() {
 		s.scope = buildScope(b.ID)
-		v.startEdit(b)
+		pg.startEdit(b)
 	}
 	if m.Item("Rename").Chosen() {
 		s.scope, s.renaming, s.rename = buildScope(b.ID), true, b.Name
 	}
 	m.Separator()
 	if m.Item("Delete build").Chosen() {
-		v.deleteBuild(d, b)
+		pg.deleteBuild(e, d, b)
 	}
 }
 
-func (v *view) renameBar(c *ui.Context, b store.Build) {
-	s := &v.decks
+func (pg *decksPage) renameBar(c *ui.Context, b store.Build) {
+	s := pg
 	if !s.renaming {
 		return
 	}
@@ -315,7 +327,7 @@ func (v *view) renameBar(c *ui.Context, b store.Build) {
 		if (in.Submitted() || ui.PrimaryButton(c, "Save").Clicked()) && strings.TrimSpace(s.rename) != "" {
 			nb := b
 			nb.Name = strings.TrimSpace(s.rename)
-			v.do(func(a actions) { a.SaveBuild(nb, nil) })
+			pg.do(func(a deckActions) { a.SaveBuild(nb, nil) })
 			s.renaming = false
 		}
 		if ui.Button(c, "Cancel").Clicked() {
@@ -328,27 +340,27 @@ func (v *view) renameBar(c *ui.Context, b store.Build) {
 const buildUndoTime = 10 * time.Second
 
 // deleteBuild deletes the build at once and offers Undo, which saves it again as a new build.
-func (v *view) deleteBuild(d leaderDecks, b store.Build) {
+func (pg *decksPage) deleteBuild(e *env, d leaderDecks, b store.Build) {
 	n := len(d.split.Builds[b.ID])
-	v.do(func(a actions) { a.DeleteBuild(b.ID) })
-	v.decks.scope, v.decks.renaming = deckScope{}, false
-	v.toast = &ui.Toast{
+	pg.do(func(a deckActions) { a.DeleteBuild(b.ID) })
+	pg.scope, pg.renaming = deckScope{}, false
+	e.toast = &ui.Toast{
 		ID: "build-deleted", Timeout: buildUndoTime, Title: "Deleted " + b.Name + ".",
 		Description: "Its " + games(n) + " went back to no build.", Action: "Undo",
 		OnAction: func() {
 			nb := b
 			nb.ID = 0
-			v.do(func(a actions) { a.SaveBuild(nb, v.chooseSaved) })
+			pg.do(func(a deckActions) { a.SaveBuild(nb, pg.chooseSaved) })
 		},
 	}
 }
 
-func (v *view) chooseSaved(id int64) { v.decks.saved = id }
+func (pg *decksPage) chooseSaved(id int64) { pg.saved = id }
 
 // chooseBuild keeps the chosen build to the leader's, chooses the first when none is, and
 // chooses a build just saved once it's in.
-func (v *view) chooseBuild(d leaderDecks) {
-	s := &v.decks
+func (pg *decksPage) chooseBuild(d leaderDecks) {
+	s := pg
 	if _, ok := d.chosen(s.saved); ok {
 		s.scope, s.saved, s.tab, s.suggesting = buildScope(s.saved), 0, tabList, false
 	}
@@ -385,7 +397,7 @@ func smallSuggestions(d leaderDecks) int {
 func smallSuggestion(s stats.Suggestion) bool { return len(s.Games) < minSuggested }
 
 // coreThumbs are small overlapping art of the first core cards.
-func (v *view) coreThumbs(c *ui.Context, core []string) {
+func coreThumbs(c *ui.Context, e *env, core []string) {
 	// h is a little more than the cards are tall, and sets the build chip's height.
 	const w, h, step, most = 12, 17, 8, 3
 	n := min(len(core), most)
@@ -394,7 +406,7 @@ func (v *view) coreThumbs(c *ui.Context, core []string) {
 	}
 	ui.Box(c).Size(w+float32(n-1)*step, h).Children(func() {
 		for i, code := range core[:n] {
-			v.card(c.Key(code), code, w).Absolute().Left(float32(i) * step).Top(0)
+			e.card(c.Key(code), code, w).Absolute().Left(float32(i) * step).Top(0)
 		}
 	})
 }
@@ -430,9 +442,9 @@ func buildChip(c *ui.Context, name, meta string, suggested, on bool) bool {
 	return chip.Clicked()
 }
 
-func (v *view) pageTabs(c *ui.Context) {
+func (pg *decksPage) pageTabs(c *ui.Context) {
 	t := c.Theme()
-	s := &v.decks
+	s := pg
 	ui.Column(c).Children(func() {
 		tabs := ui.TabsBase(c, &s.tab, len(deckPageTabs))
 		tabs.List.Gap(4).Children(func() {
@@ -453,4 +465,10 @@ func (v *view) pageTabs(c *ui.Context) {
 		})
 		ui.Box(c).Height(1).Background(t.Border)
 	})
+}
+
+func (pg *decksPage) do(fn func(deckActions)) {
+	if pg.act != nil {
+		fn(pg.act)
+	}
 }

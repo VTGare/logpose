@@ -1,19 +1,10 @@
 package gui
 
 import (
-	"bytes"
-	"context"
-	"errors"
 	"fmt"
-	"image"
-	"image/png"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/arts"
@@ -43,8 +34,8 @@ type simArtInfo struct {
 }
 
 // simArtFor is what the sim shows for the card. It starts reading it the first time.
-func (v *view) simArtFor(card cards.Card) (simArtInfo, bool) {
-	s := &v.simArt
+func (pg *cardsPage) simArtFor(card cards.Card) (simArtInfo, bool) {
+	s := &pg.simArt
 	if info, ok := s.cards[card.Code]; ok {
 		return info, true
 	}
@@ -53,13 +44,13 @@ func (v *view) simArtFor(card cards.Card) (simArtInfo, bool) {
 	}
 	if !s.loading[card.Code] {
 		s.loading[card.Code] = true
-		v.do(func(a actions) { a.LoadSimArt(card) })
+		pg.do(func(a cardActions) { a.LoadSimArt(card) })
 	}
 	return simArtInfo{}, false
 }
 
-func (v *view) setSimArt(code string, info simArtInfo) {
-	s := &v.simArt
+func (pg *cardsPage) setSimArt(code string, info simArtInfo) {
+	s := &pg.simArt
 	if s.cards == nil {
 		s.cards = make(map[string]simArtInfo)
 	}
@@ -71,34 +62,34 @@ func (v *view) setSimArt(code string, info simArtInfo) {
 	s.changed[code] = info.cur.Kind != sim.ArtOwn
 }
 
-func (v *view) setSimArtChanged(codes []string) {
-	v.simArt.changed = make(map[string]bool, len(codes))
+func (pg *cardsPage) setSimArtChanged(codes []string) {
+	pg.simArt.changed = make(map[string]bool, len(codes))
 	for _, code := range codes {
-		v.simArt.changed[code] = true
+		pg.simArt.changed[code] = true
 	}
-	v.simArt.scanned = true
+	pg.simArt.scanned = true
 }
 
 // resetSimArt forgets what was read, for another sim folder.
-func (v *view) resetSimArt() { v.simArt = simArtState{} }
+func (pg *cardsPage) resetSimArt() { pg.simArt = simArtState{} }
 
-func (v *view) useSimArt(card cards.Card, choice sim.ArtChoice) {
-	info, ok := v.simArtFor(card)
+func (pg *cardsPage) useSimArt(card cards.Card, choice sim.ArtChoice) {
+	info, ok := pg.simArtFor(card)
 	if !ok || info.noSim || info.busy || info.cur == choice {
 		return
 	}
 	info.busy, info.err = true, ""
-	v.setSimArt(card.Code, info)
+	pg.setSimArt(card.Code, info)
 	prev := info.cur
-	v.do(func(a actions) { a.UseSimArt(card, choice, prev) })
+	pg.do(func(a cardActions) { a.UseSimArt(card, choice, prev) })
 }
 
 // simArtDone shows the result of UseSimArt. undo is the change that takes it back.
-func (v *view) simArtDone(card cards.Card, choice sim.ArtChoice, info simArtInfo, undo sim.ArtChoice, err error) {
+func (pg *cardsPage) simArtDone(e *env, card cards.Card, choice sim.ArtChoice, info simArtInfo, undo sim.ArtChoice, err error) {
 	if err != nil {
 		info.err = "Couldn't change the sim's art: " + err.Error()
 	}
-	v.setSimArt(card.Code, info)
+	pg.setSimArt(card.Code, info)
 	if err != nil {
 		return
 	}
@@ -107,13 +98,13 @@ func (v *view) simArtDone(card cards.Card, choice sim.ArtChoice, info simArtInfo
 	case sim.ArtOwn:
 		t.Title = "The sim shows its own art for " + card.Name + " again."
 	default:
-		ca, _ := v.artsFor(card)
+		ca, _ := pg.artsFor(card)
 		t.Title = "The sim now shows " + card.Name + "'s " + choiceName(ca, choice) + "."
 	}
 	t.Description = "Restart the sim to see it."
 	t.Action = "Undo"
-	t.OnAction = func() { v.useSimArt(card, undo) }
-	v.toast = &t
+	t.OnAction = func() { pg.useSimArt(card, undo) }
+	e.toast = &t
 }
 
 // choiceName names a choice in a sentence: "Alt art", "Base art", "own file" or "own art".
@@ -135,17 +126,10 @@ func choiceName(ca arts.CardArts, choice sim.ArtChoice) string {
 	return name
 }
 
-func (v *view) showToast(c *ui.Context) {
-	if t := v.toast; t != nil {
-		v.toast = nil
-		c.AddToast(*t)
-	}
-}
-
 // artsFor is the card's arts, Limitless's alone until the gallery's first answer. It starts
 // grouping them the first time.
-func (v *view) artsFor(card cards.Card) (arts.CardArts, bool) {
-	s := &v.arts
+func (pg *cardsPage) artsFor(card cards.Card) (arts.CardArts, bool) {
+	s := &pg.arts
 	if ca, ok := s.cards[card.Code]; ok {
 		return ca, true
 	}
@@ -155,14 +139,14 @@ func (v *view) artsFor(card cards.Card) (arts.CardArts, bool) {
 	if !s.loading[card.Code] {
 		s.loading[card.Code] = true
 		gen := s.gen
-		v.do(func(a actions) { a.LoadArts(card, gen) })
+		pg.do(func(a cardActions) { a.LoadArts(card, gen) })
 	}
 	return arts.LimitlessArts(card), false
 }
 
 // setArts stores a step of a card's grouping. A step from before the last reset is dropped.
-func (v *view) setArts(gen int, code string, ca arts.CardArts) {
-	s := &v.arts
+func (pg *cardsPage) setArts(gen int, code string, ca arts.CardArts) {
+	s := &pg.arts
 	if gen != s.gen {
 		return
 	}
@@ -174,7 +158,7 @@ func (v *view) setArts(gen int, code string, ca arts.CardArts) {
 
 // resetArts forgets every card's grouping, after the card data, Bandai's list or the art
 // download switch changed.
-func (v *view) resetArts() { v.arts = artsState{gen: v.arts.gen + 1} }
+func (pg *cardsPage) resetArts() { pg.arts = artsState{gen: pg.arts.gen + 1} }
 
 // artsState is the grouping of each card the Cards page has looked at.
 type artsState struct {
@@ -186,8 +170,8 @@ type artsState struct {
 
 // viewedKey is the art key of the picture the panel shows large: the one picked, or the
 // first art's when that is gone.
-func (v *view) viewedKey(card cards.Card, info simArtInfo, ca arts.CardArts) string {
-	switch k := v.cardsUI.viewed; {
+func (pg *cardsPage) viewedKey(card cards.Card, info simArtInfo, ca arts.CardArts) string {
+	switch k := pg.state.viewed; {
 	case k == "":
 	case k == simOwnRef(card.Code):
 		return k
@@ -203,30 +187,30 @@ func (v *view) viewedKey(card cards.Card, info simArtInfo, ca arts.CardArts) str
 
 // artChoices is the card's arts with a dot under each. A picture shows large on a click, and
 // its dot puts it in the sim. An art printed with several stamps lists them on a click.
-func (v *view) artChoices(c *ui.Context, card cards.Card, info simArtInfo, loaded bool) {
-	s := &v.cardsUI
-	ca, _ := v.artsFor(card)
+func (pg *cardsPage) artChoices(c *ui.Context, e *env, card cards.Card, info simArtInfo, loaded bool) {
+	s := &pg.state
+	ca, _ := pg.artsFor(card)
 	ui.Column(c).Gap(8).Children(func() {
 		ui.Row(c).Gap(10).Wrap().AlignItems(ui.Start).Children(func() {
 			pending := ca.Pending > 0
-			for _, e := range v.artEntries(card, ca, info, loaded) {
-				if e.art == nil && pending {
-					v.pendingColumn(c, card, ca.Pending)
+			for _, en := range pg.artEntries(e, card, ca, info, loaded) {
+				if en.art == nil && pending {
+					pendingColumn(c, e, card, ca.Pending)
 					pending = false
 				}
-				if e.art == nil {
-					_, look, use := v.artColumn(c, e.key, e.name, 1, s.viewed == e.key, e.inSim, e.usable)
+				if en.art == nil {
+					_, look, use := artColumn(c, e, en.key, en.name, 1, s.viewed == en.key, en.inSim, en.usable)
 					if look {
-						s.viewed = e.key
+						s.viewed = en.key
 					}
 					if use {
-						v.useSimArt(card, e.choice)
+						pg.useSimArt(card, en.choice)
 					}
 					continue
 				}
-				art := *e.art
+				art := *en.art
 				key := art.Head().Key.String()
-				col, look, use := v.artColumn(c, key, e.name, len(art.Versions), art.Has(s.viewed), e.inSim, e.usable)
+				col, look, use := artColumn(c, e, key, en.name, len(art.Versions), art.Has(s.viewed), en.inSim, en.usable)
 				if look {
 					s.viewed = key
 					if len(art.Versions) > 1 {
@@ -234,25 +218,25 @@ func (v *view) artChoices(c *ui.Context, card cards.Card, info simArtInfo, loade
 					}
 				}
 				if use {
-					v.useSimArt(card, e.choice)
+					pg.useSimArt(card, en.choice)
 				}
 				if len(art.Versions) > 1 {
-					v.versionList(c, col, card, art, info, e.usable)
+					pg.versionList(c, e, col, card, art, info, en.usable)
 				}
 			}
 			if pending {
-				v.pendingColumn(c, card, ca.Pending)
+				pendingColumn(c, e, card, ca.Pending)
 			}
 		})
-		v.artNote(c, info)
+		pg.artNote(c, e, info)
 	})
 }
 
 // versionList opens under an art's column while it is picked, with a row per version: its
 // picture, which stamp it is, its product and a dot of its own. A row's picture shows large
 // on a click, so its stamp can be seen.
-func (v *view) versionList(c *ui.Context, anchor ui.Element, card cards.Card, art arts.Art, info simArtInfo, usable bool) {
-	s := &v.cardsUI
+func (pg *cardsPage) versionList(c *ui.Context, e *env, anchor ui.Element, card cards.Card, art arts.Art, info simArtInfo, usable bool) {
+	s := &pg.state
 	t := c.Theme()
 	head := art.Head().Key.String()
 	open := s.versions == head
@@ -278,7 +262,7 @@ func (v *view) versionList(c *ui.Context, anchor ui.Element, card cards.Card, ar
 						s.viewed = key
 					}
 					row.Children(func() {
-						v.cardImage(c, key, 30).Radius(6)
+						e.cardImage(c, key, 30).Radius(6)
 						ui.Column(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
 							col := t.Text
 							if s.viewed == key {
@@ -289,7 +273,7 @@ func (v *view) versionList(c *ui.Context, anchor ui.Element, card cards.Card, ar
 						})
 					})
 					if useDot(c, ver.Short+", "+ver.Product, on, usable) {
-						v.useSimArt(card, sim.ArtChoice{Kind: sim.ArtPrint, Key: key})
+						pg.useSimArt(card, sim.ArtChoice{Kind: sim.ArtPrint, Key: key})
 					}
 				})
 			}
@@ -302,18 +286,18 @@ func (v *view) versionList(c *ui.Context, anchor ui.Element, card cards.Card, ar
 
 // pendingColumn stands for the printings whose pictures are still being compared. They often
 // turn out to be one art, so it is one column.
-func (v *view) pendingColumn(c *ui.Context, card cards.Card, n int) {
+func pendingColumn(c *ui.Context, e *env, card cards.Card, n int) {
 	t := c.Theme()
 	const w = 60
 	ui.Column(c.Key("pending")).Gap(4).Width(w).AlignItems(ui.Center).Children(func() {
-		v.cardPlaceholder(c, card.Code, w, cardHeight(w)).Radius(6)
+		e.cardPlaceholder(c, card.Code, w, cardHeight(w)).Radius(6)
 		// Room for the bar under an art's picture, so this name lines up with theirs.
 		ui.Box(c).Height(3)
 		ui.Text(c, fmt.Sprintf("Checking %d more", n)).FontSize(11).TextColor(t.TextMuted).Wrap().TextAlign(ui.Center)
 	})
 }
 
-func (v *view) artNote(c *ui.Context, info simArtInfo) {
+func (pg *cardsPage) artNote(c *ui.Context, e *env, info simArtInfo) {
 	t := c.Theme()
 	switch {
 	case info.noSim:
@@ -324,13 +308,13 @@ func (v *view) artNote(c *ui.Context, info simArtInfo) {
 				ui.Text(c, "logpose can't find the sim, so it can't change the sim's art.").FontSize(13).Wrap()
 				if ui.ButtonBase(c).Label("Choose the sim's folder").Background(ui.Transparent).Padding(0).
 					Children(func() { ui.Text(c, "Choose the sim's folder").FontSize(13).TextColor(t.Accent) }).Clicked() {
-					v.do(func(a actions) { a.ChooseSimFolder() })
+					pg.do(func(a cardActions) { a.ChooseSimFolder() })
 				}
 			})
 		})
 	case info.err != "":
 		ui.Text(c, info.err).FontSize(12).TextColor(lossColor(t)).Wrap()
-	case v.prefs.artOff:
+	case e.prefs.artOff:
 		ui.Text(c, "Card art downloads are off in Settings, so only the sim's own art and your own file can be used.").
 			FontSize(12).TextColor(t.TextMuted).Wrap()
 	case info.cur.Kind == sim.ArtFile:
@@ -344,7 +328,7 @@ func (v *view) artNote(c *ui.Context, info simArtInfo) {
 
 // artColumn is one picture with its name and dot, and a count on the picture when the art has
 // several versions. It reports a click on the picture and one on the dot.
-func (v *view) artColumn(c *ui.Context, key, name string, versions int, viewed, on, usable bool) (col ui.Element, look, use bool) {
+func artColumn(c *ui.Context, e *env, key, name string, versions int, viewed, on, usable bool) (col ui.Element, look, use bool) {
 	t := c.Theme()
 	const w = 60
 	col = ui.Column(c.Key(key)).Gap(4).MinWidth(w).AlignItems(ui.Center).Children(func() {
@@ -355,7 +339,7 @@ func (v *view) artColumn(c *ui.Context, key, name string, versions int, viewed, 
 		pic := ui.ButtonBase(c).Label(label).Background(ui.Transparent).Padding(0).FocusRing(false)
 		look = pic.Clicked()
 		pic.Children(func() {
-			v.cardImage(c, key, w).Radius(6)
+			e.cardImage(c, key, w).Radius(6)
 			if versions > 1 {
 				ui.Box(c).Absolute().Top(-6).Right(-6).Size(20, 20).Radius(10).Background(ui.RGBA(20, 20, 22, 0.92)).
 					Border(1, ui.RGBA(255, 255, 255, 0.3)).Center().Children(func() {
@@ -429,73 +413,73 @@ func smallButton(c *ui.Context, label string, icon *ui.SVG, text bool) ui.Elemen
 	return b
 }
 
-func (v *view) artButtons(c *ui.Context, key string) {
+func (pg *cardsPage) artButtons(c *ui.Context, key string) {
 	if smallButton(c, "Save image…", iconSave, true).Clicked() {
-		v.do(func(a actions) { a.SaveArt(key) })
+		pg.do(func(a cardActions) { a.SaveArt(key) })
 	}
 	if smallButton(c, "Copy image", iconCopy, false).Clicked() {
-		v.do(func(a actions) { a.CopyArt(key) })
+		pg.do(func(a cardActions) { a.CopyArt(key) })
 	}
 }
 
 // cardMenu is a card's right-click menu: off the Cards page a way there first, then which art
 // the sim shows, saving and copying the picture, and the card's page on Limitless. An art
 // printed with several stamps has a submenu of them.
-func (v *view) cardMenu(card cards.Card) func(m *ui.Menu) {
+func (pg *cardsPage) cardMenu(e *env, card cards.Card) func(m *ui.Menu) {
 	return func(m *ui.Menu) {
-		if v.page != pageCards {
+		if e.page != pageCards {
 			if m.Item("Open in Cards").Chosen() {
-				v.openInCards(card.Code)
+				e.nav.openInCards(card.Code)
 			}
-			if v.showsHands() && m.Item("Show hands with "+card.Name).Chosen() {
-				v.showHands(card.Code)
+			if e.nav.showsHands() && m.Item("Show hands with "+card.Name).Chosen() {
+				e.nav.showHands(card.Code)
 			}
 			m.Separator()
 		}
-		info, loaded := v.simArtFor(card)
-		m.Submenu("Art in the sim", func(m *ui.Menu) { v.artMenu(m, card, info, loaded) }).Disabled(loaded && info.noSim)
+		info, loaded := pg.simArtFor(card)
+		m.Submenu("Art in the sim", func(m *ui.Menu) { pg.artMenu(e, m, card, info, loaded) }).Disabled(loaded && info.noSim)
 		if m.Item("View art").Chosen() {
-			v.viewArt(card.Code)
+			e.nav.viewArt(card.Code)
 		}
 		if m.Item("Save image…").Chosen() {
-			v.do(func(a actions) { a.SaveArt(card.Code) })
+			pg.do(func(a cardActions) { a.SaveArt(card.Code) })
 		}
 		if m.Item("Copy image").Chosen() {
-			v.do(func(a actions) { a.CopyArt(card.Code) })
+			pg.do(func(a cardActions) { a.CopyArt(card.Code) })
 		}
 		m.Separator()
 		if m.Item("Open on Limitless").Chosen() {
-			v.do(func(a actions) { a.OpenURL(cards.LimitlessBase + "/cards/" + card.Code) })
+			pg.do(func(a cardActions) { a.OpenURL(cards.LimitlessBase + "/cards/" + card.Code) })
 		}
 	}
 }
 
 // artMenu lists the card's arts to put in the sim, then the user's file and the sim's own.
-func (v *view) artMenu(m *ui.Menu, card cards.Card, info simArtInfo, loaded bool) {
-	ca, _ := v.artsFor(card)
+func (pg *cardsPage) artMenu(e *env, m *ui.Menu, card cards.Card, info simArtInfo, loaded bool) {
+	ca, _ := pg.artsFor(card)
 	cur := ""
 	if loaded && info.cur.Kind == sim.ArtPrint {
 		cur = info.cur.Key
 	}
 	own := false
-	for _, e := range v.artEntries(card, ca, info, loaded) {
+	for _, en := range pg.artEntries(e, card, ca, info, loaded) {
 		switch {
-		case e.choice.Kind == sim.ArtOwn:
+		case en.choice.Kind == sim.ArtOwn:
 			m.Separator()
 			own = true
-			if m.Item("The sim's own").Radio(e.inSim).Disabled(!e.usable).Chosen() {
-				v.useSimArt(card, e.choice)
+			if m.Item("The sim's own").Radio(en.inSim).Disabled(!en.usable).Chosen() {
+				pg.useSimArt(card, en.choice)
 			}
-		case e.art == nil:
-			if m.Item(e.name).Radio(e.inSim).Disabled(!e.usable).Chosen() {
-				v.useSimArt(card, e.choice)
+		case en.art == nil:
+			if m.Item(en.name).Radio(en.inSim).Disabled(!en.usable).Chosen() {
+				pg.useSimArt(card, en.choice)
 			}
-		case len(e.art.Versions) == 1:
-			if m.Item(menuName(card, e.art.Head())).Radio(e.inSim).Disabled(!e.usable).Chosen() {
-				v.useSimArt(card, e.choice)
+		case len(en.art.Versions) == 1:
+			if m.Item(menuName(card, en.art.Head())).Radio(en.inSim).Disabled(!en.usable).Chosen() {
+				pg.useSimArt(card, en.choice)
 			}
 		default:
-			art := *e.art
+			art := *en.art
 			m.Submenu(fmt.Sprintf("%s · %d versions", art.Name(), len(art.Versions)), func(m *ui.Menu) {
 				shown, inArt := art.Find(cur)
 				for _, ver := range art.Versions {
@@ -505,11 +489,11 @@ func (v *view) artMenu(m *ui.Menu, card cards.Card, info simArtInfo, loaded bool
 					if label == "" {
 						label = ver.Name
 					}
-					if m.Item(label).Radio(on).Disabled(!e.usable).Chosen() {
-						v.useSimArt(card, sim.ArtChoice{Kind: sim.ArtPrint, Key: key})
+					if m.Item(label).Radio(on).Disabled(!en.usable).Chosen() {
+						pg.useSimArt(card, sim.ArtChoice{Kind: sim.ArtPrint, Key: key})
 					}
 				}
-			}).Disabled(!e.usable)
+			}).Disabled(!en.usable)
 		}
 	}
 	if !own {
@@ -526,174 +510,4 @@ func menuName(card cards.Card, ver arts.Version) string {
 		return ver.Name
 	}
 	return ver.Name + ", " + ver.Product
-}
-
-func (a *app) simArt() *sim.SimArt {
-	in := a.install()
-	if in == nil {
-		return nil
-	}
-	a.simArtMu.Lock()
-	defer a.simArtMu.Unlock()
-	if a.simArtObj == nil || a.simArtObj.Install.Root != in.Root {
-		a.simArtObj = &sim.SimArt{Install: *in, Dir: a.opts.SimArtDir}
-	}
-	return a.simArtObj
-}
-
-// readSimArt is what the sim shows for the card. A file of the user's is compared with the
-// card's printings once, so one that is a printing shows as that printing.
-func (a *app) readSimArt(ctx context.Context, card cards.Card) simArtInfo {
-	art := a.simArt()
-	if art == nil {
-		return simArtInfo{noSim: true}
-	}
-	cur, err := art.Current(card.Code)
-	if err != nil {
-		return simArtInfo{err: "Couldn't read the sim's art: " + err.Error()}
-	}
-	if cur.Kind == sim.ArtFile && a.firstMatch(card.Code) {
-		if img, err := decode(art.Install.Override(card.Code)); err == nil {
-			if key, ok := a.gallery.Match(ctx, card, img); ok && art.Matched(card.Code, key.String()) == nil {
-				cur = sim.ArtChoice{Kind: sim.ArtPrint, Key: key.String()}
-			}
-		}
-	}
-	return simArtInfo{cur: cur, ownFile: art.OwnFile(card.Code)}
-}
-
-// firstMatch reports whether the card's file hasn't been compared yet this run.
-func (a *app) firstMatch(code string) bool {
-	a.simArtMu.Lock()
-	defer a.simArtMu.Unlock()
-	if a.matched == nil {
-		a.matched = make(map[string]bool)
-	}
-	first := !a.matched[code]
-	a.matched[code] = true
-	return first
-}
-
-func (x *appActions) LoadSimArt(card cards.Card) {
-	go func() {
-		info := x.a.readSimArt(x.ctx, card)
-		x.a.win.Update(func() { x.a.view.setSimArt(card.Code, info) })
-	}()
-}
-
-func (x *appActions) LoadArts(card cards.Card, gen int) {
-	go x.a.gallery.Arts(x.ctx, card, func(ca arts.CardArts) {
-		x.a.win.Update(func() { x.a.view.setArts(gen, card.Code, ca) })
-	})
-}
-
-func (x *appActions) ScanSimArt() {
-	go func() {
-		var codes []string
-		if in := x.a.install(); in != nil {
-			codes = in.Overrides()
-		}
-		x.a.win.Update(func() { x.a.view.setSimArtChanged(codes) })
-	}()
-}
-
-func (x *appActions) UseSimArt(card cards.Card, choice, prev sim.ArtChoice) {
-	go func() {
-		err := x.a.useSimArt(card, choice)
-		info := x.a.readSimArt(x.ctx, card)
-		if err != nil {
-			x.a.opts.Log.Warn("sim art", "card", card.Code, "err", err)
-		}
-		x.a.win.Update(func() { x.a.view.simArtDone(card, choice, info, prev, err) })
-	}()
-}
-
-func (a *app) useSimArt(card cards.Card, choice sim.ArtChoice) error {
-	art := a.simArt()
-	if art == nil {
-		return sim.ErrNotFound
-	}
-	switch choice.Kind {
-	case sim.ArtOwn:
-		return art.UseOwn(card.Code)
-	case sim.ArtFile:
-		return art.UseFile(card.Code)
-	}
-	if a.web == nil {
-		return arts.ErrNoPicture
-	}
-	img, err := artRef{refPrint, choice.Key}.read(nil, a.web, artLarge, false)
-	if err != nil {
-		return fmt.Errorf("download %s: %w", choice.Key, err)
-	}
-	return art.UsePrint(card.Code, choice.Key, img)
-}
-
-func (a *app) artImage(key string) (image.Image, error) {
-	return parseArtRef(key).read(a.install(), a.web, artLarge, false)
-}
-
-func (x *appActions) SaveArt(key string) {
-	go func() {
-		img, err := x.a.artImage(key)
-		if err != nil {
-			x.toast(ui.Toast{Title: "Couldn't get that picture.", Description: err.Error(), Type: "error"})
-			return
-		}
-		dir, _ := os.UserHomeDir()
-		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
-			Parent: x.a.win, Title: "Save the card's picture", ButtonLabel: "Save",
-			DefaultPath: filepath.Join(dir, "Pictures", parseArtRef(key).fileName()),
-			Filters:     []mygo.FileFilter{{Name: "PNG image", Extensions: []string{"png"}}},
-		})
-		if err != nil || path == "" {
-			return
-		}
-		if !strings.EqualFold(filepath.Ext(path), ".png") {
-			path += ".png"
-		}
-		if err := savePNG(path, img); err != nil {
-			x.toast(ui.Toast{Title: "Couldn't save the picture.", Description: err.Error(), Type: "error"})
-			return
-		}
-		x.toast(ui.Toast{Title: "Saved " + filepath.Base(path) + ".", Action: "Show", OnAction: func() { x.ShowFile(path) }})
-	}()
-}
-
-func savePNG(path string, img image.Image) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	return errors.Join(png.Encode(f, img), f.Close())
-}
-
-func (x *appActions) CopyArt(key string) {
-	go func() {
-		img, err := x.a.artImage(key)
-		var buf bytes.Buffer
-		if err == nil {
-			err = png.Encode(&buf, img)
-		}
-		if err == nil {
-			err = mygo.Clipboard.Write(transfer.New(transfer.NewItem(transfer.Bytes(transfer.PNG, buf.Bytes()))))
-		}
-		if err != nil {
-			x.toast(ui.Toast{Title: "Couldn't copy the picture.", Description: err.Error(), Type: "error"})
-			return
-		}
-		x.toast(ui.Toast{Title: "Copied the picture."})
-	}()
-}
-
-func (x *appActions) OpenURL(url string) {
-	go func() {
-		if err := mygo.Shell.OpenExternal(url); err != nil {
-			x.a.opts.Log.Warn("open url", "err", err)
-		}
-	}()
-}
-
-func (x *appActions) toast(t ui.Toast) {
-	x.a.win.Update(func() { x.a.view.queueToast(t) })
 }

@@ -30,13 +30,17 @@ type settingsActions interface {
 	SetSetting(key, value string)
 	SetOpenAtLogin(on bool)
 	SetShortcut(place shortcut.Place, on bool)
+	// ChooseSimFolder asks for the sim's folder and switches to it.
 	ChooseSimFolder()
+	// FindSim forgets the chosen folder and finds the sim on its own.
 	FindSim()
 	OpenPath(path string)
 	ShowFile(path string)
+	// ImportAgain reads every log in the sim's folder and adds what's missing.
 	ImportAgain()
 	RefreshCards()
 	Backup()
+	// LoadSettings reads what the Settings page shows and shows it with view.setSettingsInfo.
 	LoadSettings()
 	LoadArtUsage()
 	ClearArt()

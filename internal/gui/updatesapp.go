@@ -57,7 +57,11 @@ func (a *app) startUpdates(ctx context.Context, set map[string]string) {
 			ver := u.state.current
 			a.view.queueToast(ui.Toast{
 				Title: "Updated to " + ver, Timeout: 10 * time.Second,
-				Action: "What's new", OnAction: func() { a.view.do(func(x actions) { x.OpenURL(releasesURL + ver) }) },
+				Action: "What's new", OnAction: func() {
+					if act := a.view.act; act != nil {
+						act.OpenURL(releasesURL + ver)
+					}
+				},
 			})
 		}
 		go func() {

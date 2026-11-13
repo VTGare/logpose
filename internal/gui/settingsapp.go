@@ -137,7 +137,7 @@ func (a *app) applyPrefs(ctx context.Context, p prefs) {
 			web.SetOff(p.artOff)
 			a.resetArtCache()
 		}
-		a.win.Update(a.view.resetArts)
+		a.win.Update(func() { a.view.cards.resetArts() })
 		if !p.artOff {
 			go func() { _ = a.refreshCatalog(ctx, false) }()
 		}

@@ -19,7 +19,7 @@ type textPiece struct {
 
 // cardText draws pieces as one paragraph. A card's name underlines and shows the card while
 // the pointer rests on it.
-func (v *view) cardText(c *ui.Context, size float32, pieces []textPiece) ui.Element {
+func (e *env) cardText(c *ui.Context, size float32, pieces []textPiece) ui.Element {
 	return ui.RichText(c).FontSize(size).Children(func() {
 		for i, p := range pieces {
 			el := ui.Text(c.Key(i), p.text).FontSize(size).TextColor(p.color)
@@ -32,7 +32,7 @@ func (v *view) cardText(c *ui.Context, size float32, pieces []textPiece) ui.Elem
 			if el.Hovered() {
 				el.Underline()
 			}
-			v.cardPreview(c, el, p.code)
+			e.cardPreview(c, el, p.code)
 		}
 	})
 }

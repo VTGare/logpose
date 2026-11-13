@@ -10,11 +10,11 @@ import (
 
 // With no card clicked, inspector shows the step's own cards: the attacker and the card it
 // attacks with their powers, or what the step played.
-func (v *view) inspector(c *ui.Context, sv *stepView, width float32) {
+func inspector(c *ui.Context, e *env, sv *stepView, width float32) {
 	t := c.Theme()
 	rs := sv.rs
 	if rs.pile.kind != pileNone {
-		v.pileView(c, sv, width)
+		pileView(c, e, sv, width)
 		return
 	}
 	if card, mine, ok := findCard(sv, rs.selected); ok {
@@ -25,7 +25,7 @@ func (v *view) inspector(c *ui.Context, sv *stepView, width float32) {
 				rs.selected = 0
 			}
 		})
-		v.inspectCard(c, card, mine)
+		inspectCard(c, e, card, mine)
 		return
 	}
 	ui.Text(c, "This step").FontSize(12).TextColor(t.TextMuted)
@@ -34,11 +34,11 @@ func (v *view) inspector(c *ui.Context, sv *stepView, width float32) {
 		ui.Row(c).Gap(8).Justify(ui.Center).AlignItems(ui.Start).Margin(8, 0, 0, 0).Children(func() {
 			side := func(code string, p replay.Power, col ui.Color) {
 				ui.Column(c.Key(code)).Grow(1).Basis(0).Gap(6).AlignItems(ui.Center).Children(func() {
-					v.card(c, code, 92).Shadow(0, 6, 18, 0, panelShade).Border(2, col)
+					e.card(c, code, 92).Shadow(0, 6, 18, 0, panelShade).Border(2, col)
 					if len(p.Parts) > 0 {
-						ui.Text(c, powerText(p)).FontSize(22).Bold().TextColor(col).Tooltip(v.powerSum(p))
+						ui.Text(c, powerText(p)).FontSize(22).Bold().TextColor(col).Tooltip(e.powerSum(p))
 					}
-					ui.Text(c, v.snap.card(code).Name).FontSize(12).TextColor(t.TextMuted).TextAlign(ui.Center).Wrap()
+					ui.Text(c, e.snap.card(code).Name).FontSize(12).TextColor(t.TextMuted).TextAlign(ui.Center).Wrap()
 				})
 			}
 			attacker := sv.attacker()
@@ -49,17 +49,17 @@ func (v *view) inspector(c *ui.Context, sv *stepView, width float32) {
 	} else if len(sv.step.Cards) > 0 {
 		ui.Row(c).Gap(8).Justify(ui.Center).Margin(8, 0, 0, 0).Children(func() {
 			for i, code := range sv.step.Cards[:min(len(sv.step.Cards), 2)] {
-				ui.Box(c.Key(i)).Children(func() { v.card(c, code, 120).Shadow(0, 6, 18, 0, panelShade) })
+				ui.Box(c.Key(i)).Children(func() { e.card(c, code, 120).Shadow(0, 6, 18, 0, panelShade) })
 			}
 		})
 	}
 	ui.Text(c, "Click a card, deck or trash on the mat to see it here.").FontSize(12).TextColor(faintColor(t)).Margin(10, 0, 0, 0).Wrap()
 }
 
-func (v *view) inspectCard(c *ui.Context, card replay.Card, mine bool) {
+func inspectCard(c *ui.Context, e *env, card replay.Card, mine bool) {
 	t := c.Theme()
 	ui.Row(c).Justify(ui.Center).Margin(8, 0, 4, 0).Children(func() {
-		v.card(c, card.Code, 170).Shadow(0, 10, 24, 0, panelShade)
+		e.card(c, card.Code, 170).Shadow(0, 10, 24, 0, panelShade)
 	})
 	whose := "Your card"
 	if !mine {
@@ -71,9 +71,9 @@ func (v *view) inspectCard(c *ui.Context, card replay.Card, mine bool) {
 	if card.Don > 0 {
 		whose += fmt.Sprintf(" · DON!! ×%d", card.Don)
 	}
-	ui.Text(c, v.snap.card(card.Code).Name).FontWeight(700)
+	ui.Text(c, e.snap.card(card.Code).Name).FontWeight(700)
 	ui.Text(c, whose).FontSize(12).TextColor(t.TextMuted)
-	notes := v.statusNotes(card)
+	notes := e.statusNotes(card)
 	for i, note := range notes {
 		ui.Text(c.Key(i), note).FontSize(12).Wrap().Margin(4, 0, 0, 0)
 	}

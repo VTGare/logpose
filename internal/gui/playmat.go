@@ -148,7 +148,7 @@ func (m mat) layout(sv *stepView) []placed {
 	return out
 }
 
-func (v *view) playmat(c *ui.Context, m mat, sv *stepView) ui.Element {
+func playmat(c *ui.Context, e *env, m mat, sv *stepView) ui.Element {
 	cards := m.layout(sv)
 	key := 0
 	k := func() *ui.Context { key++; return c.Key(key) }
@@ -159,7 +159,7 @@ func (v *view) playmat(c *ui.Context, m mat, sv *stepView) ui.Element {
 		attacker = sv.attacker()
 		a, t = battlePair(cards, bt, attacker.mine)
 	}
-	themCols, meCols := colorsOf(v.snap.card(sv.them.Leader.Code)), colorsOf(v.snap.card(sv.me.Leader.Code))
+	themCols, meCols := colorsOf(e.snap.card(sv.them.Leader.Code)), colorsOf(e.snap.card(sv.me.Leader.Code))
 	return ui.Box(c).Size(m.W, m.H).Radius(12).Background(panelColor(c.Theme())).Border(1, zoneLine).Clip().
 		Draw(func(p *ui.Painter, r ui.Rect) {
 			// Each half is lit faintly from its own edge in its leader's colors.
@@ -167,14 +167,14 @@ func (v *view) playmat(c *ui.Context, m mat, sv *stepView) ui.Element {
 			p.FillRadialGradient(r, light(meCols[0].Glow, ui.Point{X: 0.5, Y: 1.15}, r.W*0.55, 0.2), 0)
 		}).Children(func() {
 		zones(c, k, m, sv)
-		v.piles(c, k, m, sv)
+		piles(c, e, k, m, sv)
 		for i, pl := range cards {
-			notes := v.statusNotes(pl.card)
+			notes := e.statusNotes(pl.card)
 			switch i {
 			case a:
-				notes = append([]string{"Power " + v.powerSum(bt.Attack)}, notes...)
+				notes = append([]string{"Power " + e.powerSum(bt.Attack)}, notes...)
 			case t:
-				notes = append([]string{"Power " + v.powerSum(bt.Defense)}, notes...)
+				notes = append([]string{"Power " + e.powerSum(bt.Defense)}, notes...)
 			}
 			var key any = cardMatch(pl.card.ID)
 			if pl.gone {
@@ -200,10 +200,10 @@ func (v *view) playmat(c *ui.Context, m mat, sv *stepView) ui.Element {
 			} else {
 				sv.glide(box, pl.card.ID)
 			}
-			box.Children(func() { v.boardCard(c, pl.card, m.w, selected, sv.seat(pl.mine).color(), notes...) })
+			box.Children(func() { boardCard(c, e, pl.card, m.w, selected, sv.seat(pl.mine).color(), notes...) })
 		}
 		if a >= 0 && t >= 0 {
-			v.attackArrow(c, k, m, cards[a], cards[t], bt, attacker)
+			attackArrow(c, e, k, m, cards[a], cards[t], bt, attacker)
 		}
 	})
 }
@@ -233,20 +233,20 @@ func zones(c *ui.Context, k func() *ui.Context, m mat, sv *stepView) {
 	}
 }
 
-func (v *view) piles(c *ui.Context, k func() *ui.Context, m mat, sv *stepView) {
+func piles(c *ui.Context, e *env, k func() *ui.Context, m mat, sv *stepView) {
 	for _, s := range []*replay.Side{sv.them, sv.me} {
 		mine := s == sv.me
 		tr := m.trashSlot(mine)
-		v.trash(c, m, sv, s, tr.X, tr.Y)
+		trash(c, e, m, sv, s, tr.X, tr.Y)
 		if r := lifeStack(c, k, m, sv, s, mine); len(s.Life) > 0 {
-			v.pileButton(ui.Box(k()).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H), sv, pileRef{kind: pileLife, mine: mine})
+			pileButton(ui.Box(k()).Absolute().Left(r.X).Top(r.Y).Size(r.W, r.H), sv, pileRef{kind: pileLife, mine: mine})
 		}
 		d := m.deckSlot(mine)
-		v.deckPile(c, k, m, sv, s, d.X, d.Y)
+		deckPile(c, k, m, sv, s, d.X, d.Y)
 		dd := m.donDeckSlot(mine)
-		v.donDeck(c, k, m, s, dd.X, dd.Y)
+		donDeck(c, e, k, m, s, dd.X, dd.Y)
 		cz := m.costZone(mine)
-		v.donRow(c, k, m, s, cz, mine)
+		donRow(c, e, k, m, s, cz, mine)
 	}
 }
 
@@ -254,15 +254,15 @@ func pill(c *ui.Context, text string, size float32) ui.Element {
 	return ui.Text(c, text).FontSize(size).Bold().TextColor(pillText).Padding(1, 6).Radius(8).Background(pillBack)
 }
 
-func (v *view) trash(c *ui.Context, m mat, sv *stepView, s *replay.Side, x, y float32) {
+func trash(c *ui.Context, e *env, m mat, sv *stepView, s *replay.Side, x, y float32) {
 	if len(s.Trash) == 0 {
 		return
 	}
 	top := s.Trash[len(s.Trash)-1]
 	box := ui.Box(c.Key(cardMatch(top.ID))).Absolute().Left(x).Top(y).Size(m.w, m.h)
-	v.pileButton(box, sv, pileRef{kind: pileTrash, mine: s == sv.me})
+	pileButton(box, sv, pileRef{kind: pileTrash, mine: s == sv.me})
 	sv.glide(box, top.ID).Children(func() {
-		v.card(c, top.Code, m.w)
+		e.card(c, top.Code, m.w)
 		pill(c, fmt.Sprintf("Trash %d", len(s.Trash)), 10).Absolute().Bottom(4).Left(4)
 	})
 }
@@ -304,16 +304,16 @@ func lifeStack(c *ui.Context, k func() *ui.Context, m mat, sv *stepView, s *repl
 	return ui.Rect{X: x, Y: top, W: cw, H: h}
 }
 
-func (v *view) deckPile(c *ui.Context, k func() *ui.Context, m mat, sv *stepView, s *replay.Side, x, y float32) {
+func deckPile(c *ui.Context, k func() *ui.Context, m mat, sv *stepView, s *replay.Side, x, y float32) {
 	box := ui.Box(k()).Absolute().Left(x).Top(y).Size(m.w, m.h)
-	v.pileButton(box, sv, pileRef{kind: pileDeck, mine: s == sv.me})
+	pileButton(box, sv, pileRef{kind: pileDeck, mine: s == sv.me})
 	box.Children(func() {
 		cardBack(c, m.w, m.h)
 		pill(c, fmt.Sprint(len(s.Deck())), 10).Absolute().Left(4).Bottom(4)
 	})
 }
 
-func (*view) pileButton(box ui.Element, sv *stepView, p pileRef) {
+func pileButton(box ui.Element, sv *stepView, p pileRef) {
 	rs := sv.rs
 	box.Cursor(ui.CursorPointer).Label(sv.pileName(p))
 	if box.Clicked() {
@@ -334,7 +334,7 @@ func selectRing(el ui.Element, col ui.Color) {
 	el.Border(2, col).Shadow(0, 0, 0, 2, ui.RGBA(0, 0, 0, 0.6))
 }
 
-func (v *view) donRow(c *ui.Context, k func() *ui.Context, m mat, s *replay.Side, z ui.Rect, mine bool) {
+func donRow(c *ui.Context, e *env, k func() *ui.Context, m mat, s *replay.Side, z ui.Rect, mine bool) {
 	n := len(s.Don)
 	if n == 0 {
 		return
@@ -355,12 +355,12 @@ func (v *view) donRow(c *ui.Context, k func() *ui.Context, m mat, s *replay.Side
 		box := ui.Box(k()).Absolute().Left(x).Top(y)
 		if rested {
 			box.Size(m.dh, m.dh).Center().Children(func() {
-				v.donCard(c, m.dw, m.dh).Rotate(90).Opacity(0.45)
+				donCard(c, e, m.dw, m.dh).Rotate(90).Opacity(0.45)
 			})
 			x += m.dh + gap
 			continue
 		}
-		box.Children(func() { v.donCard(c, m.dw, m.dh) })
+		box.Children(func() { donCard(c, e, m.dw, m.dh) })
 		x += m.dw + gap
 	}
 	ly := z.Y + z.H - 16
@@ -371,12 +371,12 @@ func (v *view) donRow(c *ui.Context, k func() *ui.Context, m mat, s *replay.Side
 		Absolute().Left(z.X).Top(ly).Width(z.W - 10).TextAlign(ui.End)
 }
 
-func (v *view) donDeck(c *ui.Context, k func() *ui.Context, m mat, s *replay.Side, x, y float32) {
+func donDeck(c *ui.Context, e *env, k func() *ui.Context, m mat, s *replay.Side, x, y float32) {
 	if s.DonDeck == 0 {
 		return
 	}
 	ui.Box(k()).Absolute().Left(x).Top(y).Size(m.dw, m.dh).Label("DON!! deck").Children(func() {
-		if art := v.art.get(donBackCode, artCard); art != nil {
+		if art := e.art.get(donBackCode, artCard); art != nil {
 			ui.Image(c, art).Size(m.dw, m.dh).Fit(ui.Cover).Radius(3)
 		} else {
 			ui.Box(c).Size(m.dw, m.dh).Radius(3).Background(donGold)
@@ -385,8 +385,8 @@ func (v *view) donDeck(c *ui.Context, k func() *ui.Context, m mat, s *replay.Sid
 	})
 }
 
-func (v *view) donCard(c *ui.Context, w, h float32) ui.Element {
-	if art := v.art.get(donCode, artCard); art != nil {
+func donCard(c *ui.Context, e *env, w, h float32) ui.Element {
+	if art := e.art.get(donCode, artCard); art != nil {
 		return ui.Image(c, art).Size(w, h).Fit(ui.Cover).Radius(3)
 	}
 	return ui.Box(c).Size(w, h).Radius(3).Background(donGold).Center().Children(func() {
@@ -396,7 +396,7 @@ func (v *view) donCard(c *ui.Context, w, h float32) ui.Element {
 
 var donPink = ui.Hex("#E8457E")
 
-func (v *view) boardCard(c *ui.Context, card replay.Card, w float32, selected bool, col ui.Color, notes ...string) {
+func boardCard(c *ui.Context, e *env, card replay.Card, w float32, selected bool, col ui.Color, notes ...string) {
 	h := cardHeight(w)
 	bw, bh := w, h
 	if card.Rested {
@@ -411,10 +411,10 @@ func (v *view) boardCard(c *ui.Context, card replay.Card, w float32, selected bo
 			shown := min(card.Don, 3)
 			for i := shown; i >= 1; i-- {
 				off := float32(i)
-				v.donCard(c.Key(i), w, h).Absolute().Left(-w * 0.07 * off).Top(h * 0.1 * off)
+				donCard(c.Key(i), e, w, h).Absolute().Left(-w * 0.07 * off).Top(h * 0.1 * off)
 			}
 			// Absolute elements draw over the rest, so the card is one too, to sit over its DON.
-			art := v.card(c, card.Code, w, notes...).Absolute().Top(0).Left(0)
+			art := e.card(c, card.Code, w, notes...).Absolute().Top(0).Left(0)
 			if selected {
 				selectRing(art, col)
 			}
@@ -442,7 +442,7 @@ func battlePair(cards []placed, bt *replay.Battle, mineAttacks bool) (a, t int) 
 	return find(bt.AttackerID, mineAttacks), find(bt.DefenderID, !mineAttacks)
 }
 
-func (v *view) attackArrow(c *ui.Context, k func() *ui.Context, m mat, a, t placed, bt *replay.Battle, attacker side) {
+func attackArrow(c *ui.Context, e *env, k func() *ui.Context, m mat, a, t placed, bt *replay.Battle, attacker side) {
 	col := attacker.color()
 	ax, ay := m.center(a)
 	tx, ty := m.center(t)
@@ -470,7 +470,7 @@ func (v *view) attackArrow(c *ui.Context, k func() *ui.Context, m mat, a, t plac
 		x, _ := m.center(pl)
 		ui.Row(k()).Absolute().Left(x - m.h/2).Top(pl.y - 10).Width(m.h).Justify(ui.Center).Children(func() {
 			ui.Text(c, powerText(pw)).FontSize(max(m.w*0.17, 12)).Bold().TextColor(badgeInk).Padding(1, 9).Radius(10).
-				Background(col).Shadow(0, 2, 8, 0, panelShade).Tooltip(v.powerSum(pw))
+				Background(col).Shadow(0, 2, 8, 0, panelShade).Tooltip(e.powerSum(pw))
 		})
 	}
 	power(a, bt.Attack, col)

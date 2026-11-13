@@ -18,11 +18,11 @@ const (
 	railSquares = 12
 )
 
-// chosenChange is the shown list among the build's: the one first played at v.decks.version, or
+// chosenChange is the shown list among the build's: the one first played at pg.version, or
 // the latest. It returns its index.
-func (v *view) chosenChange(changes []stats.Change) int {
+func (pg *decksPage) chosenChange(changes []stats.Change) int {
 	for i, ch := range changes {
-		if ch.At.Equal(v.decks.version) {
+		if ch.At.Equal(pg.version) {
 			return i
 		}
 	}
@@ -32,12 +32,12 @@ func (v *view) chosenChange(changes []stats.Change) int {
 // versionRail lists the build's lists, newest first, each with its date and time, the copies
 // swapped in and out, and a square per game. Clicking one shows it. With Show changes on, the
 // chosen one lists the cards swapped.
-func (v *view) versionRail(c *ui.Context, changes []stats.Change, chosen int) {
+func (pg *decksPage) versionRail(c *ui.Context, e *env, changes []stats.Change, chosen int) {
 	t := c.Theme()
 	panel(c).Width(railW).Gap(2).Padding(6).Children(func() {
 		for i := len(changes) - 1; i >= 0; i-- {
 			ch := changes[i]
-			b := ui.ButtonBase(c.Key(i)).Label(v.dateTime(ch.At)).Column().Gap(3).Padding(7, 8).Radius(8).
+			b := ui.ButtonBase(c.Key(i)).Label(e.dateTime(ch.At)).Column().Gap(3).Padding(7, 8).Radius(8).
 				Background(ui.Transparent).AlignItems(ui.Stretch)
 			switch {
 			case i == chosen:
@@ -46,14 +46,14 @@ func (v *view) versionRail(c *ui.Context, changes []stats.Change, chosen int) {
 				b.Background(t.SurfaceHover)
 			}
 			if b.Clicked() {
-				v.decks.version = ch.At
+				pg.version = ch.At
 				if i == len(changes)-1 {
-					v.decks.version = time.Time{}
+					pg.version = time.Time{}
 				}
 			}
 			b.Children(func() {
 				ui.Row(c).Gap(6).AlignItems(ui.End).Children(func() {
-					ui.Text(c, v.date(ch.At)).FontSize(13).FontWeight(600)
+					ui.Text(c, e.date(ch.At)).FontSize(13).FontWeight(600)
 					ui.Text(c, ch.At.Format("15:04")).FontSize(12).TextColor(faintColor(t))
 					if i == len(changes)-1 {
 						ui.Text(c, "Latest").FontSize(11).TextColor(t.Accent)
@@ -75,7 +75,7 @@ func (v *view) versionRail(c *ui.Context, changes []stats.Change, chosen int) {
 					}
 					resultSquares(c, rs, 7)
 				})
-				if i == chosen && i > 0 && v.prefs.deckChanges {
+				if i == chosen && i > 0 && e.prefs.deckChanges {
 					ui.Box(c).Height(1).Background(t.Border.Alpha(0.6)).Margin(4, 0, 2, 0)
 					for _, code := range swapOrder(ch.Swaps) {
 						n := ch.Swaps[code]
@@ -85,7 +85,7 @@ func (v *view) versionRail(c *ui.Context, changes []stats.Change, chosen int) {
 						}
 						ui.Row(c.Key(code)).Gap(6).AlignItems(ui.Center).Children(func() {
 							ui.Text(c, fmt.Sprintf("%s%d", sign, max(n, -n))).FontSize(12).FontWeight(700).TextColor(col).Width(24)
-							ui.Text(c, v.snap.card(code).Name).FontSize(12).SingleLine()
+							ui.Text(c, e.snap.card(code).Name).FontSize(12).SingleLine()
 						})
 					}
 				}

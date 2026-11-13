@@ -13,7 +13,7 @@ import (
 // liveStrip is the game running in the sim right now: the lobby while it waits, then the
 // opponent, your history against them, and both players' life and hand.
 func (v *view) liveStrip(c *ui.Context) {
-	if v.detail.replay != nil {
+	if v.matches.detail.replay != nil {
 		return
 	}
 	s := v.live

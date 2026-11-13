@@ -25,8 +25,8 @@ type buildEdit struct {
 	shownSnap *snapshot
 }
 
-func (v *view) startEdit(b store.Build) {
-	s := &v.decks
+func (pg *decksPage) startEdit(b store.Build) {
+	s := pg
 	s.edit = &buildEdit{build: b, core: slices.Clone(b.Core), name: b.Name}
 	s.tab, s.renaming, s.suggesting = tabList, false, false
 }
@@ -40,13 +40,13 @@ type editPreview struct {
 }
 
 // preview is made again only when the leader, the core or the games change.
-func (v *view) preview(d leaderDecks, e *buildEdit) editPreview {
-	key := d.leader + " " + strings.Join(e.core, ",")
-	if e.shownSnap == v.snap && e.shownFor == key {
-		return e.shown
+func preview(e *env, d leaderDecks, ed *buildEdit) editPreview {
+	key := d.leader + " " + strings.Join(ed.core, ",")
+	if ed.shownSnap == e.snap && ed.shownFor == key {
+		return ed.shown
 	}
-	edited := e.build
-	edited.Core = e.core
+	edited := ed.build
+	edited.Core = ed.core
 	p := editPreview{BuildEdit: stats.EditBuild(d.all, d.builds, edited), all: d.all}
 	if len(p.all) > 0 {
 		p.base = p.all[0].Facts.List
@@ -57,88 +57,88 @@ func (v *view) preview(d leaderDecks, e *buildEdit) editPreview {
 			break
 		}
 	}
-	e.shown, e.shownFor, e.shownSnap = p, key, v.snap
+	ed.shown, ed.shownFor, ed.shownSnap = p, key, e.snap
 	return p
 }
 
 // coreEditor takes the page while a build's core is edited: the cards of its latest list, then
 // the cards of the leader's other lists, with the games it gets as they change.
-func (v *view) coreEditor(c *ui.Context, d leaderDecks) {
+func (pg *decksPage) coreEditor(c *ui.Context, e *env, d leaderDecks) {
 	t := c.Theme()
-	e := v.decks.edit
-	p := v.preview(d, e)
+	ed := pg.edit
+	p := preview(e, d, ed)
 	if len(p.all) == 0 {
-		v.decks.edit = nil
+		pg.edit = nil
 		return
 	}
 	freq, base := p.Games, p.base
 	root := panel(c).Gap(16).Padding(16, 20, 20, 20)
 	if root.OverlayShortcut(0, ui.KeyEscape) {
-		v.decks.edit = nil
+		pg.edit = nil
 		return
 	}
 	root.Children(func() {
-		v.editorHeader(c, d, e)
-		v.editorPreview(c, e, p)
+		pg.editorHeader(c, e, d, ed)
+		editorPreview(c, e, ed, p)
 		ui.Box(c).Height(1).Background(t.Border.Alpha(0.6))
 		ui.Column(c).Gap(12).Children(func() {
 			ui.Text(c, "Latest list").FontWeight(600)
 			ui.Row(c).Gap(10).Wrap().AlignItems(ui.Start).Children(func() {
-				for _, code := range v.listOrder(base) {
-					v.editStack(c.Key(code), e, code, base[code], freq[code], len(p.all), slices.Contains(p.Staples, code))
+				for _, code := range listOrder(e, base) {
+					editStack(c.Key(code), e, ed, code, base[code], freq[code], len(p.all), slices.Contains(p.Staples, code))
 				}
 			})
 		})
-		v.otherCards(c, e, base, freq, len(p.all))
+		otherCards(c, e, ed, base, freq, len(p.all))
 	})
 }
 
-func (v *view) editorHeader(c *ui.Context, d leaderDecks, e *buildEdit) {
+func (pg *decksPage) editorHeader(c *ui.Context, e *env, d leaderDecks, ed *buildEdit) {
 	t := c.Theme()
-	leader := v.snap.card(d.leader).Name
+	leader := e.snap.card(d.leader).Name
 	ui.Row(c).Gap(14).AlignItems(ui.Center).Children(func() {
-		v.artStrip(c, d.leader, 48, 34)
+		e.artStrip(c, d.leader, 48, 34)
 		ui.Column(c).Gap(2).Children(func() {
 			title := "New " + leader + " build"
-			if e.build.ID != 0 {
-				title = "Edit " + e.build.Name
+			if ed.build.ID != 0 {
+				title = "Edit " + ed.build.Name
 			}
 			ui.Text(c, title).FontSize(18).FontWeight(600)
 			ui.Text(c, "A game is in the build when its list runs every core card.").FontSize(12).TextColor(t.TextMuted)
 		})
 		ui.Spacer(c)
-		name := strings.TrimSpace(e.name)
+		name := strings.TrimSpace(ed.name)
 		var missing string
 		switch {
-		case name == "" && len(e.core) == 0:
+		case name == "" && len(ed.core) == 0:
 			missing = "Name it and pick a core card"
 		case name == "":
 			missing = "Name it to save"
-		case len(e.core) == 0:
+		case len(ed.core) == 0:
 			missing = "Pick a core card to save"
 		}
 		if missing != "" {
 			ui.Text(c, missing).FontSize(12).TextColor(faintColor(t))
 		}
 		if ui.Button(c, "Cancel").Tooltip("Esc").Clicked() {
-			v.decks.edit = nil
+			pg.edit = nil
 		}
 		save := ui.PrimaryButton(c, "Save").Disabled(missing != "")
 		if save.Clicked() && missing == "" {
-			b := e.build
-			b.Name, b.Core = name, slices.Clone(e.core)
-			v.do(func(a actions) { a.SaveBuild(b, v.chooseSaved) })
-			v.decks.edit = nil
+			b := ed.build
+			b.Name, b.Core = name, slices.Clone(ed.core)
+			pg.do(func(a deckActions) { a.SaveBuild(b, pg.chooseSaved) })
+			pg.edit = nil
 		}
 	})
-	if e.build.ID == 0 {
-		ui.TextInput(c, &e.name).Width(280).Label("Build name").Placeholder("Build name").AutoFocus()
+	if ed.build.ID == 0 {
+		ui.TextInput(c, &ed.name).Width(280).Label("Build name").Placeholder("Build name").AutoFocus()
 	}
 }
 
 // editorPreview is the games the core gets, and how that differs from the saved core once it
 // does.
-func (v *view) editorPreview(c *ui.Context, e *buildEdit, p editPreview) {
+func editorPreview(c *ui.Context, e *env, ed *buildEdit, p editPreview) {
 	t := c.Theme()
 	ui.Column(c).Gap(8).Children(func() {
 		ui.Row(c).Gap(10).AlignItems(ui.End).Children(func() {
@@ -154,9 +154,9 @@ func (v *view) editorPreview(c *ui.Context, e *buildEdit, p editPreview) {
 				}
 			}
 			switch {
-			case len(e.core) == 0:
+			case len(ed.core) == 0:
 				ui.Text(c, "Pick a core card to see its games").FontSize(14).FontWeight(600).TextColor(t.TextMuted)
-			case e.build.ID == 0 || joins+leaves == 0:
+			case ed.build.ID == 0 || joins+leaves == 0:
 				ui.Text(c, games(len(p.After))+" · "+record(p.With)).FontSize(14).FontWeight(600)
 			default:
 				ui.Text(c, fmt.Sprintf("%s → %s · %s → %s", games(len(p.Now)), games(len(p.After)), record(p.Before), record(p.With))).
@@ -167,13 +167,13 @@ func (v *view) editorPreview(c *ui.Context, e *buildEdit, p editPreview) {
 				ui.Text(c, games(p.Conflicts)+" fit two builds").FontSize(12).TextColor(warnColor)
 			}
 		})
-		v.gameStrip(c, p)
+		gameStrip(c, e, p)
 	})
 }
 
 // gameStrip is a mark per game of the leader, oldest first, with a gap between days: in the
 // build, joining or leaving it with the edit, in another build, or in none.
-func (v *view) gameStrip(c *ui.Context, p editPreview) {
+func gameStrip(c *ui.Context, e *env, p editPreview) {
 	t := c.Theme()
 	ui.Column(c).Gap(6).Children(func() {
 		ui.Row(c).Gap(2).Wrap().AlignItems(ui.Center).Children(func() {
@@ -184,7 +184,7 @@ func (v *view) gameStrip(c *ui.Context, p editPreview) {
 					ui.Box(c.Key(fmt.Sprint("gap", i))).Width(5)
 				}
 				last = day
-				mark := ui.Box(c.Key(i)).Size(8, 14).Radius(2).Tooltip(v.dateTime(g.PlayedAt))
+				mark := ui.Box(c.Key(i)).Size(8, 14).Radius(2).Tooltip(e.dateTime(g.PlayedAt))
 				fill, edge := stripMark(t, p, g.Fingerprint)
 				mark.Background(fill).Border(1.5, edge)
 			}
@@ -219,13 +219,13 @@ func stripMark(t *ui.Theme, p editPreview, fp string) (fill, edge ui.Color) {
 	return t.Border, t.Border
 }
 
-func (e *buildEdit) toggle(code string) {
-	if i := slices.Index(e.core, code); i >= 0 {
-		e.core = slices.Delete(e.core, i, i+1)
+func (ed *buildEdit) toggle(code string) {
+	if i := slices.Index(ed.core, code); i >= 0 {
+		ed.core = slices.Delete(ed.core, i, i+1)
 		return
 	}
-	e.core = append(e.core, code)
-	slices.Sort(e.core)
+	ed.core = append(ed.core, code)
+	slices.Sort(ed.core)
 }
 
 // coreMark is what a card's toggle says under it: Core when it's in, + Core on hover, and
@@ -258,13 +258,13 @@ func toggleLook(c *ui.Context, b ui.Element, core bool) {
 
 // editStack is a card of the list to click into the core or out, with how many of the leader's
 // games ran it. Staples are faded, since they can't tell builds apart.
-func (v *view) editStack(c *ui.Context, e *buildEdit, code string, n, in, total int, staple bool) {
-	core := slices.Contains(e.core, code)
+func editStack(c *ui.Context, e *env, ed *buildEdit, code string, n, in, total int, staple bool) {
+	core := slices.Contains(ed.core, code)
 	h := cardHeight(stackW)
-	b := ui.ButtonBase(c).Label(v.snap.card(code).Name).Column().Gap(4).Padding(4)
+	b := ui.ButtonBase(c).Label(e.snap.card(code).Name).Column().Gap(4).Padding(4)
 	toggleLook(c, b, core)
 	if b.Clicked() {
-		e.toggle(code)
+		ed.toggle(code)
 	}
 	hovered := b.Hovered()
 	b.Children(func() {
@@ -274,7 +274,7 @@ func (v *view) editStack(c *ui.Context, e *buildEdit, code string, n, in, total 
 		}
 		art.Children(func() {
 			for i := range n {
-				v.card(c.Key(i), code, stackW).Absolute().Left(float32(i) * stackStepX).Top(float32(i) * stackStepY)
+				e.card(c.Key(i), code, stackW).Absolute().Left(float32(i) * stackStepX).Top(float32(i) * stackStepY)
 			}
 			pill(c, fmt.Sprintf("×%d", n), 11).Absolute().Right(4).Bottom(4)
 		})
@@ -296,7 +296,7 @@ func freqBar(c *ui.Context, in, total int, w float32) {
 
 // otherCards are the cards of the leader's other lists, most played first, to search and click
 // into the core as the stacks are.
-func (v *view) otherCards(c *ui.Context, e *buildEdit, base, freq map[string]int, total int) {
+func otherCards(c *ui.Context, e *env, ed *buildEdit, base, freq map[string]int, total int) {
 	t := c.Theme()
 	var codes []string
 	for code := range maps.Keys(freq) {
@@ -308,27 +308,27 @@ func (v *view) otherCards(c *ui.Context, e *buildEdit, base, freq map[string]int
 		return
 	}
 	slices.SortFunc(codes, func(a, b string) int { return cmp.Or(cmp.Compare(freq[b], freq[a]), cmp.Compare(a, b)) })
-	q := strings.ToLower(strings.TrimSpace(e.search))
+	q := strings.ToLower(strings.TrimSpace(ed.search))
 	ui.Box(c).Height(1).Background(t.Border.Alpha(0.6))
 	ui.Row(c).Gap(16).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, "Cards from your other "+v.snap.card(e.build.Leader).Name+" lists").FontWeight(600)
-		ui.TextInput(c, &e.search).Width(240).Label("Search cards").Placeholder("Search cards")
+		ui.Text(c, "Cards from your other "+e.snap.card(ed.build.Leader).Name+" lists").FontWeight(600)
+		ui.TextInput(c, &ed.search).Width(240).Label("Search cards").Placeholder("Search cards")
 	})
 	ui.Row(c).Wrap().Gap(6).Children(func() {
 		for _, code := range codes {
-			card := v.snap.card(code)
+			card := e.snap.card(code)
 			if q != "" && !strings.Contains(strings.ToLower(card.Name), q) && !strings.Contains(strings.ToLower(code), q) {
 				continue
 			}
-			core := slices.Contains(e.core, code)
+			core := slices.Contains(ed.core, code)
 			b := ui.ButtonBase(c.Key(code)).Label(card.Name).Row().Width(330).Gap(10).AlignItems(ui.Center).Padding(4, 8, 4, 4)
 			toggleLook(c, b, core)
 			if b.Clicked() {
-				e.toggle(code)
+				ed.toggle(code)
 			}
 			hovered := b.Hovered()
 			b.Children(func() {
-				v.card(c, code, 24)
+				e.card(c, code, 24)
 				ui.Column(c).Gap(1).Grow(1).MinWidth(0).Children(func() {
 					ui.Text(c, card.Name).FontSize(13).SingleLine()
 					ui.Text(c, code).FontSize(11).TextColor(faintColor(t))

@@ -10,10 +10,10 @@ import (
 	"github.com/VTGare/logpose/internal/stats"
 )
 
-func (v *view) momentsTile(c *ui.Context, m stats.Match) ui.Element {
+func (pg *matchesPage) momentsTile(c *ui.Context, e *env, m stats.Match) ui.Element {
 	t := c.Theme()
-	return v.foldTile(c, "match.moments", foldHead{label: "Key moments"}, func() {
-		l := v.detail.timeline
+	return e.foldTile(c, "match.moments", foldHead{label: "Key moments"}, func() {
+		l := pg.detail.timeline
 		switch {
 		case l == nil:
 			ui.Text(c, "Reading the log").TextColor(t.TextMuted)
@@ -23,23 +23,23 @@ func (v *view) momentsTile(c *ui.Context, m stats.Match) ui.Element {
 			return
 		}
 		for i, mo := range l.Moments {
-			v.momentRow(c.Key(i), m, i, mo, i == len(l.Moments)-1)
+			pg.momentRow(c.Key(i), e, m, i, mo, i == len(l.Moments)-1)
 		}
 	})
 }
 
-func (v *view) momentRow(c *ui.Context, m stats.Match, i int, mo simlog.Moment, last bool) {
+func (pg *matchesPage) momentRow(c *ui.Context, e *env, m stats.Match, i int, mo simlog.Moment, last bool) {
 	t := c.Theme()
 	s := sideOf(m, mo.Player)
 	row := ui.Row(c).Gap(12).AlignItems(ui.Stretch).Cursor(ui.CursorPointer).Tooltip("Watch from here")
 	defer func() {
 		if row.Clicked() {
-			v.openReplay(m, mo.Line)
+			pg.openReplay(e, m, mo.Line)
 		}
 	}()
 	row.Children(func() {
 		ui.Column(c).Width(20).AlignItems(ui.Center).Gap(4).Padding(1, 0, 0, 0).Children(func() {
-			v.momentPin(c, m, i, mo)
+			pg.momentPin(c, e, m, i, mo)
 			if !last {
 				ui.Box(c).Width(2).Grow(1).MinHeight(12).Background(t.Border)
 			}
@@ -52,11 +52,11 @@ func (v *view) momentRow(c *ui.Context, m stats.Match, i int, mo simlog.Moment, 
 						ui.Text(c, s.name()).FontSize(12).TextColor(s.color())
 					}
 				})
-				for j, line := range v.momentLines(m, mo) {
+				for j, line := range momentLines(e, m, mo) {
 					ui.Text(c.Key(j), line).Wrap()
 				}
 			})
-			ui.Column(c).Grow(3).Basis(0).Children(func() { v.momentStrip(c, m, mo) })
+			ui.Column(c).Grow(3).Basis(0).Children(func() { momentStrip(c, e, m, mo) })
 		})
 	})
 }
@@ -64,7 +64,7 @@ func (v *view) momentRow(c *ui.Context, m stats.Match, i int, mo simlog.Moment, 
 // momentCardWidth keeps a strip of 8 cards beside the text at the default window size.
 const momentCardWidth = 44
 
-func (v *view) momentStrip(c *ui.Context, m stats.Match, mo simlog.Moment) {
+func momentStrip(c *ui.Context, e *env, m stats.Match, mo simlog.Moment) {
 	t := c.Theme()
 	s := sideOf(m, mo.Player)
 	is := func(k simlog.ReasonKind) bool {
@@ -87,8 +87,8 @@ func (v *view) momentStrip(c *ui.Context, m stats.Match, mo simlog.Moment) {
 			ui.Text(c, label).FontSize(11).TextColor(t.TextMuted)
 			ui.Row(c).Gap(4).Wrap().Children(func() {
 				for k, cd := range cards {
-					box := ui.Box(c.Key(k)).Label(v.snap.card(cd.code).Name).Radius(6).Padding(2).Children(func() {
-						lift(v.card(c, cd.code, momentCardWidth), 5)
+					box := ui.Box(c.Key(k)).Label(e.snap.card(cd.code).Name).Radius(6).Padding(2).Children(func() {
+						lift(e.card(c, cd.code, momentCardWidth), 5)
 					})
 					if cd.ring {
 						box.Border(2, s.color())
@@ -127,18 +127,18 @@ func (v *view) momentStrip(c *ui.Context, m stats.Match, mo simlog.Moment) {
 	})
 }
 
-func (v *view) momentPin(c *ui.Context, m stats.Match, i int, mo simlog.Moment) {
+func (pg *matchesPage) momentPin(c *ui.Context, e *env, m stats.Match, i int, mo simlog.Moment) {
 	p := ui.Text(c, fmt.Sprint(i+1)).FontSize(11).Bold().TextColor(ui.Hex("#FFFFFF")).Size(18, 18).Radius(9).
 		Background(sideOf(m, mo.Player).color()).TextAlign(ui.Center).Label(fmt.Sprintf("Replay moment %d", i+1)).
 		Tooltip("Watch from here").Cursor(ui.CursorPointer)
 	if p.Clicked() {
-		v.openReplay(m, mo.Line)
+		pg.openReplay(e, m, mo.Line)
 	}
 }
 
 // momentLines words a moment's reasons as table talk, as in "emog removed Garp, Oden and Law"
 // or "emog took 2 life · You're at 1". Life lost and life left share a line.
-func (v *view) momentLines(m stats.Match, mo simlog.Moment) []string {
+func momentLines(e *env, m stats.Match, mo simlog.Moment) []string {
 	name := func(id string) string { return sideOf(m, id).name() }
 	at := func(id string, n int) string {
 		if s := sideOf(m, id); !s.mine {
@@ -159,9 +159,9 @@ func (v *view) momentLines(m stats.Match, mo simlog.Moment) []string {
 	for _, r := range mo.Reasons {
 		switch r.Kind {
 		case simlog.ReasonRemoved:
-			lines = append(lines, name(r.Player)+" removed "+v.cardList(mo.Removed))
+			lines = append(lines, name(r.Player)+" removed "+cardList(e, mo.Removed))
 		case simlog.ReasonBoard:
-			lines = append(lines, fmt.Sprintf("%s played %s", name(r.Player), v.cardList(mo.Characters)))
+			lines = append(lines, fmt.Sprintf("%s played %s", name(r.Player), cardList(e, mo.Characters)))
 		case simlog.ReasonLifeLost:
 			addLife(r.Player, hitText(m, r))
 		case simlog.ReasonAtOne:
@@ -190,11 +190,11 @@ func hitText(m stats.Match, r simlog.Reason) string {
 }
 
 // cardList names cards as "Garp, Oden ×2 and Law".
-func (v *view) cardList(codes []string) string {
+func cardList(e *env, codes []string) string {
 	var names []string
 	count := make(map[string]int)
 	for _, code := range codes {
-		n := v.snap.card(code).Name
+		n := e.snap.card(code).Name
 		if count[n] == 0 {
 			names = append(names, n)
 		}

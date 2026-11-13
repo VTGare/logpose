@@ -45,7 +45,7 @@ func testCards() map[string]cards.Card {
 
 // cardsPage opens the Cards page on a pool. The page lists only cards with a name, a code and
 // Detailed set.
-func cardsPage(pool map[string]cards.Card) (*view, *ui.Tester, *fakeActions) {
+func cardsWith(pool map[string]cards.Card) (*view, *ui.Tester, *fakeActions) {
 	db := cards.NewDB()
 	(&cards.Library{Cards: pool}).Apply(db)
 	s := testSnapshot(4)
@@ -62,7 +62,7 @@ func cardsPage(pool map[string]cards.Card) (*view, *ui.Tester, *fakeActions) {
 	return v, tt, fa
 }
 
-func cardsTester() (*view, *ui.Tester, *fakeActions) { return cardsPage(testCards()) }
+func cardsTester() (*view, *ui.Tester, *fakeActions) { return cardsWith(testCards()) }
 
 // shownCards is the codes of the pool's cards the page shows, in reading order.
 func shownCards(tt *ui.Tester, pool map[string]cards.Card) []string {
@@ -249,7 +249,7 @@ var _ = Describe("Cards page", func() {
 			code := fmt.Sprintf("OP15-%03d", i)
 			many[code] = cards.Card{Code: code, Name: "Card " + code, Type: "Character", Effect: fmt.Sprintf("[DON!! x%d] Rush.", i%2+1), Detailed: true}
 		}
-		_, tt, _ = cardsPage(many)
+		_, tt, _ = cardsWith(many)
 		Expect(tt.HasText("17 cards")).To(BeTrue())
 		more()
 		click(tt, "DON!!")
@@ -356,12 +356,12 @@ var _ = Describe("Cards page", func() {
 	})
 
 	It("offers to download the cards before there are any", func() {
-		_, tt, _ = cardsPage(nil)
+		_, tt, _ = cardsWith(nil)
 		Expect(tt.HasText("Cards aren't downloaded yet")).To(BeTrue())
 	})
 
 	It("ticks off each set while the first download runs, and says so in the count after", func() {
-		v, tt, _ = cardsPage(nil)
+		v, tt, _ = cardsWith(nil)
 		v.addCardSync(cards.SetProgress{Done: 1, Total: 3, Set: "OP18 The Dominance of God", Cards: 123})
 		tt.Frame()
 		for _, text := range []string{"Reading every card from Limitless", "1 of 3 sets", "OP18 The Dominance of God · 123 cards"} {
@@ -453,7 +453,7 @@ var _ = Describe("Cards page", func() {
 			Code: "OP15-002", Name: "Pincers", Type: "Character", Colors: []cards.Color{cards.Red}, Cost: 1,
 			Detailed: true, Legality: cards.Legal,
 		}
-		_, tt, _ = cardsPage(wide)
+		_, tt, _ = cardsWith(wide)
 		// The default window, where the popover meets the window's edge.
 		tt.SetSize(1180, 780)
 		tt.Frame()
@@ -530,7 +530,7 @@ var _ = Describe("Cards page", func() {
 		luffy := func(info simArtInfo) {
 			GinkgoHelper()
 			click(tt, "Monkey D. Luffy OP01-024")
-			v.setSimArt("OP01-024", info)
+			v.cards.setSimArt("OP01-024", info)
 			tt.Frame()
 		}
 
@@ -546,7 +546,7 @@ var _ = Describe("Cards page", func() {
 			Expect(fa.calls).NotTo(ContainElement("use art OP01-024 OP01-024"))
 
 			alt := sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024_p1"}
-			v.simArtDone(v.snap.card("OP01-024"), alt, simArtInfo{cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
+			v.cards.simArtDone(&v.env, v.snap.card("OP01-024"), alt, simArtInfo{cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
 			tt.Frame()
 			Expect(tt.HasText("The sim now shows Monkey D. Luffy's Alt art.")).To(BeTrue())
 			click(tt, "Undo")
@@ -556,7 +556,7 @@ var _ = Describe("Cards page", func() {
 		It("closes the message after a change without undoing it", func() {
 			click(tt, "Monkey D. Luffy OP01-024")
 			alt := sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024_p1"}
-			v.simArtDone(v.snap.card("OP01-024"), alt, simArtInfo{cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
+			v.cards.simArtDone(&v.env, v.snap.card("OP01-024"), alt, simArtInfo{cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
 			tt.Frame()
 			Expect(tt.HasText("The sim now shows Monkey D. Luffy's Alt art.")).To(BeTrue())
 			click(tt, "Close")
@@ -646,10 +646,10 @@ var _ = Describe("Cards page", func() {
 		}
 		open := func(cur sim.ArtChoice, ca arts.CardArts) {
 			GinkgoHelper()
-			v.setSimArt("OP14-002", simArtInfo{cur: cur})
-			v.resetArts()
+			v.cards.setSimArt("OP14-002", simArtInfo{cur: cur})
+			v.cards.resetArts()
 			tt.Frame()
-			v.setArts(lastGen(), "OP14-002", ca)
+			v.cards.setArts(lastGen(), "OP14-002", ca)
 			tt.Frame()
 			artTab()
 		}
@@ -734,23 +734,23 @@ var _ = Describe("Cards page", func() {
 		})
 
 		It("asks for a card's arts once, again after a reset, and drops a step from before it", func() {
-			v.setSimArt("OP14-002", simArtInfo{cur: sim.ArtChoice{Kind: sim.ArtOwn}})
+			v.cards.setSimArt("OP14-002", simArtInfo{cur: sim.ArtChoice{Kind: sim.ArtOwn}})
 			tt.Frame()
 			Expect(fa.artLoads).To(HaveLen(1))
 			first := lastGen()
 
-			v.resetArts()
+			v.cards.resetArts()
 			tt.Frame()
 			Expect(fa.artLoads).To(HaveLen(2))
 			second := lastGen()
 			Expect(second).NotTo(Equal(first))
 
-			v.resetArts()
-			v.setArts(second, "OP14-002", regional(0))
+			v.cards.resetArts()
+			v.cards.setArts(second, "OP14-002", regional(0))
 			tt.Frame()
 			Expect(fa.artLoads).To(HaveLen(3))
 			Expect(tt.HasText("Art · 2")).To(BeTrue())
-			v.setArts(lastGen(), "OP14-002", regional(0))
+			v.cards.setArts(lastGen(), "OP14-002", regional(0))
 			tt.Frame()
 			Expect(tt.HasText("Art · 3")).To(BeTrue())
 		})
@@ -760,7 +760,7 @@ var _ = Describe("Cards page", func() {
 		luffyViewer := func() {
 			GinkgoHelper()
 			click(tt, "Monkey D. Luffy OP01-024")
-			v.setSimArt("OP01-024", simArtInfo{cur: sim.ArtChoice{Kind: sim.ArtOwn}})
+			v.cards.setSimArt("OP01-024", simArtInfo{cur: sim.ArtChoice{Kind: sim.ArtOwn}})
 			click(tt, "View full size")
 		}
 
@@ -777,7 +777,7 @@ var _ = Describe("Cards page", func() {
 			click(tt, "Use this art in the sim")
 			Expect(calls("use art")).To(Equal([]string{"use art OP01-024 OP01-024_p1"}))
 			alt := sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024_p1"}
-			v.simArtDone(v.snap.card("OP01-024"), alt, simArtInfo{cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
+			v.cards.simArtDone(&v.env, v.snap.card("OP01-024"), alt, simArtInfo{cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
 			tt.Key(0, ui.KeyUp)
 			tt.Key(0, ui.KeyUp)
 			click(tt, "Use this art in the sim")
@@ -851,7 +851,7 @@ var _ = Describe("Card sort", func() {
 			"OP14-013": {Code: "OP14-013", Name: "Zero", Type: "Character", Detailed: true},
 			"OP14-005": {Code: "OP14-005", Name: "Thousand", Type: "Character", Power: 1000, Detailed: true},
 		}
-		v, tt, _ = cardsPage(small)
+		v, tt, _ = cardsWith(small)
 		v.setPrefs(prefsFrom(map[string]string{keyCardSort: "power reversed"}))
 		Expect(shownCards(tt, small)).To(Equal([]string{"OP14-013", "OP14-005", "OP14-003"}))
 	})
@@ -862,7 +862,7 @@ var _ = Describe("Card sort", func() {
 			"OP01-002": {Code: "OP01-002", Name: "Red and green card", Colors: []cards.Color{cards.Red, cards.Green}, Detailed: true},
 			"OP01-003": {Code: "OP01-003", Name: "Red card", Colors: []cards.Color{cards.Red}, Detailed: true},
 		}
-		v, tt, _ = cardsPage(small)
+		v, tt, _ = cardsWith(small)
 		v.setPrefs(prefsFrom(map[string]string{keyCardSort: "color"}))
 		Expect(shownCards(tt, small)).To(Equal([]string{"OP01-003", "OP01-002", "OP01-001"}))
 	})

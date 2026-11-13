@@ -44,23 +44,23 @@ func (d leaderDecks) scopeRows() []scopeRow {
 }
 
 // buildsTable compares the leader's builds and the games in no build. Clicking a row chooses it.
-func (v *view) buildsTable(c *ui.Context, d leaderDecks) {
+func (pg *decksPage) buildsTable(c *ui.Context, e *env, d leaderDecks) {
 	t := c.Theme()
-	tv := arrangeTable(&v.env, "decks.builds", tableGap, v.buildCols(t), "", false)
+	tv := arrangeTable(e, "decks.builds", tableGap, buildCols(e, t), "", false)
 	rows := tv.sorted(d.rows)
-	v.foldTile(c, "decks.builds", foldHead{label: "Builds of " + v.snap.card(d.leader).Name}, func() {
+	e.foldTile(c, "decks.builds", foldHead{label: "Builds of " + e.snap.card(d.leader).Name}, func() {
 		ui.Text(c, "Click a row to see only its games. With about 30 games each, gaps under 10 points are likely luck.").
 			FontSize(12).TextColor(t.TextMuted).Wrap()
 		ui.Column(c).Children(func() {
 			tv.header(c, 8)
 			for _, r := range rows {
-				v.scopeTableRow(c.Key(r.name), tv, d, r)
+				pg.scopeTableRow(c.Key(r.name), e, tv, d, r)
 			}
 		})
 	})
 }
 
-func (v *view) buildCols(t *ui.Theme) []tableCol[scopeRow] {
+func buildCols(e *env, t *ui.Theme) []tableCol[scopeRow] {
 	last := func(l stats.Leader) float64 {
 		if len(l.Rolling) == 0 {
 			return -1
@@ -88,7 +88,7 @@ func (v *view) buildCols(t *ui.Theme) []tableCol[scopeRow] {
 			by: func(a, b scopeRow) int { return cmp.Compare(a.name, b.name) },
 			cell: func(c *ui.Context, r scopeRow) {
 				ui.Row(c).MinWidth(0).Gap(8).AlignItems(ui.Center).Children(func() {
-					v.coreThumbs(c, r.core)
+					coreThumbs(c, e, r.core)
 					ui.Text(c, r.name).FontSize(13).FontWeight(600).SingleLine().Tooltip(r.name)
 				})
 			},
@@ -120,7 +120,7 @@ func (v *view) buildCols(t *ui.Theme) []tableCol[scopeRow] {
 			cell: func(c *ui.Context, r scopeRow) {
 				s := "–"
 				if !r.stats.First.IsZero() {
-					s = span(v.date(r.stats.First), v.date(r.stats.Last))
+					s = span(e.date(r.stats.First), e.date(r.stats.Last))
 				}
 				text(c, s, true)
 			},
@@ -128,18 +128,18 @@ func (v *view) buildCols(t *ui.Theme) []tableCol[scopeRow] {
 	}
 }
 
-func (v *view) scopeTableRow(c *ui.Context, tv tableView[scopeRow], d leaderDecks, r scopeRow) {
+func (pg *decksPage) scopeTableRow(c *ui.Context, e *env, tv tableView[scopeRow], d leaderDecks, r scopeRow) {
 	t := c.Theme()
 	row := ui.ButtonBase(c).Label("Show "+r.name).Row().Gap(tv.gap).Padding(9, 8).AlignItems(ui.Center).
 		Background(ui.Transparent).Radius(6)
 	if b, ok := d.chosen(r.scope.build); ok && r.scope.kind == scopeBuild {
-		row.PopoverMenu(func(m *ui.Menu) { v.buildMenu(m, d, b) })
+		row.PopoverMenu(func(m *ui.Menu) { pg.buildMenu(e, m, d, b) })
 	}
 	if row.Hovered() {
 		row.Background(t.SurfaceHover)
 	}
 	if row.Clicked() {
-		v.decks.scope, v.decks.suggesting = r.scope, false
+		pg.scope, pg.suggesting = r.scope, false
 	}
 	row.Children(func() { tv.cells(c, r) })
 	ui.Box(c).Height(1).Background(t.Border.Alpha(0.3))

@@ -2,61 +2,11 @@ package gui
 
 import (
 	"github.com/egoist/mygo/ui"
-
-	"github.com/VTGare/logpose/internal/stats"
-	"github.com/VTGare/logpose/internal/store"
 )
 
 // Every right-click menu is a PopoverMenu, drawn in the app's look. Menus use one wording:
 // "Open on …" goes to a page about the thing, "Show in Matches" to its games, and "Filter to …"
 // sets a pill and stays on the page. Every item can also be reached without right-click.
-
-// gameMenu is a game's menu, the same wherever the game shows.
-func (v *view) gameMenu(m stats.Match) func(*ui.Menu) {
-	return func(menu *ui.Menu) {
-		if menu.Item("Open match").Chosen() {
-			v.openMatch(m)
-		}
-		if menu.Item("Watch replay").Chosen() {
-			v.openReplay(m, -1)
-		}
-		menu.Separator()
-		if stats.CanBeRanked(m.Game) {
-			menu.Submenu("Game type", func(sub *ui.Menu) {
-				for i, label := range v.typeOptions(m) {
-					if sub.Item(label).Radio(int(m.Type) == i).Chosen() {
-						v.do(func(a actions) { a.SetGameType(m.Fingerprint, store.GameType(i)) })
-					}
-				}
-			})
-		} else {
-			menu.Item("Game type: private lobby").Disabled(true)
-		}
-		noteLabel := "Add note…"
-		if m.Note != "" {
-			noteLabel = "Edit note…"
-		}
-		if menu.Item(noteLabel).Chosen() {
-			v.openMatch(m)
-			v.detail.focusNote = true
-		}
-		bookmark := "Bookmark"
-		if m.Bookmarked {
-			bookmark = "Remove bookmark"
-		}
-		if menu.Item(bookmark).Chosen() {
-			v.do(func(a actions) { a.SetBookmark(m.Fingerprint, !m.Bookmarked) })
-		}
-		menu.Separator()
-		if menu.Item("Filter to games vs " + m.Opp.Name).Chosen() {
-			v.filter.opp = m.Opp.ID
-		}
-		matchup := v.snap.card(m.Me.Leader).Name + " vs " + v.snap.card(m.Opp.Leader).Name
-		if menu.Item("Filter to " + matchup).Chosen() {
-			v.filter.deck, v.filter.oppLeader = m.Me.Leader, m.Opp.Leader
-		}
-	}
-}
 
 func (e *env) yourDeckMenu(leader string) func(*ui.Menu) {
 	return func(m *ui.Menu) {
@@ -115,7 +65,7 @@ func (e *env) leaderCardItems(m *ui.Menu, code string) {
 }
 
 func (v *view) openInCards(code string) {
-	s := &v.cardsUI
+	s := &v.cards.state
 	if s.selected != code {
 		s.selected, s.viewed, s.versions = code, "", ""
 	}
@@ -125,7 +75,7 @@ func (v *view) openInCards(code string) {
 
 // viewArt opens the art viewer over the page, which build draws off the Cards page.
 func (v *view) viewArt(code string) {
-	s := &v.cardsUI
+	s := &v.cards.state
 	if s.selected != code {
 		s.selected, s.viewed, s.versions = code, "", ""
 	}
@@ -134,7 +84,7 @@ func (v *view) viewArt(code string) {
 
 // showsHands reports whether the page is a Decks tab where "Show hands with" fits a card.
 func (v *view) showsHands() bool {
-	return v.page == pageDecks && v.detail.fingerprint == "" && v.decks.tab != tabResults
+	return v.page == pageDecks && v.matches.detail.fingerprint == "" && v.decks.tab != tabResults
 }
 
 // showHands opens the Hands tab on the hands the card was dealt in.

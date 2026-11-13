@@ -24,15 +24,15 @@ type flowSeries struct {
 // flowAxisWidth fits most sim names. Longer ones end in an ellipsis and show in full on hover.
 const flowAxisWidth = 96
 
-func (v *view) flowTile(c *ui.Context, m stats.Match) ui.Element {
+func (pg *matchesPage) flowTile(c *ui.Context, e *env, m stats.Match) ui.Element {
 	t := c.Theme()
 	sum := ""
-	if l := v.detail.timeline; l != nil && len(l.Me) > 0 && len(l.Opp) == len(l.Me) {
+	if l := pg.detail.timeline; l != nil && len(l.Me) > 0 && len(l.Opp) == len(l.Me) {
 		you := mySide(m)
 		sum = fmt.Sprintf("Life at the end: %s %d, %s %d", you.object(), l.Me[len(l.Me)-1], you.other().object(), l.Opp[len(l.Opp)-1])
 	}
-	return v.foldTile(c, "match.flow", foldHead{label: "Turn by turn", summary: sum}, func() {
-		l := v.detail.timeline
+	return e.foldTile(c, "match.flow", foldHead{label: "Turn by turn", summary: sum}, func() {
+		l := pg.detail.timeline
 		switch {
 		case l == nil:
 			ui.Text(c, "Reading the log").TextColor(t.TextMuted)
@@ -51,7 +51,7 @@ func (v *view) flowTile(c *ui.Context, m stats.Match) ui.Element {
 		for i, r := range rows {
 			labels[i] = r.label
 		}
-		tab := &v.detail.flowTab
+		tab := &pg.detail.flowTab
 		*tab = min(*tab, len(rows)-1)
 		r := rows[*tab]
 		ui.Row(c).Gap(16).AlignItems(ui.Center).Children(func() {
@@ -59,20 +59,20 @@ func (v *view) flowTile(c *ui.Context, m stats.Match) ui.Element {
 			ui.Spacer(c)
 			pipLegend(c, r, m)
 		})
-		v.pips(c, m, l, r, rows)
+		pg.pips(c, e, m, l, r, rows)
 	})
 }
 
 // turnLines is a turn's key moment and the marks the moment doesn't already name.
-func (v *view) turnLines(m stats.Match, l *matchTimeline, turn int) (moment, marks []string) {
+func turnLines(e *env, m stats.Match, l *matchTimeline, turn int) (moment, marks []string) {
 	named := false
 	for _, mo := range l.Moments {
 		if mo.Turn == turn {
-			moment = v.momentLines(m, mo)
+			moment = momentLines(e, m, mo)
 			named = len(mo.Removed) > 0
 		}
 	}
-	return moment, v.markLines(m, l.Marks, turn, named)
+	return moment, markLines(e, m, l.Marks, turn, named)
 }
 
 // flowSummary is a turn's counts for both players, as "End of turn 9 · You: life 2, hand 7,
@@ -97,13 +97,13 @@ func flowSummary(m stats.Match, rows []flowSeries, i int) string {
 	return when + "\n" + line(you) + "\n" + line(you.other())
 }
 
-func (v *view) markLines(m stats.Match, marks []simlog.Mark, turn int, skipRemoved bool) []string {
+func markLines(e *env, m stats.Match, marks []simlog.Mark, turn int, skipRemoved bool) []string {
 	var removed, triggers []string
 	for _, mk := range marks {
 		if mk.Turn != turn {
 			continue
 		}
-		name := v.snap.card(mk.Card).Name
+		name := e.snap.card(mk.Card).Name
 		if s := sideOf(m, mk.Player); !s.mine {
 			name += " (" + s.name() + ")"
 		}
@@ -227,7 +227,7 @@ func (pp pipPlot) column(p *ui.Painter, rect ui.Rect, cx float32, counts []int, 
 	}
 }
 
-func (v *view) pips(c *ui.Context, m stats.Match, l *matchTimeline, r flowSeries, rows []flowSeries) {
+func (pg *matchesPage) pips(c *ui.Context, e *env, m stats.Match, l *matchTimeline, r flowSeries, rows []flowSeries) {
 	pp := newPipPlot(c.Theme(), m, l, r)
 	h := pp.height()
 	xs := make([]float32, pp.n)
@@ -239,7 +239,7 @@ func (v *view) pips(c *ui.Context, m stats.Match, l *matchTimeline, r flowSeries
 		{At: 1 - pp.half/2/h, Label: you.other().name()},
 		{At: pp.half / 2 / h, Label: you.name()},
 	}
-	sel := &v.detail.lifePoint
+	sel := &pg.detail.lifePoint
 	label := func(_ chart.Side, tick chart.Tick) {
 		col := you.other().color()
 		if tick.At == ticks[1].At {
@@ -252,13 +252,13 @@ func (v *view) pips(c *ui.Context, m stats.Match, l *matchTimeline, r flowSeries
 		for i, mo := range l.Moments {
 			if mo.Turn < pp.n {
 				chart.Anchor(c.Key(fmt.Sprint("pin", i)), xs[mo.Turn], 1-(pp.half+pipSpine/2)/h, ui.Center, ui.Center, func() {
-					v.momentPin(c, m, i, mo)
+					pg.momentPin(c, e, m, i, mo)
 				})
 			}
 		}
 		chart.Select(c, area, sel, xs, func(i int) string { return flowSummary(m, rows, i) })
 		if i := *sel; i >= 0 && i < pp.n {
-			moment, marks := v.turnLines(m, l, i)
+			moment, marks := turnLines(e, m, l, i)
 			pipTooltip(c, xs[i], 0.5/float32(pp.n), flowSummary(m, rows, i), moment, marks)
 		}
 	}).Height(h).Gap(8).Margin(10, 0, 0, 0).Transition(ui.ElementTransition{Duration: barTime, Colors: true, Enter: &ui.Motion{}})

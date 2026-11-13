@@ -108,7 +108,7 @@ var _ = Describe("right-click menus", func() {
 		Expect(tt.RightClick("Show games vs Kaido")).To(Succeed())
 		Expect(choose(tt, "Open in Cards")).To(Succeed())
 		Expect(v.page).To(Equal(pageCards))
-		Expect(v.cardsUI.selected).To(Equal("OP17-058"))
+		Expect(v.cards.state.selected).To(Equal("OP17-058"))
 		Expect(tt.HasText("Close the viewer")).To(BeFalse())
 	})
 

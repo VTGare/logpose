@@ -167,7 +167,7 @@ var _ = Describe("view", func() {
 		v, tt := tester(testSnapshot(30))
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.HasText("game 25")).To(BeFalse())
-		v.leaderPoint.i = 5
+		v.decks.leaderPoint.i = 5
 		tt.Frame()
 		Expect(tt.HasText("Nov 6 14:00 · game 25 · 50%, 10 of the last 20 won")).To(BeTrue(), fmt.Sprint(tt.Texts()))
 	})

@@ -11,8 +11,6 @@ import (
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/live"
 	"github.com/VTGare/logpose/internal/shortcut"
-	"github.com/VTGare/logpose/internal/sim"
-	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
 )
@@ -88,15 +86,18 @@ var pages = []page{
 	{id: pageOverview, icon: iconOverview, label: "Overview", games: true, draw: func(v *view, c *ui.Context) {
 		overviewPage(c, &v.env, func() { v.settings.shortcutCard(c, &v.env) })
 	}, head: func(v *view, c *ui.Context) { v.formats.debutBanner(c, &v.env) }},
-	{id: pageMatches, icon: iconMatches, label: "Matches", games: true, draw: (*view).matchesPage},
+	{id: pageMatches, icon: iconMatches, label: "Matches", games: true, draw: func(v *view, c *ui.Context) { v.matches.draw(c, &v.env) }},
 	{
-		id: pageDecks, icon: iconLeaders, label: "Decks", games: true, draw: (*view).decksPage,
-		subs: deckPageSubs(), open: (*view).openDecks,
+		id: pageDecks, icon: iconLeaders, label: "Decks", games: true, draw: func(v *view, c *ui.Context) { v.decks.draw(c, &v.env) },
+		subs: deckPageSubs(), open: func(v *view, sub string) { v.decks.open(&v.env, sub) },
 	},
 	{id: pageMatchups, icon: iconMatchups, label: "Matchups", games: true, draw: func(v *view, c *ui.Context) { v.matchups.draw(c, &v.env) }},
 	{
-		id: pageCards, icon: iconCards, label: "Cards", group: groupRef, draw: (*view).cardsPage,
-		any: "<code>", open: func(v *view, code string) { v.cardsUI.selected, v.cardsUI.viewer = code, true },
+		id: pageCards, icon: iconCards, label: "Cards", group: groupRef, draw: func(v *view, c *ui.Context) {
+			v.cards.note = v.settings.noteOn(noteCards)
+			v.cards.draw(c, &v.env)
+		},
+		any: "<code>", open: func(v *view, code string) { v.cards.state.selected, v.cards.state.viewer = code, true },
 	},
 	{id: pageFormats, icon: iconFormats, label: "Formats", group: groupSetup, draw: func(v *view, c *ui.Context) { v.formats.draw(c, &v.env) }},
 	{id: pageSettings, icon: iconSettings, label: "Settings", group: groupSetup, draw: func(v *view, c *ui.Context) { v.settings.draw(c, &v.env) }},
@@ -110,25 +111,6 @@ func deckPageSubs() []string {
 		}
 	}
 	return append(out, "edit", "build", "nobuild")
-}
-
-func (v *view) openDecks(sub string) {
-	switch sub {
-	case "nobuild":
-		v.decks.scope = deckScope{kind: scopeNoBuild}
-	case "build", "edit":
-		if d := v.leaderDecks(); len(d.builds) > 0 {
-			v.decks.scope = buildScope(d.builds[0].ID)
-			if sub == "edit" {
-				v.startEdit(d.builds[0])
-			}
-		}
-	}
-	for i, tab := range deckPageTabs {
-		if tab.sub != "" && tab.sub == sub {
-			v.decks.tab = i
-		}
-	}
 }
 
 func pageOf(id string) (page, bool) {
@@ -190,69 +172,24 @@ func (v *view) openSub() {
 	}
 }
 
-// actions are the changes the view asks the app for. The app makes them off the main thread
-// and sends a new snapshot.
+// actions are everything the frame and the pages ask the app for. The app makes each change
+// off the main thread and sends a new snapshot.
 type actions interface {
-	CheckUpdate()
-	InstallUpdate()
-	RestartToUpdate()
-	AddFormat(name string, start time.Time)
-	UpdateFormat(f store.Format)
-	DeleteFormat(id int64)
-	DismissSet(set string)
-	// LoadTimeline parses a match's log for its life by turn and key moments and shows them,
-	// with the parsed game, through view.setTimeline.
-	LoadTimeline(fingerprint, me, opp string)
-	SetGameType(fingerprint string, t store.GameType)
-	SetGameNote(fingerprint, note string)
-	SetBookmark(fingerprint string, on bool)
-	// SaveBuild calls saved with the build's ID on the main thread once it's stored.
-	SaveBuild(b store.Build, saved func(id int64))
-	DeleteBuild(id int64)
-	DismissSuggestion(d store.Dismissal)
-	// OpenReplay builds a match's replay from its parsed game and shows it with view.setReplay.
-	OpenReplay(fingerprint string, g *simlog.Game)
-	// After runs fn on the main thread once d has passed.
-	After(d time.Duration, fn func())
+	envActions
+	formatActions
+	settingsActions
+	matchActions
+	deckActions
+	cardActions
 	// NewDay runs at midnight, for what the app shows outside the window.
 	NewDay()
-
-	SetSetting(key, value string)
-	SetOpenAtLogin(on bool)
-	SetShortcut(place shortcut.Place, on bool)
-	// ChooseSimFolder asks for the sim's folder and switches to it.
-	ChooseSimFolder()
-	// FindSim forgets the chosen folder and finds the sim on its own.
-	FindSim()
-	OpenPath(path string)
-	ShowFile(path string)
-	// ImportAgain reads every log in the sim's folder and adds what's missing.
-	ImportAgain()
-	RefreshCards()
-	Backup()
-	// LoadSettings reads what the Settings page shows and shows it with view.setSettingsInfo.
-	LoadSettings()
-	LoadArtUsage()
-	ClearArt()
-	ApplyPrefs(p prefs)
-
-	// LoadSimArt reads what the sim shows for the card and shows it with view.setSimArt.
-	LoadSimArt(card cards.Card)
-	// LoadArts groups the card's pictures and shows each step with view.setArts.
-	LoadArts(card cards.Card, gen int)
-	// ScanSimArt finds the cards the sim shows other art for.
-	ScanSimArt()
-	// UseSimArt makes the sim show choice for the card. prev is what it showed, for Undo.
-	UseSimArt(card cards.Card, choice, prev sim.ArtChoice)
-	SaveArt(key string)
-	CopyArt(key string)
-	OpenURL(url string)
 }
 
 // envActions are the changes the env asks the app for.
 type envActions interface {
 	SetSetting(key, value string)
 	ApplyPrefs(p prefs)
+	// After runs fn on the main thread once d has passed.
 	After(d time.Duration, fn func())
 }
 
@@ -278,6 +215,8 @@ type env struct {
 	// it would make every win rate 100% or 0%.
 	listResult int
 	nav        nav
+	// toast is a message for the next frame to show.
+	toast *ui.Toast
 }
 
 // nav is how the shared widgets reach what one page owns.
@@ -287,6 +226,8 @@ type nav interface {
 	viewArt(code string)
 	gameMenu(m stats.Match) func(*ui.Menu)
 	cardMenu(card cards.Card) func(*ui.Menu)
+	showsHands() bool
+	showHands(code string)
 }
 
 func (e *env) now() time.Time { return e.clock() }
@@ -296,45 +237,28 @@ type view struct {
 	act actions
 	// wake is the next midnight a frame is asked for, so the day names change without a new
 	// snapshot.
-	wake time.Time
-	// toast is a message for the next frame to show.
-	toast   *ui.Toast
+	wake    time.Time
 	formats formatsPage
 	// live is the game in the sim right now, which the log follower updates on its own.
 	live live.State
 	// opening is the id open was given until the games are in.
 	opening string
 
-	matches matchesState
-	// detail is the open match. Its fingerprint is empty on the match list.
-	detail detailState
+	matches matchesPage
 
-	leaderPoint chartPick
-	leaderStats leaderCache
-	decks       decksState
+	decks decksPage
 	// shownPage is the page the last frame showed.
 	shownPage string
 
-	matchups  matchupsPage
-	settings  settingsPage
-	cardsUI   cardsState
-	cardSync  cardSync
-	artSync   artSync
-	sideDrag  paneDrag
-	panelDrag paneDrag
-	simArt    simArtState
-	arts      artsState
+	matchups matchupsPage
+	settings settingsPage
+	cards    cardsPage
+	sideDrag paneDrag
 }
 
 // setActions gives the view, the env and each page the app's actions.
 func (v *view) setActions(a actions) {
-	v.act, v.env.act, v.formats.act, v.settings.act = a, a, a, a
-}
-
-func (v *view) do(fn func(actions)) {
-	if v.act != nil {
-		fn(v.act)
-	}
+	v.act, v.env.act, v.formats.act, v.settings.act, v.matches.act, v.decks.act, v.cards.act = a, a, a, a, a, a, a
 }
 
 // The setters below are how the app changes what the view shows. It calls them on the main
@@ -343,9 +267,9 @@ func (v *view) do(fn func(actions)) {
 func (v *view) setSnapshot(s *snapshot)         { v.snap = s }
 func (v *view) setLive(s live.State)            { v.live = s }
 func (v *view) setArtCache(a *artCache)         { v.art = a }
-func (v *view) setArtSync(s artSync)            { v.artSync = s }
-func (v *view) addCardSync(p cards.SetProgress) { v.cardSync.add(p) }
-func (v *view) endCardSync()                    { v.cardSync = cardSync{} }
+func (v *view) setArtSync(s artSync)            { v.cards.artSync = s }
+func (v *view) addCardSync(p cards.SetProgress) { v.cards.cardSync.add(p) }
+func (v *view) endCardSync()                    { v.cards.cardSync = cardSync{} }
 func (v *view) setSystem(s systemState)         { v.settings.system = s }
 func (v *view) setOpenAtLogin(on bool)          { v.settings.system.openAtLogin = on }
 func (v *view) setArtUsage(u arts.Usage)        { v.settings.art = &u }
@@ -389,19 +313,19 @@ func (v *view) applyLook(c *ui.Context) {
 }
 
 func (v *view) build(c *ui.Context) {
-	if v.detail.fingerprint != "" && v.page != v.detail.from {
-		v.closeMatch()
+	if v.matches.detail.fingerprint != "" && v.page != v.matches.detail.from {
+		v.matches.closeMatch()
 	}
 	v.wakeAtMidnight()
 	v.openSub()
-	v.replayKeys(c)
+	v.matches.replayKeys(c, &v.env)
 	v.applyLook(c)
 	v.showToast(c)
 	toasts(c)
-	open := v.detail.fingerprint != ""
+	open := v.matches.detail.fingerprint != ""
 	shown := v.page
 	if open {
-		shown = "match " + v.detail.fingerprint
+		shown = "match " + v.matches.detail.fingerprint
 	}
 	v.frame++
 	v.entered = shown != v.shownPage
@@ -421,7 +345,7 @@ func (v *view) build(c *ui.Context) {
 		})
 	}
 	ui.Row(c).Fill().AlignItems(ui.Stretch).FontFeatures("tnum").Children(func() {
-		if v.detail.replay != nil {
+		if v.matches.detail.replay != nil {
 			body()
 			return
 		}
@@ -433,8 +357,8 @@ func (v *view) build(c *ui.Context) {
 		}
 	})
 	// A card's menu opens the art viewer on any page. The Cards page draws its own.
-	if v.cardsUI.viewer && v.page != pageCards && v.snap.Cards != nil {
-		v.artViewer(c, v.snap.Cards.Card(v.cardsUI.selected))
+	if v.cards.state.viewer && v.page != pageCards && v.snap.Cards != nil {
+		v.cards.artViewer(c, &v.env, v.snap.Cards.Card(v.cards.state.selected))
 	}
 }
 
@@ -486,7 +410,7 @@ func (v *view) pageBody(c *ui.Context, open bool, shown string) {
 	case len(v.snap.Matches) == 0:
 		v.message(c, "Play a game in the sim", "Every game you finish shows up here on its own.")
 	case open:
-		ui.Column(c.Key(shown)).Grow(1).Basis(0).MinHeight(0).Transition(pageEnter).Children(func() { v.matchPage(c) })
+		ui.Column(c.Key(shown)).Grow(1).Basis(0).MinHeight(0).Transition(pageEnter).Children(func() { v.matches.matchPage(c, &v.env) })
 	case len(v.scoped().matches) == 0:
 		v.message(c, "No games match these filters", "Change or clear the filters above.")
 	default:
@@ -521,16 +445,16 @@ type paneDrag struct {
 }
 
 // dragPane moves the width e holds by moved through snap, and saves it once the drag stops.
-func (v *view) dragPane(e prefEntry[float32], d *paneDrag, moved float32, snap func(float32) float32) {
-	width := e.field(&v.prefs)
+func (e *env) dragPane(p prefEntry[float32], d *paneDrag, moved float32, snap func(float32) float32) {
+	width := p.field(&e.prefs)
 	if d.at == 0 {
 		d.at = *width
 	}
 	d.at += moved
 	*width = snap(d.at)
-	v.later(e.key, func() {
+	e.later(p.key, func() {
 		d.at = 0
-		v.savePref(e)
+		e.savePref(p)
 	})
 }
 
@@ -557,7 +481,7 @@ func (v *view) sidebar(c *ui.Context) {
 		}
 		if b.Clicked() {
 			if v.page == id {
-				v.closeMatch()
+				v.matches.closeMatch()
 			}
 			v.page = id
 		}
@@ -617,3 +541,9 @@ func (*view) message(c *ui.Context, title, body string) {
 		}
 	})
 }
+
+func (v *view) openMatch(m stats.Match) { v.matches.openMatch(&v.env, m) }
+
+func (v *view) gameMenu(m stats.Match) func(*ui.Menu) { return v.matches.gameMenu(&v.env, m) }
+
+func (v *view) cardMenu(card cards.Card) func(*ui.Menu) { return v.cards.cardMenu(&v.env, card) }

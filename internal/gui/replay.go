@@ -94,19 +94,19 @@ func glideTime(playing bool, speed int) time.Duration {
 }
 
 // openReplay shows the match's replay, at the step of a log line or, with -1, from the start.
-func (v *view) openReplay(m stats.Match, line int) {
-	if rs := v.detail.replay; rs != nil && rs.fingerprint == m.Fingerprint {
+func (pg *matchesPage) openReplay(e *env, m stats.Match, line int) {
+	if rs := pg.detail.replay; rs != nil && rs.fingerprint == m.Fingerprint {
 		return
 	}
-	if v.detail.fingerprint != m.Fingerprint {
-		v.openMatch(m)
+	if pg.detail.fingerprint != m.Fingerprint {
+		pg.openMatch(e, m)
 	}
-	v.detail.replay = &replayState{fingerprint: m.Fingerprint, atLine: line}
-	v.buildReplay()
+	pg.detail.replay = &replayState{fingerprint: m.Fingerprint, atLine: line}
+	pg.buildReplay()
 }
 
-func (v *view) buildReplay() {
-	rs, l := v.detail.replay, v.detail.timeline
+func (pg *matchesPage) buildReplay() {
+	rs, l := pg.detail.replay, pg.detail.timeline
 	if rs == nil || rs.asked || l == nil || l.Fingerprint != rs.fingerprint {
 		return
 	}
@@ -115,13 +115,13 @@ func (v *view) buildReplay() {
 		rs.err = l.Err
 		return
 	}
-	v.do(func(a actions) { a.OpenReplay(rs.fingerprint, l.Game) })
+	pg.do(func(a matchActions) { a.OpenReplay(rs.fingerprint, l.Game) })
 }
 
-func (v *view) closeReplay() { v.detail.replay = nil }
+func (pg *matchesPage) closeReplay() { pg.detail.replay = nil }
 
-func (v *view) setReplay(l loadedReplay) {
-	rs := v.detail.replay
+func (pg *matchesPage) setReplay(l loadedReplay) {
+	rs := pg.detail.replay
 	if rs == nil || rs.fingerprint != l.Fingerprint {
 		return
 	}
@@ -171,8 +171,8 @@ func (rs *replayState) nextTurn() {
 	rs.jump(len(rs.r.Steps) - 1)
 }
 
-func (v *view) replayKeys(c *ui.Context) {
-	rs := v.detail.replay
+func (pg *matchesPage) replayKeys(c *ui.Context, e *env) {
+	rs := pg.detail.replay
 	if !rs.ready() {
 		return
 	}
@@ -182,35 +182,35 @@ func (v *view) replayKeys(c *ui.Context) {
 	c.OnShortcut(0, ui.KeyPageDown, rs.nextTurn)
 	c.OnShortcut(0, ui.KeyHome, func() { rs.jump(0) })
 	c.OnShortcut(0, ui.KeyEnd, func() { rs.jump(len(rs.r.Steps) - 1) })
-	c.OnShortcut(0, ui.KeySpace, func() { v.togglePlay() })
+	c.OnShortcut(0, ui.KeySpace, func() { pg.togglePlay(e) })
 }
 
-func (v *view) togglePlay() {
-	rs := v.detail.replay
+func (pg *matchesPage) togglePlay(e *env) {
+	rs := pg.detail.replay
 	rs.playing = !rs.playing
 	if rs.playing && rs.step == len(rs.r.Steps)-1 {
 		rs.jump(0)
 	}
-	v.schedule()
+	pg.schedule(e)
 }
 
-func (v *view) schedule() {
-	rs := v.detail.replay
+func (pg *matchesPage) schedule(e *env) {
+	rs := pg.detail.replay
 	rs.ticks++
 	if !rs.playing {
 		return
 	}
 	tick := rs.ticks
-	v.do(func(a actions) {
+	pg.do(func(a matchActions) {
 		a.After(replaySpeeds[rs.speed].tick, func() {
-			if v.detail.replay != rs || !rs.playing || rs.ticks != tick {
+			if pg.detail.replay != rs || !rs.playing || rs.ticks != tick {
 				return
 			}
 			rs.jump(rs.step + 1)
 			if rs.step == len(rs.r.Steps)-1 {
 				rs.playing = false
 			}
-			v.schedule()
+			pg.schedule(e)
 		})
 	})
 }

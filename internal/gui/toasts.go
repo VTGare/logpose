@@ -53,3 +53,10 @@ func toasts(c *ui.Context) {
 		}
 	})
 }
+
+func (v *view) showToast(c *ui.Context) {
+	if t := v.toast; t != nil {
+		v.toast = nil
+		c.AddToast(*t)
+	}
+}

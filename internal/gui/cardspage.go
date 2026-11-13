@@ -40,24 +40,24 @@ const (
 
 var cardColors = []cards.Color{cards.Red, cards.Green, cards.Blue, cards.Purple, cards.Black, cards.Yellow}
 
-func (v *view) cardsPage(c *ui.Context) {
-	s := &v.cardsUI
-	if v.snap.Cards == nil || len(v.snap.Cards.All()) == 0 {
-		v.cardsMissing(c)
+func (pg *cardsPage) draw(c *ui.Context, e *env) {
+	s := &pg.state
+	if e.snap.Cards == nil || len(e.snap.Cards.All()) == 0 {
+		pg.cardsMissing(c)
 		return
 	}
-	if !v.simArt.scanned {
-		v.simArt.scanned = true
-		v.do(func(a actions) { a.ScanSimArt() })
+	if !pg.simArt.scanned {
+		pg.simArt.scanned = true
+		pg.do(func(a cardActions) { a.ScanSimArt() })
 	}
-	shown := s.results(v.snap.Cards, v.prefs.cardSort)
+	shown := s.results(e.snap.Cards, e.prefs.cardSort)
 	if s.selected == "" && len(shown) > 0 {
 		s.selected = shown[0].Code
 	}
 	ui.Column(c).Fill().Padding(18, 20, 0, 20).Gap(12).Children(func() {
-		v.cardSearch(c)
-		v.quickFilters(c)
-		v.chipRow(c, len(shown))
+		pg.cardSearch(c, e)
+		pg.quickFilters(c)
+		pg.chipRow(c, e, len(shown))
 		ui.Row(c).Grow(1).Basis(0).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
 			if len(shown) == 0 {
 				ui.Column(c).Grow(1).Center().Gap(10).Children(func() {
@@ -69,33 +69,33 @@ func (v *view) cardsPage(c *ui.Context) {
 				return
 			}
 			list := func() {
-				if v.prefs.cardList {
+				if e.prefs.cardList {
 					ui.Column(c).Fill().MinHeight(0).Padding(0, 14, 0, 0).Children(func() {
-						v.cardHeader(c)
-						v.cardRows(c, shown)
+						cardHeader(c, e)
+						pg.cardRows(c, e, shown)
 					})
 					return
 				}
 				ui.Row(c).Fill().MinHeight(0).AlignItems(ui.Stretch).Padding(0, 14, 0, 0).Children(func() {
-					v.cardWall(c, shown)
+					pg.cardWall(c, e, shown)
 				})
 			}
-			card := v.snap.Cards.Card(s.selected)
+			card := e.snap.Cards.Card(s.selected)
 			if !card.Detailed {
 				list()
 				return
 			}
-			v.cardSplit(c, list, func() { v.cardDetail(c, card) })
+			pg.cardSplit(c, e, list, func() { pg.cardDetail(c, e, card) })
 		})
 	})
 	if s.viewer {
-		v.artViewer(c, v.snap.Cards.Card(s.selected))
+		pg.artViewer(c, e, e.snap.Cards.Card(s.selected))
 	}
 }
 
-func (v *view) cardsMissing(c *ui.Context) {
-	if v.cardSync.total > 0 {
-		v.cardsReading(c)
+func (pg *cardsPage) cardsMissing(c *ui.Context) {
+	if pg.cardSync.total > 0 {
+		pg.cardsReading(c)
 		return
 	}
 	t := c.Theme()
@@ -104,16 +104,16 @@ func (v *view) cardsMissing(c *ui.Context) {
 		ui.Text(c, "logpose reads every card from Limitless once, which takes about a minute, then checks "+
 			"for new sets once a day.").TextColor(t.TextMuted).MaxWidth(440).Wrap().TextAlign(ui.Center)
 		if ui.Button(c, "Download cards").Clicked() {
-			v.do(func(a actions) { a.RefreshCards() })
+			pg.do(func(a cardActions) { a.RefreshCards() })
 		}
-		if n := v.settings.noteOn(noteCards); n != "" {
+		if n := pg.note; n != "" {
 			ui.Text(c, n).FontSize(13).TextColor(t.TextMuted)
 		}
 	})
 }
 
-func (v *view) cardsReading(c *ui.Context) {
-	sync := v.cardSync
+func (pg *cardsPage) cardsReading(c *ui.Context) {
+	sync := pg.cardSync
 	t := c.Theme()
 	ui.Column(c).Fill().Center().Padding(32).Children(func() {
 		ui.Column(c).Width(440).Gap(14).Children(func() {
@@ -146,17 +146,17 @@ func progressBar(c *ui.Context, part float32) ui.Element {
 // cardSplit puts the cards and the card panel side by side, with an edge between them that
 // resizes the panel. ui.Split sizes the pane on the left, so the panel's width is worked out
 // from the room the split had in the frame before.
-func (v *view) cardSplit(c *ui.Context, list, panel func()) {
-	s := &v.cardsUI
+func (pg *cardsPage) cardSplit(c *ui.Context, e *env, list, panel func()) {
+	s := &pg.state
 	total := s.splitBox.W
 	if total <= 0 {
 		total = 900
 	}
-	shown := max(total-v.prefs.panelWidth-1, 40)
+	shown := max(total-e.prefs.panelWidth-1, 40)
 	size := shown
 	split := ui.Split(c, &size, list, panel).Grow(1).Basis(0).MinWidth(0)
 	if split.Changed() {
-		v.dragPane(prefPanelWidth, &v.panelDrag, shown-size, snapPanel)
+		e.dragPane(prefPanelWidth, &pg.panelDrag, shown-size, snapPanel)
 	}
 	// Bounds is empty on the frame the page comes back, so the old width is kept until then.
 	if b := split.Bounds(); b.W > 0 && b.W != s.splitBox.W {
@@ -165,11 +165,11 @@ func (v *view) cardSplit(c *ui.Context, list, panel func()) {
 	}
 }
 
-func (v *view) cardSearch(c *ui.Context) {
-	s := &v.cardsUI
+func (pg *cardsPage) cardSearch(c *ui.Context, e *env) {
+	s := &pg.state
 	field := ui.Autocomplete(c, &s.query, s.pool.suggestions).Label("Search cards").
 		Placeholder("Search names, effects and traits")
-	if v.entered {
+	if e.entered {
 		field.Focus()
 	}
 	if field.Changed() && s.takeSuggestion() {
@@ -177,8 +177,8 @@ func (v *view) cardSearch(c *ui.Context) {
 	}
 }
 
-func (v *view) quickFilters(c *ui.Context) {
-	s := &v.cardsUI
+func (pg *cardsPage) quickFilters(c *ui.Context) {
+	s := &pg.state
 	// Sized so every filter fits on one row, with the longest power range, in the default window.
 	ui.Row(c).Gap(16).Wrap().AlignItems(ui.End).Children(func() {
 		filterGroup(c, "Color", func() {
@@ -194,8 +194,8 @@ func (v *view) quickFilters(c *ui.Context) {
 			joined(c, len(cardKinds), 32, 8, func(i int) (string, bool) { return cardKinds[i], s.kind == i },
 				s.setKind, nil)
 		})
-		filterGroup(c, "Cost", func() { v.costToggles(c) })
-		filterGroup(c, "Power", func() { v.powerPill(c) })
+		filterGroup(c, "Cost", func() { pg.costToggles(c) })
+		filterGroup(c, "Power", func() { pg.powerPill(c) })
 	})
 }
 
@@ -255,8 +255,8 @@ var emptyColor = ui.Hex("#5C5C64")
 
 // costToggles names each cost's count for assistive technology only, since the card count
 // already shows once a cost is picked.
-func (v *view) costToggles(c *ui.Context) {
-	s := &v.cardsUI
+func (pg *cardsPage) costToggles(c *ui.Context) {
+	s := &pg.state
 	t := c.Theme()
 	joined(c, len(s.curve), 26, 4, func(cost int) (string, bool) {
 		return fmt.Sprintf("Cost %d, %s", cost, cardCount(s.curve[cost])), slices.Contains(s.costs, cost)
@@ -269,8 +269,8 @@ func (v *view) costToggles(c *ui.Context) {
 	})
 }
 
-func (v *view) powerPill(c *ui.Context) {
-	s := &v.cardsUI
+func (pg *cardsPage) powerPill(c *ui.Context) {
+	s := &pg.state
 	t := c.Theme()
 	all := s.pool.power
 	set := s.power != all
@@ -293,7 +293,7 @@ func (v *view) powerPill(c *ui.Context) {
 		}
 		ui.PopoverBase(c, box, &s.powerOpen, func(panel ui.Element) {
 			popover(panel.Margin(6, 0, 0, 0).Padding(16), t)
-			v.powerPopover(c)
+			pg.powerPopover(c)
 		})
 		open.Children(func() {
 			ui.Text(c, label).FontSize(12.5).TextColor(toggleText(t, set)).SingleLine()
@@ -317,8 +317,8 @@ func (v *view) powerPill(c *ui.Context) {
 }
 
 // powerPopover offers the three ways card text puts a threshold, besides the slider.
-func (v *view) powerPopover(c *ui.Context) {
-	s := &v.cardsUI
+func (pg *cardsPage) powerPopover(c *ui.Context) {
+	s := &pg.state
 	t := c.Theme()
 	all := s.pool.power
 	ui.Column(c).Width(340).Gap(8).Children(func() {
@@ -362,19 +362,19 @@ func (v *view) powerPopover(c *ui.Context) {
 	})
 }
 
-func (v *view) chipRow(c *ui.Context, count int) {
+func (pg *cardsPage) chipRow(c *ui.Context, e *env, count int) {
 	ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
 		ui.Row(c).Grow(1).Basis(0).MinWidth(0).Gap(8).Wrap().AlignItems(ui.Center).MinHeight(chipLineH).
-			Children(func() { v.chips(c) })
-		ui.Row(c).Gap(8).AlignItems(ui.Center).Height(chipLineH).Children(func() { v.viewControls(c, count) })
+			Children(func() { pg.chips(c) })
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Height(chipLineH).Children(func() { pg.viewControls(c, e, count) })
 	})
 }
 
 // chipLineH is the height of the chip row's first line, which the Images | List switch sets.
 const chipLineH = 32
 
-func (v *view) chips(c *ui.Context) {
-	s := &v.cardsUI
+func (pg *cardsPage) chips(c *ui.Context) {
+	s := &pg.state
 	t := c.Theme()
 	// More filters comes first, so its menu stays put as chips come and go.
 	more := filterPill(c.Key("more"), "More filters", false)
@@ -383,7 +383,7 @@ func (v *view) chips(c *ui.Context) {
 	}
 	ui.PopoverBase(c, more, &s.more, func(panel ui.Element) {
 		popover(panel.Margin(6, 0, 0, 0).Padding(14), t)
-		v.moreFilters(c)
+		pg.moreFilters(c)
 	})
 	order := s.chipOrder()
 	for i, ch := range order {
@@ -391,9 +391,9 @@ func (v *view) chips(c *ui.Context) {
 		join := i > 0 && ch.field.several && !ch.out && !order[i-1].out && order[i-1].field == ch.field
 		ui.Row(c.Key(fmt.Sprint("chip", ch.field.name, ch.value))).Gap(8).AlignItems(ui.Center).Children(func() {
 			if join {
-				v.joiner(c, ch.field)
+				pg.joiner(c, ch.field)
 			}
-			v.chip(c, ch)
+			pg.chip(c, ch)
 		})
 	}
 	if s.filtered() {
@@ -411,8 +411,8 @@ func (v *view) chips(c *ui.Context) {
 	}
 }
 
-func (v *view) chip(c *ui.Context, ch cardChip) {
-	s := &v.cardsUI
+func (pg *cardsPage) chip(c *ui.Context, ch cardChip) {
+	s := &pg.state
 	t := c.Theme()
 	b := ui.ButtonBase(c.Key("chip")).Label("Remove "+ch.value).Padding(5, 10, 5, 12).Radius(16).Gap(6).
 		AlignItems(ui.Center)
@@ -435,8 +435,8 @@ func (v *view) chip(c *ui.Context, ch cardChip) {
 }
 
 // joiner reads "or" or "and" between two shown chips of a field, and a click flips it.
-func (v *view) joiner(c *ui.Context, field *chipField) {
-	s := &v.cardsUI
+func (pg *cardsPage) joiner(c *ui.Context, field *chipField) {
+	s := &pg.state
 	t := c.Theme()
 	word, next := "or", "all"
 	if s.every[field] {
@@ -457,12 +457,12 @@ func (v *view) joiner(c *ui.Context, field *chipField) {
 	})
 }
 
-func (v *view) viewControls(c *ui.Context, count int) {
+func (pg *cardsPage) viewControls(c *ui.Context, e *env, count int) {
 	t := c.Theme()
 	status := ""
-	if sync := v.cardSync; sync.running() {
+	if sync := pg.cardSync; sync.running() {
 		status = fmt.Sprintf("Updating · %d of %d sets", sync.done, sync.total)
-	} else if sync := v.artSync; sync.running() {
+	} else if sync := pg.artSync; sync.running() {
 		status = fmt.Sprintf("Reading Bandai's card list · %d of %d", sync.done, sync.total)
 	}
 	// Faint, not the accent, so the status doesn't read as a link next to Clear all.
@@ -473,17 +473,17 @@ func (v *view) viewControls(c *ui.Context, count int) {
 		})
 	}
 	ui.Text(c, cardCount(count)).FontSize(13).TextColor(t.TextMuted).SingleLine()
-	v.sortPill(c)
-	view := boolInt(v.prefs.cardList)
+	sortPill(c, e)
+	view := boolInt(e.prefs.cardList)
 	if ui.Segmented(c, &view, "Images", "List").Label("Show as").Changed() {
-		prefCardList.set(&v.env, view == 1)
+		prefCardList.set(e, view == 1)
 	}
 }
 
 // sortPill isn't tinted, since sorting narrows nothing.
-func (v *view) sortPill(c *ui.Context) {
+func sortPill(c *ui.Context, e *env) {
 	t := c.Theme()
-	by := v.prefs.cardSort
+	by := e.prefs.cardSort
 	key := sortKeyOf(by.key)
 	label := by.label()
 	b := ui.ButtonBase(c.Key("sort")).Label("Sort: "+label).Padding(5, 12).Radius(16).Border(1, t.Border).
@@ -491,13 +491,13 @@ func (v *view) sortPill(c *ui.Context) {
 	b.PopoverMenuButton(func(m *ui.Menu) {
 		for _, k := range sortKeys {
 			if m.Item(k.title).Radio(k.id == key.id).Chosen() {
-				v.setCardSort(by.clicked(k.id))
+				setCardSort(e, by.clicked(k.id))
 			}
 		}
 		m.Separator()
 		for i, d := range key.dirs {
 			if m.Item(d).Radio(boolInt(by.flip) == i).Chosen() {
-				v.setCardSort(cardSort{key: key.id, flip: i == 1})
+				setCardSort(e, cardSort{key: key.id, flip: i == 1})
 			}
 		}
 	})
@@ -508,12 +508,12 @@ func (v *view) sortPill(c *ui.Context) {
 	})
 }
 
-func (v *view) setCardSort(by cardSort) {
-	prefCardSort.set(&v.env, by)
+func setCardSort(e *env, by cardSort) {
+	prefCardSort.set(e, by)
 }
 
-func (v *view) moreFilters(c *ui.Context) {
-	s := &v.cardsUI
+func (pg *cardsPage) moreFilters(c *ui.Context) {
+	s := &pg.state
 	t := c.Theme()
 	group := func(field *chipField) {
 		ui.Column(c.Key(field.name)).Gap(6).Children(func() {
@@ -585,8 +585,8 @@ func toggleLabel(label string, on, out bool) string {
 }
 
 // cardWall shows the cards as art, as many to a row as fit. Only the rows in view are built.
-func (v *view) cardWall(c *ui.Context, shown []cards.Card) {
-	s := &v.cardsUI
+func (pg *cardsPage) cardWall(c *ui.Context, e *env, shown []cards.Card) {
+	s := &pg.state
 	width := s.wallBox.W
 	if width <= 0 {
 		width = 600
@@ -597,7 +597,7 @@ func (v *view) cardWall(c *ui.Context, shown []cards.Card) {
 	wall := ui.List(c, &s.wall, rows, func(r int) {
 		ui.Row(c.Key(r)).Gap(tileGap).Padding(6, 0, tileGap, 0).Children(func() {
 			for i := r * cols; i < min((r+1)*cols, len(shown)); i++ {
-				v.cardTile(c.Key(shown[i].Code), shown[i], tile)
+				pg.cardTile(c.Key(shown[i].Code), e, shown[i], tile)
 			}
 		})
 	}).Grow(1).Basis(0).MinWidth(0)
@@ -622,8 +622,8 @@ func tileWidthMin(c *ui.Context) float32 {
 	return max(tileMin, float32(math.Ceil(float64(code+12+3*6+tag))))
 }
 
-func (v *view) cardTile(c *ui.Context, card cards.Card, w float32) {
-	s := &v.cardsUI
+func (pg *cardsPage) cardTile(c *ui.Context, e *env, card cards.Card, w float32) {
+	s := &pg.state
 	t := c.Theme()
 	h := cardHeight(w)
 	selected := card.Code == s.selected
@@ -633,7 +633,7 @@ func (v *view) cardTile(c *ui.Context, card cards.Card, w float32) {
 		if box.Clicked() {
 			s.selected, s.viewed, s.versions = card.Code, "", ""
 		}
-		box.PopoverMenu(v.cardMenu(card))
+		box.PopoverMenu(pg.cardMenu(e, card))
 		// Hover and keyboard focus lift the card. It has a printed border of its own, so a ring
 		// around it reads as a second frame.
 		up := float32(0)
@@ -642,14 +642,14 @@ func (v *view) cardTile(c *ui.Context, card cards.Card, w float32) {
 		}
 		at := box.AnimateTo("lift", up, ui.Animation{Duration: hoverTime})
 		box.Translate(0, -3*at).Shadow(0, 2+8*at, 6+14*at, 0, ui.RGBA(0, 0, 0, 0.3+0.25*at))
-		box.Children(func() { v.cardImage(c, card.Code, w).Radius(6) })
+		box.Children(func() { e.cardImage(c, card.Code, w).Radius(6) })
 		ui.Row(c).Height(captionH).Gap(6).AlignItems(ui.Center).Children(func() {
 			col := t.TextMuted
 			if selected {
 				col = t.Text
 			}
 			ui.Text(c, card.Code).FontSize(12).TextColor(col).FontWeight(500)
-			if v.simArt.changed[card.Code] {
+			if pg.simArt.changed[card.Code] {
 				ui.Icon(c, iconSim).Size(12, 12).TextColor(simGold).Tooltip("The sim shows other art for this card")
 			}
 			ui.Spacer(c)
@@ -703,9 +703,9 @@ var legalities = []legality{
 
 // legalityOf is how a legality reads. One the card data doesn't give has no words.
 func legalityOf(l cards.Legality) legality {
-	for _, e := range legalities {
-		if e.is == l {
-			return e
+	for _, en := range legalities {
+		if en.is == l {
+			return en
 		}
 	}
 	return legality{}
@@ -719,8 +719,8 @@ func legalityLabels() []string {
 	return out
 }
 
-func (v *view) cardRows(c *ui.Context, shown []cards.Card) {
-	s := &v.cardsUI
+func (pg *cardsPage) cardRows(c *ui.Context, e *env, shown []cards.Card) {
+	s := &pg.state
 	t := c.Theme()
 	ui.List(c, &s.wall, len(shown), func(i int) {
 		card := shown[i]
@@ -732,9 +732,9 @@ func (v *view) cardRows(c *ui.Context, shown []cards.Card) {
 		if row.Clicked() {
 			s.selected, s.viewed, s.versions = card.Code, "", ""
 		}
-		row.PopoverMenu(v.cardMenu(card))
+		row.PopoverMenu(pg.cardMenu(e, card))
 		row.Children(func() {
-			v.cardImage(c, card.Code, rowArtW).Radius(6)
+			e.cardImage(c, card.Code, rowArtW).Radius(6)
 			ui.Column(c).Width(rowNameW).Children(func() {
 				ui.Text(c, card.Name).FontWeight(600).MaxLines(1).Ellipsis("…")
 				ui.Text(c, card.Code+" · "+card.Type).FontSize(12).TextColor(t.TextMuted)
@@ -758,16 +758,16 @@ const (
 	rowPadX  = 8
 )
 
-func (v *view) cardHeader(c *ui.Context) {
+func cardHeader(c *ui.Context, e *env) {
 	t := c.Theme()
-	by := v.prefs.cardSort
+	by := e.prefs.cardSort
 	title := func(key string, end bool) {
 		k := sortKeyOf(key)
 		sorted := sortKeyOf(by.key).id == key
 		b := ui.ButtonBase(c.Key(key)).Label("Sort by "+k.title).Row().Gap(4).AlignItems(ui.Center).
 			Padding(2, 0).Background(ui.Transparent)
 		if b.Clicked() {
-			v.setCardSort(by.clicked(key))
+			setCardSort(e, by.clicked(key))
 		}
 		sortTitle(c, b, k.title, end, sorted, by.desc(), true)
 	}
@@ -813,29 +813,29 @@ func counterText(n int, short bool, none string) string {
 // counterChip is a counter as the More filters name it.
 func counterChip(n int) string { return counterText(n, false, "No counter") }
 
-func (v *view) cardDetail(c *ui.Context, card cards.Card) {
+func (pg *cardsPage) cardDetail(c *ui.Context, e *env, card cards.Card) {
 	t := c.Theme()
-	info, loaded := v.simArtFor(card)
-	ca, _ := v.artsFor(card)
-	key := v.viewedKey(card, info, ca)
-	if v.prefs.panelWidth <= panelStrip {
-		v.panelStrip(c)
+	info, loaded := pg.simArtFor(card)
+	ca, _ := pg.artsFor(card)
+	key := pg.viewedKey(card, info, ca)
+	if e.prefs.panelWidth <= panelStrip {
+		foldedPanel(c, e)
 		return
 	}
 	// The card grows with the panel, and the text beside it keeps at least half.
-	artW := min(max((v.prefs.panelWidth-54)*0.45, 160), 330)
+	artW := min(max((e.prefs.panelWidth-54)*0.45, 160), 330)
 	ui.Scroll(c.Key("detail "+card.Code)).Fill().Radius(12).Background(panelColor(t)).Border(1, t.Border).
 		Margin(0, 0, 18, 14).Children(func() {
 		ui.Column(c).Padding(18).Gap(16).Children(func() {
 			ui.Row(c).Gap(18).AlignItems(ui.Start).Children(func() {
 				art := ui.ButtonBase(c).Label("View the art full size").Padding(0).Radius(6).Background(ui.Transparent).
-					FocusRing(false).Shadow(0, 4, 14, 0, ui.RGBA(0, 0, 0, 0.45)).PopoverMenu(v.cardMenu(card))
+					FocusRing(false).Shadow(0, 4, 14, 0, ui.RGBA(0, 0, 0, 0.45)).PopoverMenu(pg.cardMenu(e, card))
 				if art.Clicked() {
-					v.cardsUI.viewer = true
+					pg.state.viewer = true
 				}
-				art.Children(func() { v.cardImage(c, key, artW).Radius(6) })
+				art.Children(func() { e.cardImage(c, key, artW).Radius(6) })
 				if needsPreview(c, artW) {
-					v.cardPreview(c, art, key)
+					e.cardPreview(c, art, key)
 				}
 				ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(8).Children(func() {
 					ui.Text(c, card.Name).FontSize(20).Bold().Wrap()
@@ -844,17 +844,17 @@ func (v *view) cardDetail(c *ui.Context, card cards.Card) {
 						ui.Text(c, card.Rarity).FontSize(13).TextColor(t.TextMuted)
 					}
 					legalityBadge(c, card)
-					v.simArtLine(c, ca, info, loaded)
+					pg.simArtLine(c, ca, info, loaded)
 					ui.Box(c).Height(4)
 					cardStats(c, card)
 				})
 			})
-			v.detailTabs(c, key, len(v.artEntries(card, ca, info, loaded)))
-			if v.cardsUI.tab == tabArt {
-				v.artChoices(c, card, info, loaded)
+			pg.detailTabs(c, key, len(pg.artEntries(e, card, ca, info, loaded)))
+			if pg.state.tab == tabArt {
+				pg.artChoices(c, e, card, info, loaded)
 				return
 			}
-			v.cardFacts(c, card)
+			cardFacts(c, e, card)
 		})
 	})
 }
@@ -866,19 +866,19 @@ const (
 
 // detailTabs switches the panel between the card's text and its art. key is the picture shown
 // large, which the buttons save and copy, and pictures how many the Art tab offers.
-func (v *view) detailTabs(c *ui.Context, key string, pictures int) {
+func (pg *cardsPage) detailTabs(c *ui.Context, key string, pictures int) {
 	t := c.Theme()
 	labels := []string{"Card", fmt.Sprintf("Art · %d", pictures)}
 	ui.Column(c).Children(func() {
 		ui.Row(c).AlignItems(ui.End).Gap(6).Children(func() {
-			v.tabList(c, labels)
+			pg.tabList(c, labels)
 			ui.Spacer(c)
 			ui.Box(c).Padding(0, 0, 6, 0).Children(func() {
 				ui.Row(c).Gap(6).Children(func() {
 					if smallButton(c, "View full size", iconExpand, false).Clicked() {
-						v.cardsUI.viewer = true
+						pg.state.viewer = true
 					}
-					v.artButtons(c, key)
+					pg.artButtons(c, key)
 				})
 			})
 		})
@@ -886,9 +886,9 @@ func (v *view) detailTabs(c *ui.Context, key string, pictures int) {
 	})
 }
 
-func (v *view) tabList(c *ui.Context, labels []string) {
+func (pg *cardsPage) tabList(c *ui.Context, labels []string) {
 	t := c.Theme()
-	s := &v.cardsUI
+	s := &pg.state
 	tabs := ui.TabsBase(c, &s.tab, len(labels))
 	tabs.List.Gap(4).Children(func() {
 		for i, label := range labels {
@@ -909,7 +909,7 @@ func (v *view) tabList(c *ui.Context, labels []string) {
 }
 
 // simArtLine names the art the sim shows when it isn't the sim's own. A click opens the Art tab.
-func (v *view) simArtLine(c *ui.Context, ca arts.CardArts, info simArtInfo, loaded bool) {
+func (pg *cardsPage) simArtLine(c *ui.Context, ca arts.CardArts, info simArtInfo, loaded bool) {
 	if !loaded || info.noSim || info.cur.Kind == sim.ArtOwn {
 		return
 	}
@@ -926,7 +926,7 @@ func (v *view) simArtLine(c *ui.Context, ca arts.CardArts, info simArtInfo, load
 	b := ui.ButtonBase(c).Label("In the sim: " + name).Background(ui.Transparent).Padding(0).Gap(6).AlignItems(ui.Center).
 		AlignSelf(ui.Start)
 	if b.Clicked() {
-		v.cardsUI.tab = tabArt
+		pg.state.tab = tabArt
 	}
 	b.Tooltip("Show the art")
 	b.Children(func() {
@@ -935,7 +935,7 @@ func (v *view) simArtLine(c *ui.Context, ca arts.CardArts, info simArtInfo, load
 	})
 }
 
-func (v *view) cardFacts(c *ui.Context, card cards.Card) {
+func cardFacts(c *ui.Context, e *env, card cards.Card) {
 	t := c.Theme()
 	if card.Effect != "" {
 		ui.RichText(c, effectSpans(card.Effect, t)...).FontSize(14).LineHeight(1.5).Wrap()
@@ -952,13 +952,13 @@ func (v *view) cardFacts(c *ui.Context, card cards.Card) {
 	if len(card.BannedWith) > 0 {
 		names := make([]string, len(card.BannedWith))
 		for i, code := range card.BannedWith {
-			names[i] = v.snap.card(code).Name + " (" + code + ")"
+			names[i] = e.snap.card(code).Name + " (" + code + ")"
 		}
 		ui.Text(c, "Can't share a deck with "+strings.Join(names, " or ")+".").FontSize(13).TextColor(warnColor).Wrap()
 	}
 }
 
-func (v *view) panelStrip(c *ui.Context) {
+func foldedPanel(c *ui.Context, e *env) {
 	t := c.Theme()
 	b := ui.ButtonBase(c).Label("Show card details").Fill().Margin(0, 0, 18, 8).Radius(10).
 		Background(panelColor(t)).Border(1, t.Border).Justify(ui.Start).Padding(14, 0, 0, 0)
@@ -966,7 +966,7 @@ func (v *view) panelStrip(c *ui.Context) {
 		b.Background(t.SurfaceHover)
 	}
 	if b.Clicked() {
-		prefPanelWidth.set(&v.env, panelDefault)
+		prefPanelWidth.set(e, panelDefault)
 	}
 	b.Tooltip("Show card details")
 	b.Children(func() {
@@ -1091,4 +1091,40 @@ func effectSpans(effect string, t *ui.Theme) []ui.Span {
 		}
 	}
 	return out
+}
+
+type cardActions interface {
+	RefreshCards()
+	ChooseSimFolder()
+	// LoadSimArt reads what the sim shows for the card and shows it with view.setSimArt.
+	LoadSimArt(card cards.Card)
+	// LoadArts groups the card's pictures and shows each step with view.setArts.
+	LoadArts(card cards.Card, gen int)
+	// ScanSimArt finds the cards the sim shows other art for.
+	ScanSimArt()
+	// UseSimArt makes the sim show choice for the card. prev is what it showed, for Undo.
+	UseSimArt(card cards.Card, choice, prev sim.ArtChoice)
+	SaveArt(key string)
+	CopyArt(key string)
+	OpenURL(url string)
+}
+
+type cardsPage struct {
+	act   cardActions
+	state cardsState
+	// cardSync and artSync are the card data and art refreshes running now.
+	cardSync cardSync
+	artSync  artSync
+	simArt   simArtState
+	arts     artsState
+	// panelDrag follows a drag of the card panel's edge.
+	panelDrag paneDrag
+	// note is the last card data refresh's note, which the frame sets before drawing.
+	note string
+}
+
+func (pg *cardsPage) do(fn func(cardActions)) {
+	if pg.act != nil {
+		fn(pg.act)
+	}
 }

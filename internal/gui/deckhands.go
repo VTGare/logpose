@@ -26,7 +26,7 @@ const (
 )
 
 // handsTab is how the scope's games went by the mulligan, and by each card in the first five.
-func (v *view) handsTab(c *ui.Context, d *deckData) {
+func (pg *decksPage) handsTab(c *ui.Context, e *env, d *deckData) {
 	mu := d.mulligans
 	all := d.stats.Record
 	if all.Games() == 0 {
@@ -34,16 +34,16 @@ func (v *view) handsTab(c *ui.Context, d *deckData) {
 		return
 	}
 	avg := all.Share()
-	v.keepTile(c, mu, avg)
-	v.dealtPanel(c, mu.Cards, avg)
-	v.handTester(c, d.deckGames, mu.Cards)
+	keepTile(c, e, mu, avg)
+	pg.dealtPanel(c, e, mu.Cards, avg)
+	pg.handTester(c, e, d.deckGames, mu.Cards)
 }
 
 // keepTile compares kept and mulliganed hands going first, going second and in all games.
-func (v *view) keepTile(c *ui.Context, mu stats.Mulligans, avg float64) {
+func keepTile(c *ui.Context, e *env, mu stats.Mulligans, avg float64) {
 	t := c.Theme()
 	sum := fmt.Sprintf("Kept %s · mulliganed %s", rateRecord(mu.All.Kept), rateRecord(mu.All.Mulliganed))
-	v.foldTile(c, "hands.keep", foldHead{label: "Keep or mulligan", summary: sum}, func() {
+	e.foldTile(c, "hands.keep", foldHead{label: "Keep or mulligan", summary: sum}, func() {
 		ui.Text(c, keepFinding(mu)).FontSize(14).Wrap()
 		ui.Row(c).Gap(12).Padding(6, 0, 0, 0).Children(func() {
 			ui.Box(c).Width(keepLabelW)
@@ -128,25 +128,25 @@ func keepFinding(mu stats.Mulligans) string {
 
 // dealtPanel is a row for each card dealt in the first five. A row opens the hands it was
 // dealt in.
-func (v *view) dealtPanel(c *ui.Context, cs []stats.DealtCard, avg float64) {
+func (pg *decksPage) dealtPanel(c *ui.Context, e *env, cs []stats.DealtCard, avg float64) {
 	t := c.Theme()
-	tv := arrangeTable(&v.env, "hands.dealt", 12, v.dealtCols(t, avg), "dealt", true)
+	tv := arrangeTable(e, "hands.dealt", 12, dealtCols(e, t, avg), "dealt", true)
 	tv.trail = chevronColW
 	tv.tie = func(a, b stats.DealtCard) int { return cmp.Compare(b.Dealt(), a.Dealt()) }
 	rows := tv.sorted(cs)
-	v.foldTile(c, "hands.dealt", foldHead{label: "Cards in your first five"}, func() {
+	e.foldTile(c, "hands.dealt", foldHead{label: "Cards in your first five"}, func() {
 		ui.Text(c, "Each row counts the games the card was in the five you were dealt. Click a row to see those hands.").
 			FontSize(12).TextColor(t.TextMuted).Wrap()
 		ui.Column(c).Children(func() {
 			tv.header(c, 8)
 			for _, d := range rows {
-				v.dealtRow(c.Key(d.Card), tv, d)
+				pg.dealtRow(c.Key(d.Card), e, tv, d)
 			}
 		})
 	})
 }
 
-func (v *view) dealtCols(t *ui.Theme, avg float64) []tableCol[stats.DealtCard] {
+func dealtCols(e *env, t *ui.Theme, avg float64) []tableCol[stats.DealtCard] {
 	won := func(id, title, tip, key string, rec func(stats.DealtCard) stats.Record) tableCol[stats.DealtCard] {
 		return tableCol[stats.DealtCard]{
 			id: id, title: title, width: rateColW, tip: tip,
@@ -158,13 +158,13 @@ func (v *view) dealtCols(t *ui.Theme, avg float64) []tableCol[stats.DealtCard] {
 	return []tableCol[stats.DealtCard]{
 		{
 			id: "card", title: "Card", asc: true,
-			by: func(a, b stats.DealtCard) int { return cmp.Compare(v.snap.card(a.Card).Name, v.snap.card(b.Card).Name) },
+			by: func(a, b stats.DealtCard) int { return cmp.Compare(e.snap.card(a.Card).Name, e.snap.card(b.Card).Name) },
 			cell: func(c *ui.Context, d stats.DealtCard) {
 				meta := d.Card
-				if card := v.snap.card(d.Card); !card.IsLeader() {
+				if card := e.snap.card(d.Card); !card.IsLeader() {
 					meta += fmt.Sprintf(" · cost %d", card.Cost)
 				}
-				v.cardNameCell(c, d.Card, meta)
+				cardNameCell(c, e, d.Card, meta)
 			},
 		},
 		{
@@ -195,10 +195,10 @@ func (v *view) dealtCols(t *ui.Theme, avg float64) []tableCol[stats.DealtCard] {
 	}
 }
 
-func (v *view) dealtRow(c *ui.Context, tv tableView[stats.DealtCard], d stats.DealtCard) {
+func (pg *decksPage) dealtRow(c *ui.Context, e *env, tv tableView[stats.DealtCard], d stats.DealtCard) {
 	t := c.Theme()
-	s := &v.decks
-	card := v.snap.card(d.Card)
+	s := pg
+	card := e.snap.card(d.Card)
 	open := s.handsCard == d.Card
 	verb := "Show"
 	if open {
@@ -230,26 +230,26 @@ func (v *view) dealtRow(c *ui.Context, tv tableView[stats.DealtCard], d stats.De
 		ui.Icon(c, icon).FontSize(12).TextColor(faintColor(t)).Width(chevronColW)
 	})
 	if open {
-		v.dealtHands(c.Key("hands"), d)
+		pg.dealtHands(c.Key("hands"), e, d)
 	}
 	ui.Box(c).Height(1).Background(t.Border.Alpha(0.3))
 }
 
 // dealtHands are the games the card was dealt in, newest first, each with the five sent back
 // before the five kept, and the card outlined.
-func (v *view) dealtHands(c *ui.Context, d stats.DealtCard) {
+func (pg *decksPage) dealtHands(c *ui.Context, e *env, d stats.DealtCard) {
 	t := c.Theme()
-	s := &v.decks
+	s := pg
 	card, ms := d.Card, d.Games
 	shown := ms
 	if !s.allHands && len(ms) > shownHands {
 		shown = ms[:shownHands]
 	}
 	ui.Column(c).Gap(2).Padding(4, 16, 12, 16).Background(t.Accent.Alpha(0.06)).Children(func() {
-		ui.Text(c, fmt.Sprintf("The %s you were dealt %s, newest first.", games(len(ms)), v.snap.card(card).Name)).
+		ui.Text(c, fmt.Sprintf("The %s you were dealt %s, newest first.", games(len(ms)), e.snap.card(card).Name)).
 			FontSize(12).TextColor(t.TextMuted).Padding(0, 0, 4, 0)
 		for _, m := range shown {
-			v.handLine(c.Key(m.Fingerprint), m, card)
+			handLine(c.Key(m.Fingerprint), e, m, card)
 		}
 		if len(shown) < len(ms) && linkButton(c, fmt.Sprintf("Show all %d", len(ms))) {
 			s.allHands = true
@@ -259,18 +259,18 @@ func (v *view) dealtHands(c *ui.Context, d stats.DealtCard) {
 
 // handLine is one game's opening: the result, the opponent, turn order and date, then the hand
 // sent back and the hand kept. It opens the match.
-func (v *view) handLine(c *ui.Context, m stats.Match, card string) {
+func handLine(c *ui.Context, e *env, m stats.Match, card string) {
 	t := c.Theme()
 	opp := "Opponent unknown"
 	if m.Opp.Leader != "" {
-		opp = "vs " + v.snap.card(m.Opp.Leader).Name
+		opp = "vs " + e.snap.card(m.Opp.Leader).Name
 	}
 	kept, sent := m.Me.Kept()
-	v.gameLine(c, m).Gap(14).Padding(6, 4).Children(func() {
+	e.gameLine(c, m).Gap(14).Padding(6, 4).Children(func() {
 		resultBadge(c, m.Result)
 		ui.Column(c).Width(handMetaW).Gap(1).Children(func() {
 			ui.Text(c, opp).FontSize(13).FontWeight(600).SingleLine()
-			when := v.dateTime(m.PlayedAt)
+			when := e.dateTime(m.PlayedAt)
 			if o := turnOrderShort(m); o != "" {
 				when = o + " · " + when
 			}
@@ -281,15 +281,15 @@ func (v *view) handLine(c *ui.Context, m stats.Match, card string) {
 				ui.Text(c, "Kept").FontSize(12).TextColor(faintColor(t))
 				return
 			}
-			v.handCards(c, sent, card, sentThumbW, true)
+			handCards(c, e, sent, card, sentThumbW, true)
 		})
 		ui.Icon(c, iconNextStep).FontSize(12).TextColor(faintColor(t)).Opacity(map[bool]float32{true: 1, false: 0}[len(sent) > 0])
-		v.handCards(c.Key("kept"), kept, card, keptThumbW, false)
+		handCards(c.Key("kept"), e, kept, card, keptThumbW, false)
 	})
 }
 
 // handCards draws the hand with every copy of card outlined.
-func (v *view) handCards(c *ui.Context, hand []string, card string, w float32, dim bool) {
+func handCards(c *ui.Context, e *env, hand []string, card string, w float32, dim bool) {
 	t := c.Theme()
 	ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
 		for i, code := range hand {
@@ -301,7 +301,7 @@ func (v *view) handCards(c *ui.Context, hand []string, card string, w float32, d
 			if dim && code != card {
 				box.Opacity(0.5)
 			}
-			box.Children(func() { v.card(c, code, w) })
+			box.Children(func() { e.card(c, code, w) })
 		}
 	})
 }

@@ -33,7 +33,7 @@ func (sv *stepView) pileSide(p pileRef) *replay.Side {
 // pileView is a deck, trash or life in the inspector. The deck and life show in order, top
 // first, since that's the order they come off in. The trash shows its last cards, then every
 // card in it with how many copies.
-func (v *view) pileView(c *ui.Context, sv *stepView, width float32) {
+func pileView(c *ui.Context, e *env, sv *stepView, width float32) {
 	rs := sv.rs
 	t := c.Theme()
 	s := sv.pileSide(rs.pile)
@@ -64,30 +64,30 @@ func (v *view) pileView(c *ui.Context, sv *stepView, width float32) {
 				ui.Text(c, "Top first. 1 is the next to be taken.").FontSize(12).TextColor(faintColor(t))
 			}
 		})
-		v.pileSwitches(c, sv)
+		pileSwitches(c, sv)
 		// The scroll bar is drawn over the content's right edge, so the content stops short of it.
 		const bar = 14
 		width -= bar
 		ui.Scroll(c).Grow(1).Basis(0).Children(func() {
-			ui.Column(c).Padding(0, bar, 0, 0).Children(func() { v.pileCards(c, sv, cards, width) })
+			ui.Column(c).Padding(0, bar, 0, 0).Children(func() { pileCards(c, e, sv, cards, width) })
 		})
 	})
 }
 
-func (v *view) pileCards(c *ui.Context, sv *stepView, cards []replay.Card, width float32) {
+func pileCards(c *ui.Context, e *env, sv *stepView, cards []replay.Card, width float32) {
 	rs := sv.rs
 	t := c.Theme()
 	switch {
 	case len(cards) == 0:
 		ui.Text(c, "No cards.").FontSize(12).TextColor(faintColor(t))
 	case rs.pile.kind == pileDeck || rs.pile.kind == pileLife:
-		v.deckGrid(c, cards, width)
+		deckGrid(c, e, cards, width)
 	default:
-		v.trashList(c, cards, width)
+		trashList(c, e, cards, width)
 	}
 }
 
-func (*view) pileSwitches(c *ui.Context, sv *stepView) {
+func pileSwitches(c *ui.Context, sv *stepView) {
 	rs := sv.rs
 	if rs.pile.kind == pileNone {
 		return
@@ -112,7 +112,7 @@ func (*view) pileSwitches(c *ui.Context, sv *stepView) {
 	}
 }
 
-func (v *view) deckGrid(c *ui.Context, deck []replay.Card, width float32) {
+func deckGrid(c *ui.Context, e *env, deck []replay.Card, width float32) {
 	const cols, gap = 4, 8
 	w := (width - gap*(cols-1)) / cols
 	h := cardHeight(w)
@@ -126,7 +126,7 @@ func (v *view) deckGrid(c *ui.Context, deck []replay.Card, width float32) {
 						if card.Code == "" {
 							cardBack(c, w, h).Label("Not named in the log").Tooltip("Not named in the log")
 						} else {
-							v.card(c, card.Code, w)
+							e.card(c, card.Code, w)
 						}
 						drawBadge(c, i+1)
 					})
@@ -146,7 +146,7 @@ func drawBadge(c *ui.Context, n int) {
 	}
 }
 
-func (v *view) trashList(c *ui.Context, trash []replay.Card, width float32) {
+func trashList(c *ui.Context, e *env, trash []replay.Card, width float32) {
 	t := c.Theme()
 	const last, gap = 5, 6
 	w := (width - gap*(last-1)) / last
@@ -154,19 +154,19 @@ func (v *view) trashList(c *ui.Context, trash []replay.Card, width float32) {
 		ui.Text(c, "Last trashed").FontSize(12).TextColor(t.TextMuted)
 		ui.Row(c).Gap(gap).Margin(0, 0, 8, 0).Children(func() {
 			for i := len(trash) - 1; i >= max(0, len(trash)-last); i-- {
-				ui.Box(c.Key(trash[i].ID)).Children(func() { v.card(c, trash[i].Code, w) })
+				ui.Box(c.Key(trash[i].ID)).Children(func() { e.card(c, trash[i].Code, w) })
 			}
 		})
 		ui.Text(c, fmt.Sprintf("All %d, by card", len(trash))).FontSize(12).TextColor(t.TextMuted)
-		for i, g := range v.byCard(trash) {
+		for i, g := range byCard(e, trash) {
 			row := ui.Row(c.Key(g.code)).Gap(10).AlignItems(ui.Center).Padding(5, 6).Radius(7)
 			if i%2 == 0 {
 				row.Background(ui.RGBA(255, 255, 255, 0.025))
 			}
 			row.Children(func() {
-				v.artStrip(c, g.code, 44, 30)
+				e.artStrip(c, g.code, 44, 30)
 				ui.Column(c).Grow(1).Basis(0).Children(func() {
-					card := v.snap.card(g.code)
+					card := e.snap.card(g.code)
 					ui.Text(c, card.Name).FontSize(13).FontWeight(600).SingleLine()
 					if card.Type != "" {
 						ui.Text(c, card.Type).FontSize(12).TextColor(faintColor(t))
@@ -183,7 +183,7 @@ type cardCopies struct {
 	n    int
 }
 
-func (v *view) byCard(cards []replay.Card) []cardCopies {
+func byCard(e *env, cards []replay.Card) []cardCopies {
 	var out []cardCopies
 	for _, card := range cards {
 		if i := slices.IndexFunc(out, func(g cardCopies) bool { return g.code == card.Code }); i >= 0 {
@@ -193,7 +193,7 @@ func (v *view) byCard(cards []replay.Card) []cardCopies {
 		}
 	}
 	slices.SortStableFunc(out, func(a, b cardCopies) int {
-		ca, cb := v.snap.card(a.code), v.snap.card(b.code)
+		ca, cb := e.snap.card(a.code), e.snap.card(b.code)
 		return cmp.Or(cmp.Compare(typeRank(ca.Type), typeRank(cb.Type)), cmp.Compare(ca.Name, cb.Name))
 	})
 	return out

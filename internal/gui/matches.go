@@ -12,7 +12,33 @@ import (
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
+	"github.com/VTGare/logpose/internal/store"
 )
+
+type matchActions interface {
+	// LoadTimeline parses a match's log for its life by turn and key moments and shows them,
+	// with the parsed game, through view.setTimeline.
+	LoadTimeline(fingerprint, me, opp string)
+	SetGameType(fingerprint string, t store.GameType)
+	SetGameNote(fingerprint, note string)
+	SetBookmark(fingerprint string, on bool)
+	// OpenReplay builds a match's replay from its parsed game and shows it with view.setReplay.
+	OpenReplay(fingerprint string, g *simlog.Game)
+	After(d time.Duration, fn func())
+}
+
+type matchesPage struct {
+	act  matchActions
+	list matchesState
+	// detail is the open match. Its fingerprint is empty on the match list.
+	detail detailState
+}
+
+func (pg *matchesPage) do(fn func(matchActions)) {
+	if pg.act != nil {
+		fn(pg.act)
+	}
+}
 
 type matchesState struct {
 	list    ui.ListState
@@ -34,19 +60,19 @@ var (
 
 // matchCols are the Matches table's columns. mygo's table names a column by its title. Played
 // shows only the time under day headers.
-func (v *view) matchCols(byDay bool) []tableCol[stats.Match] {
+func matchCols(e *env, byDay bool) []tableCol[stats.Match] {
 	played := float32(120)
 	if byDay {
 		played = 92
 	}
-	name := func(code string) string { return v.snap.card(code).Name }
+	name := func(code string) string { return e.snap.card(code).Name }
 	return []tableCol[stats.Match]{
 		{
 			title: colPlayed, width: played,
 			by: func(a, b stats.Match) int { return a.PlayedAt.Compare(b.PlayedAt) },
 			cell: func(c *ui.Context, m stats.Match) {
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-					at := v.dateTime(m.PlayedAt)
+					at := e.dateTime(m.PlayedAt)
 					if byDay {
 						at = m.PlayedAt.Format("15:04")
 					}
@@ -70,7 +96,7 @@ func (v *view) matchCols(byDay bool) []tableCol[stats.Match] {
 		{
 			title: colDeck, width: 60,
 			by:   func(a, b stats.Match) int { return strings.Compare(name(a.Me.Leader), name(b.Me.Leader)) },
-			cell: func(c *ui.Context, m stats.Match) { v.artStrip(c, m.Me.Leader, 40, 28) },
+			cell: func(c *ui.Context, m stats.Match) { e.artStrip(c, m.Me.Leader, 40, 28) },
 		},
 		{
 			title: "Opponent",
@@ -78,7 +104,7 @@ func (v *view) matchCols(byDay bool) []tableCol[stats.Match] {
 			cell: func(c *ui.Context, m stats.Match) {
 				t := c.Theme()
 				ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-					v.artStrip(c, m.Opp.Leader, 44, 30)
+					e.artStrip(c, m.Opp.Leader, 44, 30)
 					ui.Column(c).Gap(1).Children(func() {
 						ui.Row(c).Gap(6).AlignItems(ui.End).Children(func() {
 							ui.Text(c, name(m.Opp.Leader)).FontWeight(600).SingleLine()
@@ -154,24 +180,24 @@ func matchItems(rows []stats.Match, byDay bool) []matchItem {
 	return items
 }
 
-func (v *view) matchesPage(c *ui.Context) {
+func (pg *matchesPage) draw(c *ui.Context, e *env) {
 	t := c.Theme()
-	s := &v.matches
+	s := &pg.list
 	if s.sort.Column == "" {
 		s.sort = ui.SortOrder{Column: colPlayed, Descending: true}
 		s.row = -1
 	}
 	byDay := s.sort.Column == colPlayed
-	cols := v.matchCols(byDay)
-	ms := v.scoped().matches
+	cols := matchCols(e, byDay)
+	ms := e.scoped().matches
 	if s.sorted == nil || s.sort != s.sortKey || !sameSlice(s.from, ms) {
 		s.sorted = sortMatches(cols, ms, s.sort)
 		s.sortKey, s.from = s.sort, ms
 	}
-	rows, marked := s.shown(v.listResult)
+	rows, marked := s.shown(e.listResult)
 	items := matchItems(rows, byDay)
 	// Deck, your leader, shows only while the games cover more than one deck.
-	if v.filter.deck != "" || !slices.ContainsFunc(rows, func(m stats.Match) bool { return m.Me.Leader != rows[0].Me.Leader }) {
+	if e.filter.deck != "" || !slices.ContainsFunc(rows, func(m stats.Match) bool { return m.Me.Leader != rows[0].Me.Leader }) {
 		cols = slices.DeleteFunc(cols, func(col tableCol[stats.Match]) bool { return col.title == colDeck })
 	}
 	s.list.Sort = &s.sort
@@ -190,7 +216,7 @@ func (v *view) matchesPage(c *ui.Context) {
 			if marked > 0 || s.bookmarked == 1 {
 				ui.Segmented(c, &s.bookmarked, "All", fmt.Sprintf("Bookmarked · %d", marked))
 			}
-			ui.Segmented(c, &v.listResult, resultLabels...).Label("Result")
+			ui.Segmented(c, &e.listResult, resultLabels...).Label("Result")
 			ui.Spacer(c)
 			ui.Text(c, summary(rows)).TextColor(t.TextMuted)
 		})
@@ -199,12 +225,12 @@ func (v *view) matchesPage(c *ui.Context) {
 			table = ui.Table(c, &s.list, tableColumns(cols), len(items), func(row, col int) {
 				it := items[row]
 				if it.day != nil {
-					v.dayHeaderRow(c, it.day)
+					dayHeaderRow(c, e, it.day)
 					return
 				}
 				// The table's own cell menus are the system's, so each cell's content carries
 				// the drawn one, stretched over the cell.
-				box := ui.Row(c).Grow(1).AlignSelf(ui.Stretch).AlignItems(ui.Center).PopoverMenu(v.gameMenu(it.m))
+				box := ui.Row(c).Grow(1).AlignSelf(ui.Stretch).AlignItems(ui.Center).PopoverMenu(pg.gameMenu(e, it.m))
 				if cols[col].end {
 					box.Justify(ui.End)
 				}
@@ -215,7 +241,7 @@ func (v *view) matchesPage(c *ui.Context) {
 			m := items[s.row].m
 			// The list keeps no choice, so choosing the same row again opens it again.
 			s.row = -1
-			v.openMatch(m)
+			pg.openMatch(e, m)
 		}
 	})
 }
@@ -243,10 +269,10 @@ func summary(ms []stats.Match) string {
 	return fmt.Sprintf("%s · %s", games(len(ms)), record(stats.RecordOf(ms)))
 }
 
-func (v *view) dayHeaderRow(c *ui.Context, h *dayHeader) {
+func dayHeaderRow(c *ui.Context, e *env, h *dayHeader) {
 	t := c.Theme()
 	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, v.dayName(h.date)).FontSize(13).FontWeight(600)
+		ui.Text(c, e.dayName(h.date)).FontSize(13).FontWeight(600)
 		ui.Text(c, record(h.rec)).FontSize(13).Bold()
 		ui.Text(c, fmt.Sprintf("%s · %s", pct(h.rec.Share()), games(h.rec.Games()))).FontSize(12).TextColor(faintColor(t))
 	})
@@ -325,4 +351,51 @@ func sortMatches(cols []tableCol[stats.Match], ms []stats.Match, o ui.SortOrder)
 // didn't change since the last sort.
 func sameSlice(a, b []stats.Match) bool {
 	return len(a) == len(b) && (len(a) == 0 || &a[0] == &b[0])
+}
+
+// gameMenu is a game's menu, the same wherever the game shows.
+func (pg *matchesPage) gameMenu(e *env, m stats.Match) func(*ui.Menu) {
+	return func(menu *ui.Menu) {
+		if menu.Item("Open match").Chosen() {
+			pg.openMatch(e, m)
+		}
+		if menu.Item("Watch replay").Chosen() {
+			pg.openReplay(e, m, -1)
+		}
+		menu.Separator()
+		if stats.CanBeRanked(m.Game) {
+			menu.Submenu("Game type", func(sub *ui.Menu) {
+				for i, label := range typeOptions(m) {
+					if sub.Item(label).Radio(int(m.Type) == i).Chosen() {
+						pg.do(func(a matchActions) { a.SetGameType(m.Fingerprint, store.GameType(i)) })
+					}
+				}
+			})
+		} else {
+			menu.Item("Game type: private lobby").Disabled(true)
+		}
+		noteLabel := "Add note…"
+		if m.Note != "" {
+			noteLabel = "Edit note…"
+		}
+		if menu.Item(noteLabel).Chosen() {
+			pg.openMatch(e, m)
+			pg.detail.focusNote = true
+		}
+		bookmark := "Bookmark"
+		if m.Bookmarked {
+			bookmark = "Remove bookmark"
+		}
+		if menu.Item(bookmark).Chosen() {
+			pg.do(func(a matchActions) { a.SetBookmark(m.Fingerprint, !m.Bookmarked) })
+		}
+		menu.Separator()
+		if menu.Item("Filter to games vs " + m.Opp.Name).Chosen() {
+			e.filter.opp = m.Opp.ID
+		}
+		matchup := e.snap.card(m.Me.Leader).Name + " vs " + e.snap.card(m.Opp.Leader).Name
+		if menu.Item("Filter to " + matchup).Chosen() {
+			e.filter.deck, e.filter.oppLeader = m.Me.Leader, m.Opp.Leader
+		}
+	}
 }

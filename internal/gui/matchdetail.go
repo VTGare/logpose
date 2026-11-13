@@ -56,39 +56,39 @@ type matchTimeline struct {
 	Err  error
 }
 
-func (v *view) openMatch(m stats.Match) {
-	v.saveNote()
-	v.detail = detailState{
-		fingerprint: m.Fingerprint, from: v.page, gameType: int(m.Type), lifePoint: -1,
+func (pg *matchesPage) openMatch(e *env, m stats.Match) {
+	pg.saveNote()
+	pg.detail = detailState{
+		fingerprint: m.Fingerprint, from: e.page, gameType: int(m.Type), lifePoint: -1,
 		note: m.Note, savedNote: m.Note,
 	}
-	v.do(func(a actions) { a.LoadTimeline(m.Fingerprint, m.Me.ID, m.Opp.ID) })
+	pg.do(func(a matchActions) { a.LoadTimeline(m.Fingerprint, m.Me.ID, m.Opp.ID) })
 }
 
-func (v *view) closeMatch() {
-	v.saveNote()
-	v.detail = detailState{}
+func (pg *matchesPage) closeMatch() {
+	pg.saveNote()
+	pg.detail = detailState{}
 }
 
-func (v *view) saveNote() {
-	d := &v.detail
+func (pg *matchesPage) saveNote() {
+	d := &pg.detail
 	note := strings.TrimSpace(d.note)
 	if d.fingerprint == "" || note == d.savedNote {
 		return
 	}
 	d.savedNote = note
-	v.do(func(a actions) { a.SetGameNote(d.fingerprint, note) })
+	pg.do(func(a matchActions) { a.SetGameNote(d.fingerprint, note) })
 }
 
-func (v *view) setTimeline(l matchTimeline) {
-	if v.detail.fingerprint == l.Fingerprint {
-		v.detail.timeline = &l
-		v.buildReplay()
+func (pg *matchesPage) setTimeline(l matchTimeline) {
+	if pg.detail.fingerprint == l.Fingerprint {
+		pg.detail.timeline = &l
+		pg.buildReplay()
 	}
 }
 
-func (v *view) findMatch(fingerprint string) (stats.Match, bool) {
-	for _, m := range v.snap.Matches {
+func findMatch(e *env, fingerprint string) (stats.Match, bool) {
+	for _, m := range e.snap.Matches {
 		if m.Fingerprint == fingerprint {
 			return m, true
 		}
@@ -96,63 +96,63 @@ func (v *view) findMatch(fingerprint string) (stats.Match, bool) {
 	return stats.Match{}, false
 }
 
-func (v *view) matchPage(c *ui.Context) {
+func (pg *matchesPage) matchPage(c *ui.Context, e *env) {
 	t := c.Theme()
-	m, ok := v.findMatch(v.detail.fingerprint)
+	m, ok := findMatch(e, pg.detail.fingerprint)
 	if !ok {
-		v.detail = detailState{}
-		v.matchesPage(c)
+		pg.detail = detailState{}
+		pg.draw(c, e)
 		return
 	}
-	if v.detail.replay != nil {
-		v.replayPage(c, m)
+	if pg.detail.replay != nil {
+		pg.replayPage(c, e, m)
 		return
 	}
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				from := pageLabel(v.detail.from)
+				from := pageLabel(pg.detail.from)
 				back := ui.Row(c).Gap(6).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("Back to " + strings.ToLower(from))
 				if back.Clicked() {
-					v.closeMatch()
+					pg.closeMatch()
 				}
 				back.Children(func() {
 					ui.Icon(c, iconPrevStep).TextColor(t.TextMuted)
 					ui.Text(c, from).TextColor(t.TextMuted)
 				})
 				ui.Text(c, "/").TextColor(faintColor(t))
-				ui.Text(c, v.weekday(m.PlayedAt)+", "+m.PlayedAt.Format("15:04")).Bold()
+				ui.Text(c, e.weekday(m.PlayedAt)+", "+m.PlayedAt.Format("15:04")).Bold()
 				ui.Spacer(c)
 				if stats.CanBeRanked(m.Game) {
-					v.typeSelect(c, m)
+					pg.typeSelect(c, m)
 				}
-				if !v.noteShown() && iconButton(c, iconNote, "Add note").Label("Add note").Clicked() {
-					v.detail.noteOpen = true
-					v.detail.focusNote = true
+				if !pg.noteShown() && iconButton(c, iconNote, "Add note").Label("Add note").Clicked() {
+					pg.detail.noteOpen = true
+					pg.detail.focusNote = true
 				}
-				v.bookmarkButton(c, m)
-				v.replayButton(c, m)
+				pg.bookmarkButton(c, m)
+				pg.replayButton(c, e, m)
 			})
-			v.faceOff(c, m)
-			v.handsTile(c, m)
-			if v.noteShown() {
-				v.noteTile(c)
+			faceOff(c, e, m)
+			handsTile(c, e, m)
+			if pg.noteShown() {
+				pg.noteTile(c)
 			}
-			v.flowTile(c, m)
-			v.momentsTile(c, m)
+			pg.flowTile(c, e, m)
+			pg.momentsTile(c, e, m)
 		})
 	})
 }
 
-func (v *view) noteShown() bool {
-	d := v.detail
+func (pg *matchesPage) noteShown() bool {
+	d := pg.detail
 	return d.noteOpen || d.focusNote || strings.TrimSpace(d.note) != "" || d.savedNote != ""
 }
 
-func (v *view) faceOff(c *ui.Context, m stats.Match) {
+func faceOff(c *ui.Context, e *env, m stats.Match) {
 	t := c.Theme()
-	mine, theirs := v.art.get(m.Me.Leader, artFaceMine), v.art.get(m.Opp.Leader, artFaceTheirs)
-	myCols, theirCols := colorsOf(v.snap.card(m.Me.Leader)), colorsOf(v.snap.card(m.Opp.Leader))
+	mine, theirs := e.art.get(m.Me.Leader, artFaceMine), e.art.get(m.Opp.Leader, artFaceTheirs)
+	myCols, theirCols := colorsOf(e.snap.card(m.Me.Leader)), colorsOf(e.snap.card(m.Opp.Leader))
 	base := panelColor(t)
 	you := mySide(m)
 	column := func(p store.GamePlayer, s side) {
@@ -162,7 +162,7 @@ func (v *view) faceOff(c *ui.Context, m stats.Match) {
 		}
 		ui.Column(c).Gap(1).AlignItems(align).Children(func() {
 			ui.Text(c, s.name()).FontSize(12).Bold().TextColor(s.color())
-			ui.Text(c, v.snap.card(p.Leader).Name).FontSize(26).Bold()
+			ui.Text(c, e.snap.card(p.Leader).Name).FontSize(26).Bold()
 			ui.Text(c, cards.SetOf(p.Leader)+" · "+orderWord(m, s.mine)).FontSize(12).TextColor(t.TextMuted)
 		})
 	}
@@ -201,20 +201,20 @@ func orderWord(m stats.Match, mine bool) string {
 	}
 }
 
-func (v *view) typeSelect(c *ui.Context, m stats.Match) ui.Element {
-	opts := v.typeOptions(m)
-	v.detail.typeChoice = opts[v.detail.gameType]
-	sel := ui.Select(c, &v.detail.typeChoice, opts).Label("Game type").Tooltip(v.typeNote(m))
-	if i := slices.Index(opts, v.detail.typeChoice); i >= 0 && i != v.detail.gameType {
-		v.detail.gameType = i
-		v.do(func(a actions) { a.SetGameType(m.Fingerprint, store.GameType(i)) })
+func (pg *matchesPage) typeSelect(c *ui.Context, m stats.Match) ui.Element {
+	opts := typeOptions(m)
+	pg.detail.typeChoice = opts[pg.detail.gameType]
+	sel := ui.Select(c, &pg.detail.typeChoice, opts).Label("Game type").Tooltip(pg.typeNote(m))
+	if i := slices.Index(opts, pg.detail.typeChoice); i >= 0 && i != pg.detail.gameType {
+		pg.detail.gameType = i
+		pg.do(func(a matchActions) { a.SetGameType(m.Fingerprint, store.GameType(i)) })
 	}
 	return sel
 }
 
 // typeOptions labels the game types in store.GameType order, the first saying what the guess
 // gives.
-func (*view) typeOptions(m stats.Match) []string {
+func typeOptions(m stats.Match) []string {
 	guess := "Auto: Friendly"
 	if m.RankedGuess {
 		guess = "Auto: Ranked"
@@ -222,8 +222,8 @@ func (*view) typeOptions(m stats.Match) []string {
 	return []string{guess, "Ranked", "Friendly"}
 }
 
-func (v *view) typeNote(m stats.Match) string {
-	switch store.GameType(v.detail.gameType) {
+func (pg *matchesPage) typeNote(m stats.Match) string {
+	switch store.GameType(pg.detail.gameType) {
 	case store.TypeRanked:
 		return "Counted as ranked, as you set it."
 	case store.TypeFriendly:
@@ -240,24 +240,24 @@ func (v *view) typeNote(m stats.Match) string {
 
 // noteTile saves the note when the user leaves the box, and closeMatch saves it when they leave
 // the page while still typing.
-func (v *view) noteTile(c *ui.Context) ui.Element {
+func (pg *matchesPage) noteTile(c *ui.Context) ui.Element {
 	return tile(c, "Note", func() {
-		box := ui.TextArea(c, &v.detail.note).Placeholder("Add a note").Lines(3, 20).Grow(1).Label("Match note")
-		if v.detail.focusNote {
+		box := ui.TextArea(c, &pg.detail.note).Placeholder("Add a note").Lines(3, 20).Grow(1).Label("Match note")
+		if pg.detail.focusNote {
 			box.Focus()
-			v.detail.focusNote = false
-			v.detail.noteOpen = true
+			pg.detail.focusNote = false
+			pg.detail.noteOpen = true
 		}
 		focused := box.Focused()
-		if v.detail.noteFocused && !focused {
-			v.saveNote()
+		if pg.detail.noteFocused && !focused {
+			pg.saveNote()
 		}
-		v.detail.noteFocused = focused
+		pg.detail.noteFocused = focused
 	})
 }
 
-func (v *view) replayButton(c *ui.Context, m stats.Match) {
-	l := v.detail.timeline
+func (pg *matchesPage) replayButton(c *ui.Context, e *env, m stats.Match) {
+	l := pg.detail.timeline
 	switch {
 	case l == nil:
 		ui.Button(c, "Watch replay").Disabled(true).Tooltip("Reading the log")
@@ -269,12 +269,12 @@ func (v *view) replayButton(c *ui.Context, m stats.Match) {
 			ui.Text(c, "Watch replay").SingleLine()
 		})
 		if b.Clicked() {
-			v.openReplay(m, -1)
+			pg.openReplay(e, m, -1)
 		}
 	}
 }
 
-func (v *view) bookmarkButton(c *ui.Context, m stats.Match) {
+func (pg *matchesPage) bookmarkButton(c *ui.Context, m stats.Match) {
 	var b ui.Element
 	if m.Bookmarked {
 		b = ui.Button(c, "").Label("Bookmarked").Children(func() {
@@ -285,6 +285,6 @@ func (v *view) bookmarkButton(c *ui.Context, m stats.Match) {
 		b = iconButton(c, iconStar, "Bookmark").Label("Bookmark")
 	}
 	if b.Clicked() {
-		v.do(func(a actions) { a.SetBookmark(m.Fingerprint, !m.Bookmarked) })
+		pg.do(func(a matchActions) { a.SetBookmark(m.Fingerprint, !m.Bookmarked) })
 	}
 }

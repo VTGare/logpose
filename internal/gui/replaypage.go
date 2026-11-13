@@ -43,10 +43,10 @@ func (sv *stepView) seat(mine bool) side { return side{mine: mine, opp: sv.m.Opp
 // attacker is the side of the step's attack. The step has to have a battle.
 func (sv *stepView) attacker() side { return sv.seat(sv.me.Owner == sv.step.Battle.AttackerOwner) }
 
-func (v *view) replayPage(c *ui.Context, m stats.Match) {
-	rs := v.detail.replay
+func (pg *matchesPage) replayPage(c *ui.Context, e *env, m stats.Match) {
+	rs := pg.detail.replay
 	if !rs.ready() {
-		v.replayWaiting(c, rs)
+		pg.replayWaiting(c, rs)
 		return
 	}
 	sv := newStepView(m, rs)
@@ -55,15 +55,15 @@ func (v *view) replayPage(c *ui.Context, m stats.Match) {
 	page := ui.Row(c).Fill().Padding(14).Gap(14).AlignItems(ui.Stretch)
 	side := min(max(rs.pageBox.W*0.2, 250), 340)
 	page.Children(func() {
-		v.replayLeft(c, sv, side)
+		pg.replayLeft(c, e, sv, side)
 		var center ui.Element
 		ui.Column(c).Grow(1).Basis(0).MinWidth(0).MinHeight(0).Gap(12).AlignItems(ui.Center).Children(func() {
 			center = ui.Column(c).Grow(1).Basis(0).MinHeight(0).AlignSelf(ui.Stretch).Clip().AlignItems(ui.Center).Justify(ui.Center)
-			center.Children(func() { v.playmat(c, fitMat(rs.matBox), sv) })
+			center.Children(func() { playmat(c, e, fitMat(rs.matBox), sv) })
 			// The bar is as wide as the mat, so it stays under it as the window changes.
-			ui.Box(c).Width(fitMat(rs.matBox).W).Children(func() { v.controls(c, sv) })
+			ui.Box(c).Width(fitMat(rs.matBox).W).Children(func() { pg.controls(c, e, sv) })
 		})
-		v.replayRight(c, sv, side, moved)
+		replayRight(c, e, sv, side, moved)
 		rs.measure(c, page.Bounds(), center.Bounds())
 	})
 }
@@ -76,11 +76,11 @@ func (rs *replayState) measure(c *ui.Context, page, mat ui.Rect) {
 	c.Invalidate()
 }
 
-func (v *view) replayWaiting(c *ui.Context, rs *replayState) {
+func (pg *matchesPage) replayWaiting(c *ui.Context, rs *replayState) {
 	t := c.Theme()
 	ui.Column(c).Fill().Padding(20).Gap(16).Children(func() {
 		if ui.Button(c, "Back to match").Clicked() {
-			v.closeReplay()
+			pg.closeReplay()
 		}
 		msg := "Building the replay"
 		switch {
@@ -95,38 +95,38 @@ func (v *view) replayWaiting(c *ui.Context, rs *replayState) {
 
 const noMovesText = "This game's log comes from a sim version without the move stream, so it can't be replayed."
 
-func (v *view) replayLeft(c *ui.Context, sv *stepView, side float32) {
+func (pg *matchesPage) replayLeft(c *ui.Context, e *env, sv *stepView, side float32) {
 	t := c.Theme()
 	fw := side * 0.19
 	ui.Column(c).Width(side).Gap(8).Children(func() {
 		back := ui.Row(c).Gap(6).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("Back to match")
 		if back.Clicked() {
-			v.closeReplay()
+			pg.closeReplay()
 		}
 		back.Children(func() {
 			ui.Icon(c, iconPrevStep).TextColor(t.TextMuted)
 			ui.Text(c, "Back to match").TextColor(t.TextMuted)
 		})
-		v.replaySideName(c, sv, sv.them)
-		v.fan(c, sv, sv.them.Hand, side, fw, true)
-		panel(c).Grow(1).Basis(0).Padding(12).Clip().Children(func() { v.inspector(c, sv, side-24) })
-		v.fan(c, sv, sv.me.Hand, side, fw, false)
-		v.replaySideName(c, sv, sv.me)
+		replaySideName(c, e, sv, sv.them)
+		fan(c, e, sv, sv.them.Hand, side, fw, true)
+		panel(c).Grow(1).Basis(0).Padding(12).Clip().Children(func() { inspector(c, e, sv, side-24) })
+		fan(c, e, sv, sv.me.Hand, side, fw, false)
+		replaySideName(c, e, sv, sv.me)
 	})
 }
 
-func (v *view) replaySideName(c *ui.Context, sv *stepView, s *replay.Side) {
+func replaySideName(c *ui.Context, e *env, sv *stepView, s *replay.Side) {
 	t := c.Theme()
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 		ui.Box(c).Size(8, 8).Radius(4).Background(sv.side(s.Player).color())
 		ui.Text(c, sv.side(s.Player).name()).Bold().FontSize(13)
-		ui.Text(c, fmt.Sprintf("%s · %d in hand", v.snap.card(s.Leader.Code).Name, len(s.Hand))).FontSize(12).TextColor(t.TextMuted).SingleLine()
+		ui.Text(c, fmt.Sprintf("%s · %d in hand", e.snap.card(s.Leader.Code).Name, len(s.Hand))).FontSize(12).TextColor(t.TextMuted).SingleLine()
 	})
 }
 
 // fan is a hand as overlapping cards turned a little apart. Cards drawn from the deck fade in
 // from the mat's side.
-func (v *view) fan(c *ui.Context, sv *stepView, hand []replay.Card, width, fw float32, top bool) ui.Element {
+func fan(c *ui.Context, e *env, sv *stepView, hand []replay.Card, width, fw float32, top bool) ui.Element {
 	fh := cardHeight(fw)
 	n := len(hand)
 	stepX := fw * 0.62
@@ -162,12 +162,12 @@ func (v *view) fan(c *ui.Context, sv *stepView, hand []replay.Card, width, fw fl
 					Enter: &ui.Motion{Y: toMat},
 				})
 			}
-			box.Children(func() { v.card(c, card.Code, fw) })
+			box.Children(func() { e.card(c, card.Code, fw) })
 		}
 	})
 }
 
-func (v *view) gameLog(c *ui.Context, sv *stepView, moved bool) {
+func gameLog(c *ui.Context, e *env, sv *stepView, moved bool) {
 	t := c.Theme()
 	ui.Column(c).Gap(2).Padding(8).Children(func() {
 		for i, s := range sv.r.Steps[:sv.index+1] {
@@ -189,7 +189,7 @@ func (v *view) gameLog(c *ui.Context, sv *stepView, moved bool) {
 					row.Background(t.Accent.Alpha(0.16)).BorderStartWidth(2).BorderColor(t.Accent)
 					text = t.Text
 				}
-				row.Children(func() { v.cardText(c, 12, logPieces(sv, l, text)) })
+				row.Children(func() { e.cardText(c, 12, logPieces(sv, l, text)) })
 				if cur && moved && li == last {
 					row.ScrollIntoView()
 				}
@@ -198,7 +198,7 @@ func (v *view) gameLog(c *ui.Context, sv *stepView, moved bool) {
 	})
 }
 
-func (v *view) replayRight(c *ui.Context, sv *stepView, side float32, moved bool) {
+func replayRight(c *ui.Context, e *env, sv *stepView, side float32, moved bool) {
 	rs := sv.rs
 	t := c.Theme()
 	s := sv.step
@@ -219,7 +219,7 @@ func (v *view) replayRight(c *ui.Context, sv *stepView, side float32, moved bool
 			})
 			ui.Text(c, phaseWord(sv.r.Steps, sv.index)).FontSize(22).FontWeight(700)
 			if title := stepTitle(sv.g, &s, t.TextMuted); len(title) > 0 {
-				v.cardText(c, 12, title)
+				e.cardText(c, 12, title)
 			}
 			if result := stepResult(sv.g, &s); result != "" {
 				ui.Text(c, result).FontSize(13).Bold().TextColor(cardGold).Wrap()
@@ -228,15 +228,15 @@ func (v *view) replayRight(c *ui.Context, sv *stepView, side float32, moved bool
 		ui.Segmented(c, &rs.tab, "Actions", "Game log").Label("Show")
 		ui.Scroll(c).Grow(1).Basis(0).Children(func() {
 			if rs.tab == 1 {
-				v.gameLog(c, sv, moved)
+				gameLog(c, e, sv, moved)
 				return
 			}
-			v.actionList(c, sv, moved)
+			actionList(c, e, sv, moved)
 		})
 	})
 }
 
-func (v *view) controls(c *ui.Context, sv *stepView) {
+func (pg *matchesPage) controls(c *ui.Context, e *env, sv *stepView) {
 	rs := sv.rs
 	t := c.Theme()
 	s := sv.step
@@ -263,7 +263,7 @@ func (v *view) controls(c *ui.Context, sv *stepView) {
 				icon, label = iconPause, "Pause"
 			}
 			if round(icon, label, "Space", 42, true, false).Clicked() {
-				v.togglePlay()
+				pg.togglePlay(e)
 			}
 			if round(iconNextStep, "Next step", "Next step (Right)", 32, false, rs.step == len(rs.r.Steps)-1).Clicked() {
 				rs.jump(rs.step + 1)
@@ -272,7 +272,7 @@ func (v *view) controls(c *ui.Context, sv *stepView) {
 				rs.nextTurn()
 			}
 		})
-		ui.Box(c).Grow(1).Basis(0).MinWidth(80).Children(func() { v.scrubber(c, sv) })
+		ui.Box(c).Grow(1).Basis(0).MinWidth(80).Children(func() { scrubber(c, sv) })
 		restart := ui.ButtonBase(c).Label("Restart this turn").Tooltip("Restart this turn").Padding(4, 6).Radius(6).
 			Children(func() {
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
@@ -286,12 +286,12 @@ func (v *view) controls(c *ui.Context, sv *stepView) {
 		speed := rs.speed
 		ui.Segmented(c, &rs.speed, speedLabels()...)
 		if rs.speed != speed {
-			v.schedule()
+			pg.schedule(e)
 		}
 	})
 }
 
-func (*view) scrubber(c *ui.Context, sv *stepView) {
+func scrubber(c *ui.Context, sv *stepView) {
 	rs := sv.rs
 	t := c.Theme()
 	steps := sv.r.Steps
@@ -340,14 +340,14 @@ func (*view) scrubber(c *ui.Context, sv *stepView) {
 	})
 }
 
-func (v *view) actionList(c *ui.Context, sv *stepView, moved bool) {
+func actionList(c *ui.Context, e *env, sv *stepView, moved bool) {
 	t := c.Theme()
 	ui.Column(c).Gap(2).Padding(0, 4, 0, 0).Children(func() {
 		last := -1
 		for i, s := range sv.r.Steps {
 			if s.Turn == 0 {
 				if i == 0 {
-					v.setupRow(c, sv, moved)
+					setupRow(c, sv, moved)
 				}
 				continue
 			}
@@ -356,12 +356,12 @@ func (v *view) actionList(c *ui.Context, sv *stepView, moved bool) {
 				ui.Text(c.Key(-i-1), fmt.Sprintf("Turn %d · %s", s.Turn, sv.side(s.Player).name())).FontSize(11).Bold().
 					TextColor(t.TextMuted).Margin(8, 0, 2, 4)
 			}
-			v.stepRow(c, sv, i, moved)
+			stepRow(c, e, sv, i, moved)
 		}
 	})
 }
 
-func (*view) setupRow(c *ui.Context, sv *stepView, moved bool) {
+func setupRow(c *ui.Context, sv *stepView, moved bool) {
 	rs := sv.rs
 	t := c.Theme()
 	cur := sv.step.Turn == 0
@@ -381,7 +381,7 @@ func (*view) setupRow(c *ui.Context, sv *stepView, moved bool) {
 	}
 }
 
-func (v *view) stepRow(c *ui.Context, sv *stepView, i int, moved bool) {
+func stepRow(c *ui.Context, e *env, sv *stepView, i int, moved bool) {
 	rs := sv.rs
 	t := c.Theme()
 	s := sv.r.Steps[i]
@@ -392,10 +392,10 @@ func (v *view) stepRow(c *ui.Context, sv *stepView, i int, moved bool) {
 	row.Children(func() {
 		ui.Box(c).Size(3, 18).Radius(2).Background(sv.side(s.Player).color())
 		for j, code := range s.Cards {
-			ui.Box(c.Key(j)).Children(func() { v.card(c, code, 22) })
+			ui.Box(c.Key(j)).Children(func() { e.card(c, code, 22) })
 		}
 		ui.Column(c).Grow(1).Basis(0).Gap(1).Children(func() {
-			v.cardText(c, 12, stepTitle(sv.g, &s, t.Text))
+			e.cardText(c, 12, stepTitle(sv.g, &s, t.Text))
 			if result := stepResult(sv.g, &s); result != "" {
 				ui.Text(c, result).FontSize(11).TextColor(t.TextMuted).SingleLine()
 			}

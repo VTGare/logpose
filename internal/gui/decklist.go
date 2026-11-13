@@ -26,47 +26,47 @@ const (
 
 // listTab is the lists of the chosen build, or of every game under Overall. The games in no
 // build, and a leader without builds, get the suggested builds, as does asking for them.
-func (v *view) listTab(c *ui.Context, d *deckData) {
-	if v.decks.suggesting || d.scope.kind == scopeNoBuild || len(d.builds) == 0 {
-		v.suggestionsPanel(c, d)
+func (pg *decksPage) listTab(c *ui.Context, e *env, d *deckData) {
+	if pg.suggesting || d.scope.kind == scopeNoBuild || len(d.builds) == 0 {
+		pg.suggestionsPanel(c, e, d)
 		return
 	}
-	v.scopeList(c, d)
+	pg.scopeList(c, e, d)
 }
 
 // scopeList is the lists the games ran, the latest first in a rail, and the chosen one in full.
-func (v *view) scopeList(c *ui.Context, d *deckData) {
+func (pg *decksPage) scopeList(c *ui.Context, e *env, d *deckData) {
 	t := c.Theme()
 	changes := d.changes
 	if len(changes) == 0 {
 		panel(c).Padding(16).Children(func() { noGames(c, d) })
 		return
 	}
-	i := v.chosenChange(changes)
+	i := pg.chosenChange(changes)
 	ch := changes[i]
 	list := ch.Games[0].Facts.List
 	ui.Row(c).Gap(16).AlignItems(ui.Start).Children(func() {
-		v.versionRail(c, changes, i)
+		pg.versionRail(c, e, changes, i)
 		panel(c).Grow(1).Basis(0).MinWidth(0).Gap(14).Padding(16).Children(func() {
 			ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
-				title := "List from " + v.date(ch.At) + ", " + ch.At.Format("15:04")
+				title := "List from " + e.date(ch.At) + ", " + ch.At.Format("15:04")
 				if i == len(changes)-1 {
-					title = "Latest list · " + v.date(ch.At) + ", " + ch.At.Format("15:04")
+					title = "Latest list · " + e.date(ch.At) + ", " + ch.At.Format("15:04")
 				}
 				ui.Text(c, title).FontWeight(600)
 				ui.Text(c, games(len(ch.Games))+" · "+record(stats.RecordOf(ch.Games))).FontSize(13).TextColor(t.TextMuted)
 				ui.Spacer(c)
-				on := v.prefs.deckChanges
+				on := e.prefs.deckChanges
 				if ui.Switch(c, &on).Label("Show changes").Changed() {
-					prefDeckChanges.set(&v.env, on)
+					prefDeckChanges.set(e, on)
 				}
 				ui.Text(c, "Show changes").FontSize(13).TextColor(t.TextMuted)
 			})
 			var marks map[string]int
-			if v.prefs.deckChanges && i > 0 {
+			if e.prefs.deckChanges && i > 0 {
 				marks = ch.Swaps
 			}
-			v.stacks(c, d.leader, list, marks)
+			stacks(c, e, d.leader, list, marks)
 			ui.Box(c).Height(1).Background(t.Border.Alpha(0.6))
 			listStats(c, d.lists[i])
 		})
@@ -74,7 +74,7 @@ func (v *view) scopeList(c *ui.Context, d *deckData) {
 }
 
 // listOrder is the cards as a decklist orders them: by type, then cost, then name.
-func (v *view) listOrder(list map[string]int) []string {
+func listOrder(e *env, list map[string]int) []string {
 	codes := slices.Collect(func(yield func(string) bool) {
 		for code := range list {
 			if !yield(code) {
@@ -83,7 +83,7 @@ func (v *view) listOrder(list map[string]int) []string {
 		}
 	})
 	slices.SortFunc(codes, func(a, b string) int {
-		ca, cb := v.snap.card(a), v.snap.card(b)
+		ca, cb := e.snap.card(a), e.snap.card(b)
 		return cmp.Or(
 			cmp.Compare(typeRank(ca.Type), typeRank(cb.Type)),
 			cmp.Compare(ca.Cost, cb.Cost),
@@ -97,26 +97,26 @@ func (v *view) listOrder(list map[string]int) []string {
 // stacks draws the leader and each card as its copies fanned out, with the count on top. With
 // marks, each copy swapped in gets a ring and the stack +N, and cards taken out show as faded
 // stacks of the copies removed at the end.
-func (v *view) stacks(c *ui.Context, leader string, list, marks map[string]int) {
+func stacks(c *ui.Context, e *env, leader string, list, marks map[string]int) {
 	ui.Row(c).Gap(10).Wrap().AlignItems(ui.Start).Children(func() {
-		v.card(c.Key("leader"), leader, stackW).Shadow(0, 2, 6, 0, ui.RGBA(0, 0, 0, 0.45))
-		for _, code := range v.listOrder(list) {
-			v.stack(c.Key(code), code, list[code], marks[code], false)
+		e.card(c.Key("leader"), leader, stackW).Shadow(0, 2, 6, 0, ui.RGBA(0, 0, 0, 0.45))
+		for _, code := range listOrder(e, list) {
+			stack(c.Key(code), e, code, list[code], marks[code], false)
 		}
 		for _, code := range swapOrder(marks) {
 			if marks[code] < 0 && list[code] == 0 {
-				v.stack(c.Key("out"+code), code, -marks[code], marks[code], true)
+				stack(c.Key("out"+code), e, code, -marks[code], marks[code], true)
 			}
 		}
 	})
 }
 
-func (v *view) stack(c *ui.Context, code string, n, swapped int, gone bool) {
+func stack(c *ui.Context, e *env, code string, n, swapped int, gone bool) {
 	h := cardHeight(stackW)
 	box := ui.Box(c).Size(stackW+float32(n-1)*stackStepX, h+float32(n-1)*stackStepY)
 	box.Children(func() {
 		for i := range n {
-			card := v.card(c.Key(i), code, stackW).Absolute().
+			card := e.card(c.Key(i), code, stackW).Absolute().
 				Left(float32(i)*stackStepX).Top(float32(i)*stackStepY).Shadow(0, 2, 6, 0, ui.RGBA(0, 0, 0, 0.45))
 			if swapped > 0 && i >= n-swapped {
 				card.Border(2, winColor(c.Theme()))
@@ -222,15 +222,15 @@ func curveBars(c *ui.Context, curve [11]int) {
 
 // suggestionsPanel lists the suggested builds, each with its searchers, to make into a build or
 // dismiss. Groups of fewer than minSuggested games fold away.
-func (v *view) suggestionsPanel(c *ui.Context, d *deckData) {
+func (pg *decksPage) suggestionsPanel(c *ui.Context, e *env, d *deckData) {
 	t := c.Theme()
-	s := &v.decks
+	s := pg
 	panel(c).Gap(12).Padding(16).Children(func() {
 		if s.suggesting && d.scope.kind != scopeNoBuild && len(d.builds) > 0 && linkButton(c, "Back to "+d.tag) {
 			s.suggesting = false
 		}
 		if len(d.split.Suggestions) == 0 {
-			ui.Text(c, "No suggested builds for "+v.snap.card(d.leader).Name).FontWeight(600)
+			ui.Text(c, "No suggested builds for "+e.snap.card(d.leader).Name).FontWeight(600)
 			ui.Text(c, "Suggestions group your games by the searchers their lists run.").
 				FontSize(13).TextColor(t.TextMuted).Wrap()
 			return
@@ -242,7 +242,7 @@ func (v *view) suggestionsPanel(c *ui.Context, d *deckData) {
 			if smallSuggestion(sg) && !s.showSmall {
 				continue
 			}
-			v.suggestionCard(c.Key(sg.Key), d.leader, sg)
+			pg.suggestionCard(c.Key(sg.Key), e, d.leader, sg)
 		}
 		if n := smallSuggestions(d.leaderDecks); n > 0 && !s.showSmall {
 			label := fmt.Sprintf("Show %d small groups", n)
@@ -256,16 +256,16 @@ func (v *view) suggestionsPanel(c *ui.Context, d *deckData) {
 	})
 }
 
-func (v *view) suggestionCard(c *ui.Context, leader string, sg stats.Suggestion) {
+func (pg *decksPage) suggestionCard(c *ui.Context, e *env, leader string, sg stats.Suggestion) {
 	t := c.Theme()
-	s := &v.decks
+	s := pg
 	key := sg.Key
 	title := sg.Name
 	ui.Column(c).Gap(10).Padding(12, 14).Radius(10).Border(1, t.Border.Alpha(0.6)).Children(func() {
 		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, title).FontWeight(600)
 			first, last := sg.Games[len(sg.Games)-1].PlayedAt, sg.Games[0].PlayedAt
-			played := span(v.date(first), v.date(last))
+			played := span(e.date(first), e.date(last))
 			ui.Text(c, scopeMeta(len(sg.Games), stats.RecordOf(sg.Games))+" · "+played).FontSize(13).TextColor(t.TextMuted)
 			ui.Spacer(c)
 			if s.naming == key {
@@ -275,7 +275,7 @@ func (v *view) suggestionCard(c *ui.Context, leader string, sg stats.Suggestion)
 				s.naming, s.name = key, title
 			}
 			if ui.Button(c, "Not a build").Clicked() {
-				v.do(func(a actions) { a.DismissSuggestion(store.Dismissal{Leader: leader, Core: sg.Core}) })
+				pg.do(func(a deckActions) { a.DismissSuggestion(store.Dismissal{Leader: leader, Core: sg.Core}) })
 			}
 		})
 		if s.naming == key {
@@ -283,7 +283,7 @@ func (v *view) suggestionCard(c *ui.Context, leader string, sg stats.Suggestion)
 				in := ui.TextInput(c, &s.name).Grow(1).Label("Build name")
 				if (in.Submitted() || ui.PrimaryButton(c, "Save").Clicked()) && strings.TrimSpace(s.name) != "" {
 					b := store.Build{Leader: leader, Name: strings.TrimSpace(s.name), Core: sg.Core}
-					v.do(func(a actions) { a.SaveBuild(b, v.chooseSaved) })
+					pg.do(func(a deckActions) { a.SaveBuild(b, pg.chooseSaved) })
 					s.naming = ""
 				}
 				if ui.Button(c, "Cancel").Clicked() {
@@ -293,18 +293,18 @@ func (v *view) suggestionCard(c *ui.Context, leader string, sg stats.Suggestion)
 		}
 		ui.Row(c).Gap(10).Wrap().Children(func() {
 			for _, code := range sg.Core {
-				v.searcherTile(c.Key(code), code)
+				searcherTile(c.Key(code), e, code)
 			}
 		})
 	})
 }
 
 // searcherTile is a searcher's card with what it looks for.
-func (v *view) searcherTile(c *ui.Context, code string) {
+func searcherTile(c *ui.Context, e *env, code string) {
 	t := c.Theme()
-	card := v.snap.card(code)
+	card := e.snap.card(code)
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(4, 10, 4, 4).Radius(8).Background(t.Surface).Children(func() {
-		v.card(c, code, 40)
+		e.card(c, code, 40)
 		ui.Column(c).Gap(1).Children(func() {
 			ui.Text(c, card.Name).FontSize(13)
 			if targets := cards.SearchTargets(card.Effect); len(targets) > 0 {

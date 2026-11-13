@@ -20,7 +20,7 @@ const (
 
 // cardsTab is how each card did in the games the scope counts: the latest list's cards first,
 // then the ones no longer in it.
-func (v *view) cardsTab(c *ui.Context, d *deckData) {
+func cardsTab(c *ui.Context, e *env, d *deckData) {
 	t := c.Theme()
 	gs := d.deckGames
 	panel(c).Gap(0).Padding(8, 16, 16, 16).Children(func() {
@@ -29,7 +29,7 @@ func (v *view) cardsTab(c *ui.Context, d *deckData) {
 			return
 		}
 		avg := d.stats.Record.Share()
-		tv := arrangeTable(&v.env, "decks.cards", 12, v.cardCols(t, gs[0].Facts.List, len(gs), avg), "", false)
+		tv := arrangeTable(e, "decks.cards", 12, cardCols(e, t, gs[0].Facts.List, len(gs), avg), "", false)
 		in := tv.sorted(slices.DeleteFunc(slices.Clone(d.cards), func(cs stats.CardStats) bool { return !cs.Latest }))
 		gone := tv.sorted(slices.DeleteFunc(slices.Clone(d.cards), func(cs stats.CardStats) bool { return cs.Latest }))
 		tv.header(c, 8)
@@ -54,18 +54,18 @@ func noGames(c *ui.Context, d *deckData) ui.Element {
 // cardCols are the Cards tab's columns. With no sort chosen, the cards keep the list's order.
 // latest is the newest game's list, and total is the build's games, which a card's own count is
 // shown against when it was in fewer.
-func (v *view) cardCols(t *ui.Theme, latest map[string]int, total int, avg float64) []tableCol[stats.CardStats] {
+func cardCols(e *env, t *ui.Theme, latest map[string]int, total int, avg float64) []tableCol[stats.CardStats] {
 	share := func(r stats.Record, total int) float64 {
 		if total == 0 {
 			return 0
 		}
 		return float64(r.Games()) / float64(total)
 	}
-	cost := func(cs stats.CardStats) int { return v.snap.card(cs.Card).PaidCost() }
+	cost := func(cs stats.CardStats) int { return e.snap.card(cs.Card).PaidCost() }
 	return []tableCol[stats.CardStats]{
 		{
 			id: "card", title: "Card", asc: true,
-			by: func(a, b stats.CardStats) int { return cmp.Compare(v.snap.card(a.Card).Name, v.snap.card(b.Card).Name) },
+			by: func(a, b stats.CardStats) int { return cmp.Compare(e.snap.card(a.Card).Name, e.snap.card(b.Card).Name) },
 			cell: func(c *ui.Context, cs stats.CardStats) {
 				meta := cs.Card
 				if copies := latest[cs.Card]; cs.Latest && copies > 0 {
@@ -74,7 +74,7 @@ func (v *view) cardCols(t *ui.Theme, latest map[string]int, total int, avg float
 				if cs.Games < total {
 					meta += " · " + games(cs.Games)
 				}
-				v.cardNameCell(c, cs.Card, meta)
+				cardNameCell(c, e, cs.Card, meta)
 			},
 		},
 		{
@@ -177,10 +177,10 @@ func rateBar(c *ui.Context, r stats.Record, avg float64, barW float32) ui.Elemen
 }
 
 // cardNameCell is a card's art and name with meta under the name, in a table's card column.
-func (v *view) cardNameCell(c *ui.Context, code, meta string) {
-	name := v.snap.card(code).Name
+func cardNameCell(c *ui.Context, e *env, code, meta string) {
+	name := e.snap.card(code).Name
 	ui.Row(c).Gap(10).AlignItems(ui.Center).MinWidth(0).Children(func() {
-		v.card(c, code, 30)
+		e.card(c, code, 30)
 		ui.Column(c).Gap(1).MinWidth(0).Children(func() {
 			ui.Text(c, name).FontSize(13).FontWeight(600).SingleLine().Tooltip(name)
 			ui.Text(c, meta).FontSize(11).TextColor(faintColor(c.Theme())).SingleLine()

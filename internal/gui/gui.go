@@ -212,7 +212,7 @@ func (a *app) setInstall(ctx context.Context, in sim.Install, chosen bool) error
 	a.pack, a.cards = nil, nil
 	a.cardsMu.Unlock()
 	a.resetArtCache()
-	a.win.Update(a.view.resetSimArt)
+	a.win.Update(func() { a.view.cards.resetSimArt() })
 	a.watch(ctx)
 	a.refresh(ctx)
 	return nil
@@ -309,7 +309,7 @@ func (a *app) refreshCatalog(ctx context.Context, force bool) error {
 	}
 	printings, berr := a.refreshBandai(ctx, force)
 	if changed || printings {
-		a.win.Update(a.view.resetArts)
+		a.win.Update(func() { a.view.cards.resetArts() })
 	}
 	return errors.Join(err, berr)
 }
@@ -623,7 +623,7 @@ func (x *appActions) LoadTimeline(fingerprint, me, opp string) {
 			l.Marks = g.Marks()
 			l.Replayable = g.HasRZ()
 		}
-		x.a.win.Update(func() { x.a.view.setTimeline(l) })
+		x.a.win.Update(func() { x.a.view.matches.setTimeline(l) })
 	}()
 }
 
@@ -634,7 +634,7 @@ func (x *appActions) OpenReplay(fingerprint string, g *simlog.Game) {
 		l := loadedReplay{Fingerprint: fingerprint, Game: g}
 		db := x.a.cardDB().DB
 		l.Replay, l.Err = replay.Build(g, func(code string) int { return db.Card(code).Power })
-		x.a.win.Update(func() { x.a.view.setReplay(l) })
+		x.a.win.Update(func() { x.a.view.matches.setReplay(l) })
 	}()
 }
 
