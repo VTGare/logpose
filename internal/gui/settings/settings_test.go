@@ -35,8 +35,9 @@ func testSettingsInfo() Info {
 		SimDir: `E:\Games\OPTCG\Builds_Windows`, SimVersion: "1.44a", SimExe: true, Logs: 93,
 		Fetched: guitest.Now.Add(-25 * time.Hour),
 		DBPath:  `C:\Users\you\AppData\Roaming\logpose\logpose.db`, DBFolder: `AppData\Roaming\logpose`, DBSize: 1 << 20,
-		ArtDir:  `C:\Users\you\AppData\Roaming\logpose\art`,
-		Players: []store.PlayerCount{{ID: guitest.Me, Games: 93}, {ID: "Opp#2", Games: 9}, {ID: "Alt#3", Games: 2}, {ID: "Rare#4", Games: 1}},
+		ArtDir:          `C:\Users\you\AppData\Roaming\logpose\art`,
+		SimSavesDefault: `C:\Users\you\AppData\Roaming\logpose\sim-saves`,
+		Players:         []store.PlayerCount{{ID: guitest.Me, Games: 93}, {ID: "Opp#2", Games: 9}, {ID: "Alt#3", Games: 2}, {ID: "Rare#4", Games: 1}},
 	}
 }
 
@@ -136,6 +137,21 @@ var _ = Describe("settings", func() {
 		st.click("Pick automatically")
 		st.click(guitest.Me)
 		Expect(st.fa.Calls).To(Equal([]string{store.SettingYou + "=" + guitest.Me}))
+	})
+
+	It("exports to sim-saves until the user picks another folder", func() {
+		st := settingsTester()
+		def := `C:\Users\you\AppData\Roaming\logpose\sim-saves`
+		Expect(st.has(def)).To(BeTrue())
+		st.click("Show the sim saves folder")
+		st.fa.folder = `C:\Users\you\Documents\OP Games`
+		st.click("Change the sim saves folder")
+		Expect(st.has(st.fa.folder)).To(BeTrue())
+		st.click("Use the default sim saves folder")
+		Expect(st.has(def)).To(BeTrue())
+		Expect(st.fa.Calls).To(Equal([]string{
+			"open " + def, "choose folder from " + def, page.KeySimSaves + "=" + st.fa.folder, page.KeySimSaves + "=",
+		}))
 	})
 
 	It("saves the theme, the colors and how the window closes", func() {

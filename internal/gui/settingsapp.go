@@ -53,14 +53,15 @@ func (a *app) settingsInfo(ctx context.Context) (settings.Info, error) {
 		fetched = l.Checked
 	}
 	info := settings.Info{
-		SimFlag:  a.opts.SimFlag,
-		Fetched:  fetched,
-		DBPath:   a.opts.DBPath,
-		ArtDir:   a.opts.ArtDir,
-		DBFolder: shortFolder(filepath.Dir(a.opts.DBPath)),
-		DBSize:   st.Size(),
-		Players:  players,
-		You:      store.SplitNames(you),
+		SimFlag:         a.opts.SimFlag,
+		Fetched:         fetched,
+		DBPath:          a.opts.DBPath,
+		ArtDir:          a.opts.ArtDir,
+		SimSavesDefault: a.simSavesDefault(),
+		DBFolder:        shortFolder(filepath.Dir(a.opts.DBPath)),
+		DBSize:          st.Size(),
+		Players:         players,
+		You:             store.SplitNames(you),
 	}
 	if in := a.install(); in != nil {
 		info.SimDir = in.Root
@@ -184,8 +185,12 @@ func (x *appActions) FindSim() {
 	}()
 }
 
+// OpenPath makes the folder first, since folders such as sim-saves only appear on first use.
 func (x *appActions) OpenPath(path string) {
 	go func() {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			x.a.opts.Log.Warn("make folder", "err", err)
+		}
 		if err := mygo.Shell.OpenPath(path); err != nil {
 			x.a.opts.Log.Warn("open folder", "err", err)
 		}

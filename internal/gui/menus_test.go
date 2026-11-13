@@ -21,7 +21,7 @@ var _ = Describe("right-click menus", func() {
 		v, tt := tester(guitest.Snapshot(3))
 		v.setActions(&fakeActions{})
 		Expect(tt.RightClick("Open the match against Opp")).To(Succeed())
-		guitest.Shows(tt, "Open match", "Watch replay", "Game type", "Add note…", "Bookmark", "Filter to games vs Opp")
+		guitest.Shows(tt, "Open match", "Watch replay", "Export to sim", "Game type", "Add note…", "Bookmark", "Filter to games vs Opp")
 		Expect(guitest.Choose(tt, "Open match")).To(Succeed())
 		Expect(tt.HasText("Back to overview")).To(BeTrue())
 		Expect(v.Page).To(Equal(page.Overview))

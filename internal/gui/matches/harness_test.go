@@ -20,6 +20,7 @@ type fakeActions struct {
 	notes     []string
 	bookmarks []string
 	replays   []string
+	exports   []string
 }
 
 func (f *fakeActions) LoadTimeline(fingerprint, _, _ string) {
@@ -40,6 +41,10 @@ func (f *fakeActions) SetBookmark(fingerprint string, on bool) {
 
 func (f *fakeActions) OpenReplay(fingerprint string, _ *simlog.Game) {
 	f.replays = append(f.replays, fingerprint)
+}
+
+func (f *fakeActions) ExportToSim(fingerprint, name string, _ *simlog.Game) {
+	f.exports = append(f.exports, fingerprint+" "+name)
 }
 
 // view is the Matches page in a host, with what the window does around an open match: the

@@ -42,6 +42,9 @@ const (
 	KeyUpdateManual = "update_manual"
 	// KeyStartFormat is startLatest or startAll. Empty means the user hasn't picked.
 	KeyStartFormat = "start_format"
+	// KeySimSaves is the folder Export to sim writes to. Empty is sim-saves next to the
+	// database.
+	KeySimSaves = "sim_saves_dir"
 
 	// KeyUpdateChecked is when logpose last asked for a newer version, in Unix ms.
 	KeyUpdateChecked = "update_checked"
@@ -82,6 +85,7 @@ type Prefs struct {
 	// StartFormat is the format pages start on and Clear goes back to, formatCurrent or
 	// formatAll.
 	StartFormat int64
+	SimSaves    string
 }
 
 // pref is one stored preference.
@@ -131,12 +135,13 @@ var (
 	PrefCardList         = flagPref(KeyCardList, func(p *Prefs) *bool { return &p.CardList })
 	PrefUpdateManual     = flagPref(KeyUpdateManual, func(p *Prefs) *bool { return &p.UpdateManual })
 	prefStartFormat      = prefEntry[int64]{KeyStartFormat, func(p *Prefs) *int64 { return &p.StartFormat }, startFormatFrom, startFormatText}
+	PrefSimSaves         = prefEntry[string]{KeySimSaves, func(p *Prefs) *string { return &p.SimSaves }, same, same}
 )
 
 var prefTable = []pref{
 	PrefTheme, PrefColorblind, PrefCloseQuits, PrefStartHidden, PrefShortcutsOffered, PrefSideWidth,
 	PrefPanelWidth, PrefArtOff, PrefArtCap, PrefDeckChanges, prefFolded, prefTables, PrefCardSort,
-	PrefCardList, PrefUpdateManual, prefStartFormat,
+	PrefCardList, PrefUpdateManual, prefStartFormat, PrefSimSaves,
 }
 
 // PrefsFrom reads the stored settings. A nil map gives the defaults.

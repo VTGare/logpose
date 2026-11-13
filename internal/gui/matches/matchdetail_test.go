@@ -88,8 +88,29 @@ var _ = Describe("match detail", func() {
 		tt.Frame()
 		_, unset := tt.Find("Bookmark")
 		Expect(unset).To(BeFalse())
-		Expect(tt.Click("Bookmarked")).To(Succeed())
+		Expect(tt.Click("Remove bookmark")).To(Succeed())
 		Expect(fa.bookmarks).To(Equal([]string{"0=true", "0=false"}))
+	})
+
+	It("exports the match for the sim under the sim's own kind of name", func() {
+		s := guitest.Snapshot(3)
+		v, tt := open(s)
+		v.OpenMatch(s.Matches[0])
+		tt.Frame()
+		Expect(tt.Click("Export to sim")).To(Succeed())
+		Expect(fa.exports).To(BeEmpty())
+		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0", Replayable: true})
+		tt.Frame()
+		Expect(tt.Click("Export to sim")).To(Succeed())
+		played := s.Matches[0].PlayedAt.Format("2006-01-02 15.04")
+		Expect(fa.exports).To(Equal([]string{"0 Monkey D. Luffy (OP13-001) vs Kaido (OP17-058) - " + played + ".json"}))
+	})
+
+	It("keeps characters Windows doesn't allow out of the file name", func() {
+		s := guitest.Snapshot(1)
+		s.Cards.Name("OP17-058", `Who? "Kaido": 1/2`)
+		e := &page.Env{Snap: s}
+		Expect(SimSaveName(e, s.Matches[0])).To(HavePrefix("Monkey D. Luffy (OP13-001) vs Who Kaido 12 (OP17-058) - "))
 	})
 
 	It("shows only bookmarked matches when asked, with a star by the date", func() {

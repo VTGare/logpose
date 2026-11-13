@@ -18,6 +18,8 @@ type fakeActions struct {
 	usageLoads int
 	// settingsLoads counts LoadSettings, which Settings calls when it opens or games change.
 	settingsLoads int
+	// folder is what the folder dialog picks, or "" for a cancel.
+	folder string
 }
 
 func (f *fakeActions) call(what string) { f.Calls = append(f.Calls, what) }
@@ -37,12 +39,20 @@ func (f *fakeActions) ChooseSimFolder()     { f.call("choose sim") }
 func (f *fakeActions) FindSim()             { f.call("find sim") }
 func (f *fakeActions) OpenPath(path string) { f.call("open " + path) }
 func (f *fakeActions) ShowFile(path string) { f.call("show " + path) }
-func (f *fakeActions) ImportAgain()         { f.call("import") }
-func (f *fakeActions) RefreshCards()        { f.call("refresh cards") }
-func (f *fakeActions) Backup()              { f.call("backup") }
-func (f *fakeActions) LoadArtUsage()        { f.usageLoads++ }
-func (f *fakeActions) LoadSettings()        { f.settingsLoads++ }
-func (f *fakeActions) ClearArt()            { f.call("clear art") }
+
+// ChooseFolder picks f.folder, as if the user chose it in the dialog.
+func (f *fakeActions) ChooseFolder(_, start string, picked func(string)) {
+	f.call("choose folder from " + start)
+	if f.folder != "" {
+		picked(f.folder)
+	}
+}
+func (f *fakeActions) ImportAgain()  { f.call("import") }
+func (f *fakeActions) RefreshCards() { f.call("refresh cards") }
+func (f *fakeActions) Backup()       { f.call("backup") }
+func (f *fakeActions) LoadArtUsage() { f.usageLoads++ }
+func (f *fakeActions) LoadSettings() { f.settingsLoads++ }
+func (f *fakeActions) ClearArt()     { f.call("clear art") }
 
 // view is the Settings page in a host. It shows what the window shows of the page: the update
 // box of the sidebar, then Settings itself, the shortcut card of the Overview on any other

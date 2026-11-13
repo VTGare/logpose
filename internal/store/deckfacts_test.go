@@ -60,6 +60,22 @@ var _ = Describe("Deck facts", func() {
 		Expect(got[g.Fingerprint]).To(Equal(want))
 	})
 
+	It("gives the most copies of each card a player ran with a leader", func() {
+		save(&g)
+		var leader string
+		for _, p := range g.Players {
+			if p.ID() == "Alice#1111" {
+				leader = p.Leader
+			}
+		}
+		got, err := st.MostCopies(ctx, "Alice#1111", leader)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).To(Equal(want.List))
+		got, err = st.MostCopies(ctx, "Alice#1111", "OP99-999")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).To(BeEmpty())
+	})
+
 	It("reads only the players asked for", func() {
 		save(&g)
 		got, err := st.DeckFacts(ctx, "Bob#2222")

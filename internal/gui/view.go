@@ -55,12 +55,23 @@ type pageDef struct {
 
 // pages are the app's pages in the sidebar's order. A Decks tab is "decks/" and its name,
 // "decks/build" chooses the first build and "decks/edit" opens the core editor on it. "cards/"
-// and a card's code opens the art viewer on that card.
+// and a card's code opens the art viewer on that card, and "matches/" and the start of a
+// game's fingerprint opens that match.
 var pages = []pageDef{
 	{id: page.Overview, icon: kit.IconOverview, label: "Overview", games: true, draw: func(v *view, c *ui.Context) {
 		overview.Draw(c, &v.Env, func() { v.settings.ShortcutCard(c, &v.Env) })
 	}, head: func(v *view, c *ui.Context) { v.formats.DebutBanner(c, &v.Env) }},
-	{id: page.Matches, icon: kit.IconMatches, label: "Matches", games: true, draw: func(v *view, c *ui.Context) { v.matches.Draw(c, &v.Env) }},
+	{
+		id: page.Matches, icon: kit.IconMatches, label: "Matches", games: true, draw: func(v *view, c *ui.Context) { v.matches.Draw(c, &v.Env) },
+		any: "<fingerprint>", open: func(v *view, fp string) {
+			for _, m := range v.Snap.Matches {
+				if strings.HasPrefix(m.Fingerprint, fp) {
+					v.matches.OpenMatch(&v.Env, m)
+					return
+				}
+			}
+		},
+	},
 	{
 		id: page.Decks, icon: kit.IconLeaders, label: "Decks", games: true, draw: func(v *view, c *ui.Context) { v.decks.Draw(c, &v.Env) },
 		subs: deckPageSubs(), open: func(v *view, sub string) { v.decks.Open(&v.Env, sub) },

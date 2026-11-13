@@ -41,6 +41,9 @@ type Actions interface {
 	FindSim()
 	OpenPath(path string)
 	ShowFile(path string)
+	// ChooseFolder asks for a folder, starting in start, and gives it to picked on the main
+	// thread.
+	ChooseFolder(title, start string, picked func(path string))
 	// ImportAgain reads every log in the sim's folder and adds what's missing.
 	ImportAgain()
 	RefreshCards()
@@ -123,6 +126,7 @@ func (pg *Page) Draw(c *ui.Context, e *page.Env) {
 			ui.Row(c).Gap(16).AlignItems(ui.Start).Children(func() {
 				ui.Column(c).Grow(1).Basis(0).Gap(16).Children(func() {
 					kit.Panel(c).Padding(14, 16).Gap(4).Children(func() { pg.youSettings(c) })
+					kit.Panel(c).Padding(14, 16).Gap(4).Children(func() { pg.simSavesSettings(c, e) })
 					kit.Panel(c).Padding(14, 16).Gap(4).Children(func() { pg.artSettings(c, e) })
 				})
 				kit.Panel(c).Grow(1).Basis(0).Padding(14, 16).Gap(4).Children(func() {
@@ -413,6 +417,39 @@ var artCapLabels = func() []string {
 	return out
 }()
 
+func (pg *Page) simSavesSettings(c *ui.Context, e *page.Env) {
+	t := c.Theme()
+	ui.Text(c, "Sim saves").FontSize(13).FontWeight(600)
+	ui.Text(c, "Export to sim writes matches here. Open one with LoadState From File in the sim.").
+		FontSize(12).TextColor(t.TextMuted).Wrap()
+	dir := e.Prefs.SimSaves
+	if dir == "" {
+		dir = pg.Info.SimSavesDefault
+	}
+	prefRow(c, "Folder", dir, func() {
+		ui.Row(c).Gap(6).Children(func() {
+			if ui.Button(c, "Change…").Label("Change the sim saves folder").Clicked() {
+				pg.do(func(a Actions) {
+					a.ChooseFolder("Choose where to export matches for the sim", dir, func(path string) {
+						if path == pg.Info.SimSavesDefault {
+							path = ""
+						}
+						page.PrefSimSaves.Set(e, path)
+					})
+				})
+			}
+			if ui.Button(c, "Show").Label("Show the sim saves folder").Clicked() {
+				pg.do(func(a Actions) { a.OpenPath(dir) })
+			}
+		})
+	})
+	if e.Prefs.SimSaves != "" {
+		if ui.Button(c, "Use the default folder").Label("Use the default sim saves folder").Clicked() {
+			page.PrefSimSaves.Set(e, "")
+		}
+	}
+}
+
 // switchRow is prefRow with a switch, where a click anywhere on the row flips it. It reports
 // whether the switch changed.
 func switchRow(c *ui.Context, label, sub string, on *bool, disabled bool) bool {
@@ -490,6 +527,8 @@ type Info struct {
 	DBPath string
 	// ArtDir is the card art folder, empty when there's none.
 	ArtDir string
+	// SimSavesDefault is where Export to sim writes until the user picks a folder.
+	SimSavesDefault string
 	// DBFolder is the database's folder, short for the page.
 	DBFolder string
 	DBSize   int64

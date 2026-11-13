@@ -67,6 +67,12 @@ func (f *fakeActions) OpenReplay(fingerprint string, _ *simlog.Game) {
 	f.replays = append(f.replays, fingerprint)
 }
 
+func (f *fakeActions) ExportToSim(fingerprint, _ string, _ *simlog.Game) {
+	f.calls = append(f.calls, "export "+fingerprint)
+}
+
+func (*fakeActions) ChooseFolder(string, string, func(string)) {}
+
 func (f *fakeActions) NewDay() { f.newDays++ }
 
 // After keeps the timer for a spec to fire with fire.

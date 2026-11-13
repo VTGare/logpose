@@ -126,15 +126,21 @@ func (pg *Page) MatchPage(c *ui.Context, e *page.Env) {
 				})
 				ui.Text(c, "/").TextColor(kit.FaintColor(t))
 				ui.Text(c, e.Weekday(m.PlayedAt)+", "+m.PlayedAt.Format("15:04")).Bold()
+				pg.bookmarkStar(c, m)
 				ui.Spacer(c)
 				if stats.CanBeRanked(m.Game) {
 					pg.typeSelect(c, m)
 				}
-				if !pg.noteShown() && kit.IconButton(c, kit.IconNote, "Add note").Label("Add note").Clicked() {
-					pg.Detail.noteOpen = true
-					pg.Detail.focusNote = true
+				if !pg.noteShown() {
+					note := ui.Button(c, "").Label("Add note").Tooltip("Add note").Padding(t.Space(1.5)).Children(func() {
+						ui.Icon(c, kit.IconNote)
+					})
+					if note.Clicked() {
+						pg.Detail.noteOpen = true
+						pg.Detail.focusNote = true
+					}
 				}
-				pg.bookmarkButton(c, m)
+				pg.exportButton(c, e, m)
 				pg.replayButton(c, e, m)
 			})
 			faceOff(c, e, m)
@@ -278,17 +284,59 @@ func (pg *Page) replayButton(c *ui.Context, e *page.Env, m stats.Match) {
 	}
 }
 
-func (pg *Page) bookmarkButton(c *ui.Context, m stats.Match) {
-	var b ui.Element
+func (pg *Page) bookmarkStar(c *ui.Context, m stats.Match) {
+	t := c.Theme()
+	label, icon, color := "Bookmark", kit.IconStar, t.TextMuted
 	if m.Bookmarked {
-		b = ui.Button(c, "").Label("Bookmarked").Children(func() {
-			ui.Icon(c, kit.IconStarSet).TextColor(kit.BookmarkColor)
-			ui.Text(c, "Bookmarked").SingleLine()
-		})
-	} else {
-		b = kit.IconButton(c, kit.IconStar, "Bookmark").Label("Bookmark")
+		label, icon, color = "Remove bookmark", kit.IconStarSet, kit.BookmarkColor
 	}
+	b := ui.ButtonBase(c).Label(label).Tooltip(label).Padding(5).Radius(6).Children(func() {
+		ui.Icon(c, icon).TextColor(color)
+	})
 	if b.Clicked() {
 		pg.do(func(a Actions) { a.SetBookmark(m.Fingerprint, !m.Bookmarked) })
 	}
+}
+
+const exportTip = "Save this match as a file for LoadState From File in the sim"
+
+func (pg *Page) exportButton(c *ui.Context, e *page.Env, m stats.Match) {
+	l := pg.Detail.timeline
+	b := ui.Button(c, "").Label("Export to sim").Children(func() {
+		ui.Icon(c, kit.IconSave)
+		ui.Text(c, "Export to sim").SingleLine()
+	})
+	switch {
+	case l == nil:
+		b.Disabled(true).Tooltip("Reading the log")
+	case !l.Replayable:
+		b.Disabled(true).Tooltip(noMovesText)
+	default:
+		b.Tooltip(exportTip)
+		if b.Clicked() {
+			pg.exportToSim(e, m)
+		}
+	}
+}
+
+func (pg *Page) exportToSim(e *page.Env, m stats.Match) {
+	var g *simlog.Game
+	if l := pg.Detail.timeline; l != nil && l.Fingerprint == m.Fingerprint {
+		g = l.Game
+	}
+	name := SimSaveName(e, m)
+	pg.do(func(a Actions) { a.ExportToSim(m.Fingerprint, name, g) })
+}
+
+// SimSaveName is the file name the sim's own saves use, with the time added so two games on
+// one day get two files.
+func SimSaveName(e *page.Env, m stats.Match) string {
+	side := func(p store.GamePlayer) string { return e.Snap.Card(p.Leader).Name + " (" + p.Leader + ")" }
+	name := side(m.Me) + " vs " + side(m.Opp) + " - " + m.PlayedAt.Format("2006-01-02 15.04") + ".json"
+	return strings.Map(func(r rune) rune {
+		if strings.ContainsRune(`<>:"/\|?*`, r) || r < ' ' {
+			return -1
+		}
+		return r
+	}, name)
 }

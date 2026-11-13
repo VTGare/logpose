@@ -24,6 +24,9 @@ type Card struct {
 	played, attacked int
 }
 
+// Played is the turn the card came onto the board.
+func (c Card) Played() int { return c.played }
+
 type Side struct {
 	// Player is the player's ID, or "" when the log doesn't link the owner to a player.
 	Player     string
