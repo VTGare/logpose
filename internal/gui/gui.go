@@ -10,6 +10,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/VTGare/logpose/internal/gui/cardspage"
+
+	"github.com/VTGare/logpose/internal/gui/matches"
+
+	"github.com/VTGare/logpose/internal/gui/page"
+
+	"github.com/VTGare/logpose/internal/gui/kit"
+
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
@@ -67,7 +75,7 @@ type app struct {
 	refreshMu sync.Mutex
 	// prefs are the ones the app follows, which applyPrefs changes.
 	prefsMu sync.Mutex
-	prefs   prefs
+	prefs   page.Prefs
 
 	simMu     sync.Mutex
 	inst      *sim.Install
@@ -114,7 +122,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	a := &app{opts: opts, inst: opts.Install, web: arts.NewStore(opts.ArtDir)}
 	a.gallery = openGallery(opts, a.web)
-	if err := registerFonts(); err != nil {
+	if err := kit.RegisterFonts(); err != nil {
 		opts.Log.Warn("fonts", "err", err)
 	}
 	mygo.App.WhenReady(func() { a.ready(ctx) })
@@ -147,7 +155,7 @@ func (a *app) ready(ctx context.Context) {
 	if err != nil {
 		a.opts.Log.Warn("settings", "err", err)
 	}
-	a.view.setPrefs(prefsFrom(set))
+	a.view.setPrefs(page.PrefsFrom(set))
 	a.view.setSystem(a.readSystem())
 	title := "logpose"
 	if a.opts.Dev {
@@ -159,16 +167,16 @@ func (a *app) ready(ctx context.Context) {
 		Height:    780,
 		MinWidth:  900,
 		MinHeight: 600,
-		Hidden:    a.view.prefs.startHidden && mygo.App.WasOpenedAtLogin(),
+		Hidden:    a.view.Prefs.StartHidden && mygo.App.WasOpenedAtLogin(),
 		Content:   ui.View(a.view.build),
 	})
 	a.resetArtCache()
-	a.applyPrefs(ctx, a.view.prefs)
+	a.applyPrefs(ctx, a.view.Prefs)
 	a.win.OnClose(func(e *mygo.CloseEvent) {
 		if a.quitting {
 			return
 		}
-		if a.applied().closeQuits {
+		if a.applied().CloseQuits {
 			a.quitting = true
 			mygo.App.Quit()
 			return
@@ -212,7 +220,7 @@ func (a *app) setInstall(ctx context.Context, in sim.Install, chosen bool) error
 	a.pack, a.cards = nil, nil
 	a.cardsMu.Unlock()
 	a.resetArtCache()
-	a.win.Update(func() { a.view.cards.resetSimArt() })
+	a.win.Update(func() { a.view.cards.ResetSimArt() })
 	a.watch(ctx)
 	a.refresh(ctx)
 	return nil
@@ -309,7 +317,7 @@ func (a *app) refreshCatalog(ctx context.Context, force bool) error {
 	}
 	printings, berr := a.refreshBandai(ctx, force)
 	if changed || printings {
-		a.win.Update(func() { a.view.cards.resetArts() })
+		a.win.Update(func() { a.view.cards.ResetArts() })
 	}
 	return errors.Join(err, berr)
 }
@@ -325,9 +333,9 @@ func (a *app) refreshBandai(ctx context.Context, force bool) (bool, error) {
 		return false, nil
 	}
 	changed, err := a.gallery.Refresh(ctx, now, func(done, total int) {
-		a.win.Update(func() { a.view.setArtSync(artSync{done, total}) })
+		a.win.Update(func() { a.view.setArtSync(cardspage.ArtSync{Done: done, Total: total}) })
 	})
-	a.win.Update(func() { a.view.setArtSync(artSync{}) })
+	a.win.Update(func() { a.view.setArtSync(cardspage.ArtSync{}) })
 	if err != nil {
 		a.opts.Log.Warn("refresh bandai card list", "err", err)
 		return changed, err
@@ -416,7 +424,7 @@ func (a *app) refresh(ctx context.Context) {
 	})
 }
 
-func (a *app) load(ctx context.Context) (*snapshot, error) {
+func (a *app) load(ctx context.Context) (*page.Snapshot, error) {
 	st := a.opts.Store
 	me, err := st.LocalPlayers(ctx)
 	if err != nil {
@@ -439,7 +447,7 @@ func (a *app) load(ctx context.Context) (*snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	dismissed, err := st.Setting(ctx, keyDismissedSets)
+	dismissed, err := st.Setting(ctx, page.KeyDismissedSets)
 	if err != nil {
 		return nil, err
 	}
@@ -449,7 +457,7 @@ func (a *app) load(ctx context.Context) (*snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &snapshot{
+	return &page.Snapshot{
 		Decks:     decks.games,
 		Builds:    decks.builds,
 		Dismissed: decks.dismissed,
@@ -459,7 +467,7 @@ func (a *app) load(ctx context.Context) (*snapshot, error) {
 		Overview:  stats.BuildOverview(ms, now),
 		Cards:     db,
 		Formats:   stats.Ranges(formats),
-		Debuts:    stats.Debuts(ms, formats, splitList(dismissed)),
+		Debuts:    stats.Debuts(ms, formats, page.SplitList(dismissed)),
 		Stored:    len(games),
 	}, nil
 }
@@ -536,7 +544,7 @@ func (a *app) quit() {
 // resetArtCache drops the card images decoded so far, for another sim folder or art source.
 func (a *app) resetArtCache() {
 	in := a.install()
-	a.win.Update(func() { a.view.setArtCache(newArtCache(in, a.web, a.win.Update)) })
+	a.win.Update(func() { a.view.setArtCache(page.NewArtCache(in, a.web, a.win.Update)) })
 }
 
 // appActions makes the view's changes on a goroutine, then shows the result.
@@ -571,8 +579,8 @@ func (x *appActions) DeleteFormat(id int64) {
 
 func (x *appActions) DismissSet(set string) {
 	x.run("dismiss set", func(ctx context.Context, st *store.Store) error {
-		return st.ChangeSetting(ctx, keyDismissedSets, func(cur string) string {
-			return joinList(append(splitList(cur), set))
+		return st.ChangeSetting(ctx, page.KeyDismissedSets, func(cur string) string {
+			return page.JoinList(append(page.SplitList(cur), set))
 		})
 	})
 }
@@ -609,7 +617,7 @@ func (x *appActions) DismissSuggestion(d store.Dismissal) {
 
 func (x *appActions) LoadTimeline(fingerprint, me, opp string) {
 	go func() {
-		l := matchTimeline{Fingerprint: fingerprint}
+		l := matches.MatchTimeline{Fingerprint: fingerprint}
 		if g, err := x.parseGame(fingerprint); err != nil {
 			x.a.opts.Log.Warn("read match log", "err", err)
 			l.Err = err
@@ -623,7 +631,7 @@ func (x *appActions) LoadTimeline(fingerprint, me, opp string) {
 			l.Marks = g.Marks()
 			l.Replayable = g.HasRZ()
 		}
-		x.a.win.Update(func() { x.a.view.matches.setTimeline(l) })
+		x.a.win.Update(func() { x.a.view.matches.SetTimeline(l) })
 	}()
 }
 
@@ -631,10 +639,10 @@ func (x *appActions) LoadTimeline(fingerprint, me, opp string) {
 func (x *appActions) OpenReplay(fingerprint string, g *simlog.Game) {
 	x.a.win.Maximize()
 	go func() {
-		l := loadedReplay{Fingerprint: fingerprint, Game: g}
+		l := matches.LoadedReplay{Fingerprint: fingerprint, Game: g}
 		db := x.a.cardDB().DB
 		l.Replay, l.Err = replay.Build(g, func(code string) int { return db.Card(code).Power })
-		x.a.win.Update(func() { x.a.view.matches.setReplay(l) })
+		x.a.win.Update(func() { x.a.view.matches.SetReplay(l) })
 	}()
 }
 

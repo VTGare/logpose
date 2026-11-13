@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/VTGare/logpose/internal/gui/page"
+
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/shortcut"
 	"github.com/VTGare/logpose/internal/sim"
@@ -31,7 +33,7 @@ type fakeActions struct {
 	builds     []store.Build
 	deleted    []int64
 	dismissals []store.Dismissal
-	applied    []prefs
+	applied    []page.Prefs
 	newDays    int
 }
 
@@ -99,20 +101,20 @@ func (f *fakeActions) SetShortcut(place shortcut.Place, on bool) {
 	name := map[shortcut.Place]string{shortcut.StartMenu: "start menu", shortcut.Desktop: "desktop"}[place]
 	f.calls = append(f.calls, fmt.Sprintf("%s shortcut %t", name, on))
 }
-func (f *fakeActions) CheckUpdate()         { f.calls = append(f.calls, "check update") }
-func (f *fakeActions) InstallUpdate()       { f.calls = append(f.calls, "install update") }
-func (f *fakeActions) RestartToUpdate()     { f.calls = append(f.calls, "restart to update") }
-func (f *fakeActions) ChooseSimFolder()     { f.calls = append(f.calls, "choose sim") }
-func (f *fakeActions) FindSim()             { f.calls = append(f.calls, "find sim") }
-func (f *fakeActions) OpenPath(path string) { f.calls = append(f.calls, "open "+path) }
-func (f *fakeActions) ShowFile(path string) { f.calls = append(f.calls, "show "+path) }
-func (f *fakeActions) ImportAgain()         { f.calls = append(f.calls, "import") }
-func (f *fakeActions) RefreshCards()        { f.calls = append(f.calls, "refresh cards") }
-func (f *fakeActions) Backup()              { f.calls = append(f.calls, "backup") }
-func (f *fakeActions) LoadArtUsage()        { f.usageLoads++ }
-func (f *fakeActions) LoadSettings()        { f.settingsLoads++ }
-func (f *fakeActions) ClearArt()            { f.calls = append(f.calls, "clear art") }
-func (f *fakeActions) ApplyPrefs(p prefs)   { f.applied = append(f.applied, p) }
+func (f *fakeActions) CheckUpdate()            { f.calls = append(f.calls, "check update") }
+func (f *fakeActions) InstallUpdate()          { f.calls = append(f.calls, "install update") }
+func (f *fakeActions) RestartToUpdate()        { f.calls = append(f.calls, "restart to update") }
+func (f *fakeActions) ChooseSimFolder()        { f.calls = append(f.calls, "choose sim") }
+func (f *fakeActions) FindSim()                { f.calls = append(f.calls, "find sim") }
+func (f *fakeActions) OpenPath(path string)    { f.calls = append(f.calls, "open "+path) }
+func (f *fakeActions) ShowFile(path string)    { f.calls = append(f.calls, "show "+path) }
+func (f *fakeActions) ImportAgain()            { f.calls = append(f.calls, "import") }
+func (f *fakeActions) RefreshCards()           { f.calls = append(f.calls, "refresh cards") }
+func (f *fakeActions) Backup()                 { f.calls = append(f.calls, "backup") }
+func (f *fakeActions) LoadArtUsage()           { f.usageLoads++ }
+func (f *fakeActions) LoadSettings()           { f.settingsLoads++ }
+func (f *fakeActions) ClearArt()               { f.calls = append(f.calls, "clear art") }
+func (f *fakeActions) ApplyPrefs(p page.Prefs) { f.applied = append(f.applied, p) }
 
 func (f *fakeActions) LoadSimArt(card cards.Card) {
 	f.calls = append(f.calls, "load art "+card.Code)

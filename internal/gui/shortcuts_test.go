@@ -3,6 +3,10 @@ package gui
 import (
 	"github.com/egoist/mygo/ui"
 
+	"github.com/VTGare/logpose/internal/gui/settings"
+
+	"github.com/VTGare/logpose/internal/gui/page"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -16,7 +20,7 @@ var _ = Describe("shortcuts", func() {
 		v, tt := tester(testSnapshot(10))
 		fa := &fakeActions{}
 		v.setActions(fa)
-		v.setSystem(systemState{canShortcut: true})
+		v.setSystem(settings.System{CanShortcut: true})
 		tt.Frame()
 		click := func(label string) {
 			GinkgoHelper()
@@ -30,7 +34,7 @@ var _ = Describe("shortcuts", func() {
 	It("adds both shortcuts from the offer on the Overview and doesn't offer again", func() {
 		tt, fa, click := offer()
 		click("Add")
-		Expect(fa.calls).To(Equal([]string{"start menu shortcut true", "desktop shortcut true", keyShortcutsOffered + "=1"}))
+		Expect(fa.calls).To(Equal([]string{"start menu shortcut true", "desktop shortcut true", page.KeyShortcutsOffered + "=1"}))
 		Expect(tt.HasText(offerTitle)).To(BeFalse())
 	})
 
@@ -38,20 +42,20 @@ var _ = Describe("shortcuts", func() {
 		_, fa, click := offer()
 		click("Desktop")
 		click("Add")
-		Expect(fa.calls).To(Equal([]string{"start menu shortcut true", keyShortcutsOffered + "=1"}))
+		Expect(fa.calls).To(Equal([]string{"start menu shortcut true", page.KeyShortcutsOffered + "=1"}))
 	})
 
 	It("adds nothing on Not now", func() {
 		_, fa, click := offer()
 		click("Not now")
-		Expect(fa.calls).To(Equal([]string{keyShortcutsOffered + "=1"}))
+		Expect(fa.calls).To(Equal([]string{page.KeyShortcutsOffered + "=1"}))
 	})
 
 	It("doesn't offer what Windows can't make, or what's already there", func() {
 		v, tt := tester(testSnapshot(10))
 		tt.Frame()
 		Expect(tt.HasText(offerTitle)).To(BeFalse())
-		v.setSystem(systemState{canShortcut: true, shortcuts: [2]bool{shortcut.StartMenu: true, shortcut.Desktop: true}})
+		v.setSystem(settings.System{CanShortcut: true, Shortcuts: [2]bool{shortcut.StartMenu: true, shortcut.Desktop: true}})
 		tt.Frame()
 		Expect(tt.HasText(offerTitle)).To(BeFalse())
 	})
@@ -61,12 +65,12 @@ var _ = Describe("shortcuts", func() {
 		st.tt.SetSize(1180, 1100)
 		Expect(st.has("Start with Windows")).To(BeTrue())
 		Expect(st.has("Desktop shortcut")).To(BeFalse())
-		st.v.setSystem(systemState{canShortcut: true, shortcuts: [2]bool{shortcut.StartMenu: true}})
+		st.v.setSystem(settings.System{CanShortcut: true, Shortcuts: [2]bool{shortcut.StartMenu: true}})
 		st.tt.Frame()
 		st.click("Desktop shortcut")
 		st.click("Start menu shortcut")
 		Expect(st.fa.calls).To(Equal([]string{
-			"desktop shortcut true", keyShortcutsOffered + "=1", "start menu shortcut false",
+			"desktop shortcut true", page.KeyShortcutsOffered + "=1", "start menu shortcut false",
 		}))
 	})
 })

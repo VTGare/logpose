@@ -3,6 +3,8 @@ package gui
 import (
 	"fmt"
 
+	"github.com/VTGare/logpose/internal/gui/page"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -10,7 +12,7 @@ import (
 var _ = Describe("turn order and result filters", func() {
 	// mixedTurns has 10 games, 5–5. The first 4 went second, 2–2, and the last one's log doesn't
 	// say who went first.
-	mixedTurns := func() *snapshot {
+	mixedTurns := func() *page.Snapshot {
 		s := testSnapshot(10)
 		for i := range 4 {
 			s.Matches[i].WentFirst = false

@@ -3,6 +3,8 @@ package gui
 import (
 	"fmt"
 
+	"github.com/VTGare/logpose/internal/gui/kit"
+
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/live"
@@ -13,13 +15,13 @@ import (
 // liveStrip is the game running in the sim right now: the lobby while it waits, then the
 // opponent, your history against them, and both players' life and hand.
 func (v *view) liveStrip(c *ui.Context) {
-	if v.matches.detail.replay != nil {
+	if v.matches.Detail.Replay != nil {
 		return
 	}
 	s := v.live
 	t := c.Theme()
-	panel(c).Row().Margin(16, 20, 0, 20).Padding(12, 16).Gap(20).AlignItems(ui.Center).Children(func() {
-		ui.Box(c).Size(8, 8).Radius(4).Background(winColor(t))
+	kit.Panel(c).Row().Margin(16, 20, 0, 20).Padding(12, 16).Gap(20).AlignItems(ui.Center).Children(func() {
+		ui.Box(c).Size(8, 8).Radius(4).Background(kit.WinColor(t))
 		if s.Phase == live.Lobby {
 			ui.Text(c, lobbyStatus(s)).Bold()
 			ui.Box(c).Grow(1)
@@ -65,21 +67,21 @@ func (v *view) livePlayers(c *ui.Context, s live.State) {
 	}
 	mine := me.Leader
 	if mine == "" {
-		mine = v.snap.Overview.Deck
+		mine = v.Snap.Overview.Deck
 	}
-	vs := stats.VersusFor(v.snap.Matches, mine, opp.Leader, opp.ID)
+	vs := stats.VersusFor(v.Snap.Matches, mine, opp.Leader, opp.ID)
 
 	ui.Column(c).Gap(4).Children(func() {
 		ui.Text(c, "vs "+nameOf(opp.ID)).Bold().SingleLine()
 		if opp.Leader != "" {
-			v.leaderName(c, opp.Leader)
+			v.LeaderName(c, opp.Leader)
 		} else {
 			ui.Text(c, "Leader not in the sim's log").FontSize(12).TextColor(t.TextMuted)
 		}
 	})
 	if opp.Leader != "" && mine != "" {
 		ui.Column(c).Gap(4).Children(func() {
-			label := fmt.Sprintf("With %s vs %s", v.snap.card(mine).Name, v.snap.card(opp.Leader).Name)
+			label := fmt.Sprintf("With %s vs %s", v.Snap.Card(mine).Name, v.Snap.Card(opp.Leader).Name)
 			ui.Text(c, label).FontSize(12).TextColor(t.TextMuted).SingleLine()
 			ui.Text(c, matchupLine(vs.Matchup)).Bold()
 			if line := turnOrderLine(s, me, vs.TurnOrder); line != "" {
@@ -90,7 +92,7 @@ func (v *view) livePlayers(c *ui.Context, s live.State) {
 	if vs.Player.Games() > 0 {
 		ui.Column(c).Gap(4).Children(func() {
 			ui.Text(c, "Against "+nameOf(opp.ID)).FontSize(12).TextColor(t.TextMuted)
-			ui.Text(c, record(vs.Player)).Bold()
+			ui.Text(c, kit.Record(vs.Player)).Bold()
 		})
 	}
 }
@@ -100,9 +102,9 @@ func matchupLine(r stats.Record) string {
 		return "First time"
 	}
 	if rate, ok := r.Rate(); ok {
-		return fmt.Sprintf("%s · %s", record(r), pct(rate))
+		return fmt.Sprintf("%s · %s", kit.Record(r), kit.Pct(rate))
 	}
-	return record(r)
+	return kit.Record(r)
 }
 
 // turnOrderLine is your record in this game's turn order once it's known, or both before.
@@ -112,11 +114,11 @@ func turnOrderLine(s live.State, me live.Player, o stats.TurnOrder) string {
 		if o.First.Games()+o.Second.Games() == 0 {
 			return ""
 		}
-		return fmt.Sprintf("First %s · Second %s", record(o.First), record(o.Second))
+		return fmt.Sprintf("First %s · Second %s", kit.Record(o.First), kit.Record(o.Second))
 	case me.ID:
-		return "Going first · " + record(o.First)
+		return "Going first · " + kit.Record(o.First)
 	default:
-		return "Going second · " + record(o.Second)
+		return "Going second · " + kit.Record(o.Second)
 	}
 }
 

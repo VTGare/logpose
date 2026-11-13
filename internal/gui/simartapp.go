@@ -11,6 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/VTGare/logpose/internal/gui/cardspage"
+
+	"github.com/VTGare/logpose/internal/gui/page"
+
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
@@ -35,23 +39,23 @@ func (a *app) simArt() *sim.SimArt {
 
 // readSimArt is what the sim shows for the card. A file of the user's is compared with the
 // card's printings once, so one that is a printing shows as that printing.
-func (a *app) readSimArt(ctx context.Context, card cards.Card) simArtInfo {
+func (a *app) readSimArt(ctx context.Context, card cards.Card) cardspage.SimArtInfo {
 	art := a.simArt()
 	if art == nil {
-		return simArtInfo{noSim: true}
+		return cardspage.SimArtInfo{NoSim: true}
 	}
 	cur, err := art.Current(card.Code)
 	if err != nil {
-		return simArtInfo{err: "Couldn't read the sim's art: " + err.Error()}
+		return cardspage.SimArtInfo{Err: "Couldn't read the sim's art: " + err.Error()}
 	}
 	if cur.Kind == sim.ArtFile && a.firstMatch(card.Code) {
-		if img, err := decode(art.Install.Override(card.Code)); err == nil {
+		if img, err := page.Decode(art.Install.Override(card.Code)); err == nil {
 			if key, ok := a.gallery.Match(ctx, card, img); ok && art.Matched(card.Code, key.String()) == nil {
 				cur = sim.ArtChoice{Kind: sim.ArtPrint, Key: key.String()}
 			}
 		}
 	}
-	return simArtInfo{cur: cur, ownFile: art.OwnFile(card.Code)}
+	return cardspage.SimArtInfo{Cur: cur, OwnFile: art.OwnFile(card.Code)}
 }
 
 // firstMatch reports whether the card's file hasn't been compared yet this run.
@@ -69,13 +73,13 @@ func (a *app) firstMatch(code string) bool {
 func (x *appActions) LoadSimArt(card cards.Card) {
 	go func() {
 		info := x.a.readSimArt(x.ctx, card)
-		x.a.win.Update(func() { x.a.view.cards.setSimArt(card.Code, info) })
+		x.a.win.Update(func() { x.a.view.cards.SetSimArt(card.Code, info) })
 	}()
 }
 
 func (x *appActions) LoadArts(card cards.Card, gen int) {
 	go x.a.gallery.Arts(x.ctx, card, func(ca arts.CardArts) {
-		x.a.win.Update(func() { x.a.view.cards.setArts(gen, card.Code, ca) })
+		x.a.win.Update(func() { x.a.view.cards.SetArts(gen, card.Code, ca) })
 	})
 }
 
@@ -85,7 +89,7 @@ func (x *appActions) ScanSimArt() {
 		if in := x.a.install(); in != nil {
 			codes = in.Overrides()
 		}
-		x.a.win.Update(func() { x.a.view.cards.setSimArtChanged(codes) })
+		x.a.win.Update(func() { x.a.view.cards.SetSimArtChanged(codes) })
 	}()
 }
 
@@ -96,7 +100,7 @@ func (x *appActions) UseSimArt(card cards.Card, choice, prev sim.ArtChoice) {
 		if err != nil {
 			x.a.opts.Log.Warn("sim art", "card", card.Code, "err", err)
 		}
-		x.a.win.Update(func() { x.a.view.cards.simArtDone(&x.a.view.env, card, choice, info, prev, err) })
+		x.a.win.Update(func() { x.a.view.cards.SimArtDone(&x.a.view.Env, card, choice, info, prev, err) })
 	}()
 }
 
@@ -114,7 +118,7 @@ func (a *app) useSimArt(card cards.Card, choice sim.ArtChoice) error {
 	if a.web == nil {
 		return arts.ErrNoPicture
 	}
-	img, err := artRef{refPrint, choice.Key}.read(nil, a.web, artLarge, false)
+	img, err := page.PrintRef(choice.Key).Read(nil, a.web, page.ArtLarge, false)
 	if err != nil {
 		return fmt.Errorf("download %s: %w", choice.Key, err)
 	}
@@ -122,7 +126,7 @@ func (a *app) useSimArt(card cards.Card, choice sim.ArtChoice) error {
 }
 
 func (a *app) artImage(key string) (image.Image, error) {
-	return parseArtRef(key).read(a.install(), a.web, artLarge, false)
+	return page.ParseArtRef(key).Read(a.install(), a.web, page.ArtLarge, false)
 }
 
 func (x *appActions) SaveArt(key string) {
@@ -135,7 +139,7 @@ func (x *appActions) SaveArt(key string) {
 		dir, _ := os.UserHomeDir()
 		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
 			Parent: x.a.win, Title: "Save the card's picture", ButtonLabel: "Save",
-			DefaultPath: filepath.Join(dir, "Pictures", parseArtRef(key).fileName()),
+			DefaultPath: filepath.Join(dir, "Pictures", page.ParseArtRef(key).FileName()),
 			Filters:     []mygo.FileFilter{{Name: "PNG image", Extensions: []string{"png"}}},
 		})
 		if err != nil || path == "" {

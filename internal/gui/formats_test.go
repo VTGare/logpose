@@ -3,6 +3,10 @@ package gui
 import (
 	"time"
 
+	"github.com/VTGare/logpose/internal/gui/matches"
+
+	"github.com/VTGare/logpose/internal/gui/page"
+
 	"github.com/egoist/mygo/ui"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -14,7 +18,7 @@ import (
 
 var _ = Describe("formats", func() {
 	// withFormats splits the 10 test games, an hour apart, at 4 hours ago.
-	withFormats := func() *snapshot {
+	withFormats := func() *page.Snapshot {
 		s := testSnapshot(10)
 		s.Formats = stats.Ranges([]store.Format{
 			{ID: 1, Name: "Old format", Start: now.Add(-48 * time.Hour)},
@@ -23,9 +27,9 @@ var _ = Describe("formats", func() {
 		return s
 	}
 
-	latestFirst := func(s *snapshot) *ui.Tester {
+	latestFirst := func(s *page.Snapshot) *ui.Tester {
 		v, tt := tester(s)
-		v.setPrefs(prefsFrom(map[string]string{keyStartFormat: startLatest}))
+		v.setPrefs(page.PrefsFrom(map[string]string{page.KeyStartFormat: page.StartLatest}))
 		tt.Frame()
 		return tt
 	}
@@ -57,7 +61,7 @@ var _ = Describe("formats", func() {
 
 	It("lists formats with their games, and the games before the first", func() {
 		v, tt := tester(withFormats())
-		v.page = pageFormats
+		v.Page = page.Formats
 		tt.Frame()
 		Expect(tt.HasText("New format")).To(BeTrue())
 		Expect(tt.HasText("4 games ranked · 2–2")).To(BeTrue(), "%v", tt.Texts())
@@ -67,7 +71,7 @@ var _ = Describe("formats", func() {
 		v, tt := tester(withFormats())
 		fa := &fakeActions{}
 		v.setActions(fa)
-		v.page = pageFormats
+		v.Page = page.Formats
 		tt.Frame()
 		Expect(tt.Click("Add")).To(Succeed())
 		Expect(tt.HasText("Give the format a name.")).To(BeTrue())
@@ -98,12 +102,12 @@ var _ = Describe("gameType", func() {
 	It("names the ranked room by its letter, and the sim's format for casual games", func() {
 		var m stats.Match
 		m.Ranked, m.Lobby.Code = true, "EABCDEF"
-		Expect(gameType(m)).To(Equal("Ranked · Extra Regulation"))
+		Expect(matches.GameType(m)).To(Equal("Ranked · Extra Regulation"))
 		m.Lobby.Code = "WABCDEF"
-		Expect(gameType(m)).To(Equal("Ranked · Standard"))
+		Expect(matches.GameType(m)).To(Equal("Ranked · Standard"))
 		m.Lobby.Code = "UABCDEF"
-		Expect(gameType(m)).To(Equal("Ranked"))
+		Expect(matches.GameType(m)).To(Equal("Ranked"))
 		m.Ranked, m.Lobby.Code, m.SimFormat = false, "QWERTY", "Spoiler"
-		Expect(gameType(m)).To(Equal("Casual · Spoiler"))
+		Expect(matches.GameType(m)).To(Equal("Casual · Spoiler"))
 	})
 })

@@ -4,6 +4,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/VTGare/logpose/internal/gui/matches"
+
+	"github.com/VTGare/logpose/internal/gui/page"
+
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/simlog"
@@ -26,7 +30,7 @@ func hover(tt *ui.Tester, text string) {
 var _ = Describe("match detail", func() {
 	var fa *fakeActions
 
-	open := func(s *snapshot) (*view, *ui.Tester) {
+	open := func(s *page.Snapshot) (*view, *ui.Tester) {
 		v, tt := tester(s)
 		fa = &fakeActions{}
 		v.setActions(fa)
@@ -81,12 +85,12 @@ var _ = Describe("match detail", func() {
 
 	It("shows life, hand and board by turn once the log is read", func() {
 		v, tt := open(testSnapshot(3))
-		v.openMatch(v.snap.Matches[1])
-		v.matches.setTimeline(matchTimeline{Fingerprint: "0", Me: []int{9}})
+		v.OpenMatch(v.Snap.Matches[1])
+		v.matches.SetTimeline(matches.MatchTimeline{Fingerprint: "0", Me: []int{9}})
 		tt.Frame()
 		Expect(tt.HasText("Reading the log")).To(BeTrue())
 
-		v.matches.setTimeline(matchTimeline{
+		v.matches.SetTimeline(matches.MatchTimeline{
 			Fingerprint: "1",
 			Me:          []int{5, 5, 4}, Opp: []int{4, 3, 3},
 			MeHand: []int{5, 6, 4}, OppHand: []int{5, 7, 6},
@@ -111,7 +115,7 @@ var _ = Describe("match detail", func() {
 	It("bookmarks the match from its page", func() {
 		s := testSnapshot(3)
 		v, tt := open(s)
-		v.openMatch(s.Matches[0])
+		v.OpenMatch(s.Matches[0])
 		tt.Frame()
 		Expect(tt.Click("Bookmark")).To(Succeed())
 		Expect(fa.bookmarks).To(Equal([]string{"0=true"}))
@@ -138,8 +142,8 @@ var _ = Describe("match detail", func() {
 
 	It("says when the log doesn't track life", func() {
 		v, tt := open(testSnapshot(3))
-		v.openMatch(v.snap.Matches[0])
-		v.matches.setTimeline(matchTimeline{Fingerprint: "0"})
+		v.OpenMatch(v.Snap.Matches[0])
+		v.matches.SetTimeline(matches.MatchTimeline{Fingerprint: "0"})
 		tt.Frame()
 		Expect(tt.HasText("The log doesn't track life for this game.")).To(BeTrue())
 	})
@@ -147,7 +151,7 @@ var _ = Describe("match detail", func() {
 	It("sets the game type of a game in a room lobby from the top bar", func() {
 		s := testSnapshot(3)
 		v, tt := open(s)
-		v.openMatch(s.Matches[0])
+		v.OpenMatch(s.Matches[0])
 		tt.Frame()
 		Expect(tt.HasText("Auto: Ranked")).To(BeTrue())
 		Expect(tt.Click("Auto: Ranked")).To(Succeed())
@@ -164,7 +168,7 @@ var _ = Describe("match detail", func() {
 		ms := stats.Matches([]store.Game{s.Matches[0].Game, g}, me)
 		s.Matches[0] = ms[0]
 		v, tt := open(s)
-		v.openMatch(s.Matches[0])
+		v.OpenMatch(s.Matches[0])
 		tt.Frame()
 		hover(tt, "Auto: Friendly")
 		Expect(tt.HasText("Counted as a friendly, since its lobby has 2 games.")).To(BeTrue(), fmt.Sprint(tt.Texts()))
@@ -175,7 +179,7 @@ var _ = Describe("match detail", func() {
 		s.Matches[0].Lobby = simlog.Lobby{Code: "7KQ2MP"}
 		s.Matches[0].Ranked = false
 		v, tt := open(s)
-		v.openMatch(s.Matches[0])
+		v.OpenMatch(s.Matches[0])
 		tt.Frame()
 		Expect(tt.HasText("Game type")).To(BeFalse(), fmt.Sprint(tt.Texts()))
 		Expect(tt.HasText("Casual")).To(BeTrue())
@@ -184,7 +188,7 @@ var _ = Describe("match detail", func() {
 	It("saves the note when the box loses focus, and only once", func() {
 		s := testSnapshot(3)
 		v, tt := open(s)
-		v.openMatch(s.Matches[0])
+		v.OpenMatch(s.Matches[0])
 		tt.Frame()
 		Expect(tt.HasText("Match note")).To(BeFalse())
 		Expect(tt.Click("Add note")).To(Succeed())
@@ -203,7 +207,7 @@ var _ = Describe("match detail", func() {
 		s := testSnapshot(3)
 		s.Matches[1].Note = "old note"
 		v, tt := open(s)
-		v.openMatch(s.Matches[1])
+		v.OpenMatch(s.Matches[1])
 		tt.Frame()
 		Expect(tt.Click("Match note")).To(Succeed())
 		tt.Type(" and more")
@@ -216,8 +220,8 @@ var _ = Describe("match detail", func() {
 		s := testSnapshot(3)
 		s.Matches[0].End = simlog.End{Kind: simlog.EndLethal, Loser: "Opp#2"}
 		v, tt := open(s)
-		v.openMatch(s.Matches[0])
-		v.matches.setTimeline(matchTimeline{Fingerprint: "0", Moments: []simlog.Moment{
+		v.OpenMatch(s.Matches[0])
+		v.matches.SetTimeline(matches.MatchTimeline{Fingerprint: "0", Moments: []simlog.Moment{
 			{
 				Turn: 3, Player: me,
 				Reasons:    []simlog.Reason{{Kind: simlog.ReasonBoard, Player: me, N: 3}},
@@ -253,8 +257,8 @@ var _ = Describe("match detail", func() {
 
 	It("says when no turn stood out", func() {
 		v, tt := open(testSnapshot(3))
-		v.openMatch(v.snap.Matches[0])
-		v.matches.setTimeline(matchTimeline{Fingerprint: "0"})
+		v.OpenMatch(v.Snap.Matches[0])
+		v.matches.SetTimeline(matches.MatchTimeline{Fingerprint: "0"})
 		tt.Frame()
 		Expect(tt.HasText("Nothing stood out in this game.")).To(BeTrue())
 	})

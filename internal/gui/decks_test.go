@@ -3,6 +3,10 @@ package gui
 import (
 	"fmt"
 
+	"github.com/VTGare/logpose/internal/gui/decks"
+
+	"github.com/VTGare/logpose/internal/gui/page"
+
 	"github.com/egoist/mygo/ui"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -16,7 +20,7 @@ import (
 
 // deckSnapshot is testSnapshot's games with two lists. The even games, all wins, run W-1 and
 // search with Garp and Otama. The odd ones, all losses, search with Garp, Kid & Killer and Luffy.
-func deckSnapshot(builds ...store.Build) *snapshot {
+func deckSnapshot(builds ...store.Build) *page.Snapshot {
 	s := testSnapshot(10)
 	for code, name := range map[string]string{"GARP": "Garp", "OTA": "Otama", "KID": "Kid & Killer", "LUF": "Luffy"} {
 		s.Cards.Name(code, name)
@@ -238,9 +242,9 @@ var _ = Describe("Decks page", func() {
 	})
 
 	It("names the turn a card can first be paid for", func() {
-		Expect(curveText(10)).To(Equal("the turn with 10 DON!!, your 6th turn going first and 5th going second."))
-		Expect(curveText(6)).To(Equal("the turn with 6 DON!!, your 4th turn going first and 3rd going second."))
-		Expect(curveText(5)).To(Equal("the turn with 5 DON!!, your 3rd turn either way."))
+		Expect(decks.CurveText(10)).To(Equal("the turn with 10 DON!!, your 6th turn going first and 5th going second."))
+		Expect(decks.CurveText(6)).To(Equal("the turn with 6 DON!!, your 4th turn going first and 3rd going second."))
+		Expect(decks.CurveText(5)).To(Equal("the turn with 5 DON!!, your 3rd turn either way."))
 	})
 
 	It("shows a build's lists in a rail, the latest first, and any earlier one with its changes", func() {

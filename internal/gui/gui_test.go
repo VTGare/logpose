@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/VTGare/logpose/internal/gui/page"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -19,7 +21,7 @@ var _ = Describe("app.load", func() {
 		DeferCleanup(func() { Expect(st.Close()).To(Succeed()) })
 		a := &app{opts: Options{Store: st}}
 		var wg sync.WaitGroup
-		snaps := make([]*snapshot, 4)
+		snaps := make([]*page.Snapshot, 4)
 		for i := range snaps {
 			wg.Go(func() {
 				defer GinkgoRecover()

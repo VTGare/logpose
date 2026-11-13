@@ -3,6 +3,10 @@ package gui
 import (
 	"math/rand/v2"
 
+	"github.com/VTGare/logpose/internal/gui/decks"
+
+	"github.com/VTGare/logpose/internal/gui/page"
+
 	"github.com/egoist/mygo/ui"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -13,7 +17,7 @@ import (
 
 // handsSnapshot is deckSnapshot's games, all going first. The even ones, all wins, keep a hand
 // with Garp and Otama. The odd ones, all losses, are dealt Shanks with Garp and mulligan.
-func handsSnapshot() *snapshot {
+func handsSnapshot() *page.Snapshot {
 	s := deckSnapshot()
 	s.Cards.Name("SHK", "Shanks")
 	for i := range s.Matches {
@@ -90,20 +94,20 @@ var _ = Describe("Hands tab", func() {
 
 	It("says when there are too few games to compare", func() {
 		mu := stats.Mulligans{All: stats.KeepSplit{Kept: stats.Record{Wins: 3}}}
-		Expect(keepFinding(mu)).To(Equal("Too few games yet to compare kept hands with mulligans."))
+		Expect(decks.KeepFinding(mu)).To(Equal("Too few games yet to compare kept hands with mulligans."))
 	})
 
 	It("says when keeping made little difference either way", func() {
 		even := stats.KeepSplit{Kept: stats.Record{Wins: 3, Losses: 2}, Mulliganed: stats.Record{Wins: 3, Losses: 2}}
-		Expect(keepFinding(stats.Mulligans{First: even, Second: even})).To(Equal("Going first or second, keeping or mulliganing made little difference."))
+		Expect(decks.KeepFinding(stats.Mulligans{First: even, Second: even})).To(Equal("Going first or second, keeping or mulliganing made little difference."))
 		apart := stats.KeepSplit{Kept: stats.Record{Wins: 5}, Mulliganed: stats.Record{Wins: 2, Losses: 3}}
-		Expect(keepFinding(stats.Mulligans{First: apart, Second: even})).
+		Expect(decks.KeepFinding(stats.Mulligans{First: apart, Second: even})).
 			To(Equal("Going first, hands you kept won 100% and mulligans won 40%. Going second it made little difference."))
 	})
 
 	It("deals a practice hand from the latest list and plays it out turn by turn", func() {
 		v, tt := handsTester()
-		v.decks.rng = rand.New(rand.NewPCG(1, 2))
+		v.decks.Rng = rand.New(rand.NewPCG(1, 2))
 		Expect(tt.Click("New hand")).To(Succeed())
 		tt.Frame()
 		Expect(tt.HasText("Try a hand")).To(BeTrue())
@@ -130,7 +134,7 @@ var _ = Describe("Hands tab", func() {
 
 	It("hides the cards' records until the hand is kept or sent back", func() {
 		v, tt := handsTester()
-		v.decks.rng = rand.New(rand.NewPCG(1, 2))
+		v.decks.Rng = rand.New(rand.NewPCG(1, 2))
 		Expect(tt.Texts()).To(ContainElement("Kept"))
 		Expect(tt.Click("Hide numbers until I choose")).To(Succeed())
 		tt.Frame()

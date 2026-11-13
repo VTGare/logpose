@@ -5,6 +5,10 @@ import (
 	"slices"
 	"time"
 
+	"github.com/VTGare/logpose/internal/gui/overview"
+
+	"github.com/VTGare/logpose/internal/gui/page"
+
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/cards"
@@ -22,7 +26,7 @@ const me = "Me#1"
 var now = time.Date(2026, 11, 6, 20, 0, 0, 0, time.Local)
 
 // testSnapshot is n games with Luffy against Kaido, alternating wins and losses, newest first.
-func testSnapshot(n int) *snapshot {
+func testSnapshot(n int) *page.Snapshot {
 	var games []store.Game
 	for i := range n {
 		loser := me
@@ -46,13 +50,13 @@ func testSnapshot(n int) *snapshot {
 	db.Name("OP13-001", "Monkey D. Luffy")
 	db.Name("OP17-058", "Kaido")
 	ms := stats.Matches(games, me)
-	return &snapshot{Loaded: true, SimFound: true, Matches: ms, Overview: stats.BuildOverview(ms, now), Cards: db}
+	return &page.Snapshot{Loaded: true, SimFound: true, Matches: ms, Overview: stats.BuildOverview(ms, now), Cards: db}
 }
 
-func tester(s *snapshot) (*view, *ui.Tester) {
+func tester(s *page.Snapshot) (*view, *ui.Tester) {
 	v := newView(nil)
-	v.snap = s
-	v.clock = func() time.Time { return now }
+	v.Snap = s
+	v.Clock = func() time.Time { return now }
 	// A Tester's clock stands still. A transition would never end, and every settle would run
 	// all 20 frames mygo allows. DisableAnimations shows each frame's changes at once.
 	tt := ui.NewTester(func(c *ui.Context) {
@@ -85,7 +89,7 @@ var _ = Describe("view", func() {
 
 	It("waits for the games to choose the first build or edit it from -page", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"W-1"}}
-		v, tt := tester(&snapshot{})
+		v, tt := tester(&page.Snapshot{})
 		v.open("decks/build")
 		tt.Frame()
 		v.setSnapshot(deckSnapshot(wano))
@@ -116,7 +120,7 @@ var _ = Describe("view", func() {
 		tt.Frame()
 		Expect(tt.Texts()).To(ContainElement("Today"))
 		Expect(f.timers).To(HaveLen(1))
-		v.clock = func() time.Time { return now.AddDate(0, 0, 1) }
+		v.Clock = func() time.Time { return now.AddDate(0, 0, 1) }
 		tt.Frame()
 		Expect(tt.Texts()).To(ContainElements("Yesterday", "None yet"))
 		Expect(f.timers).To(HaveLen(2))
@@ -128,7 +132,7 @@ var _ = Describe("view", func() {
 		v.setActions(f)
 		tt.Frame()
 		Expect(v.trayTip()).To(Equal("logpose · today 2–1"))
-		v.clock = func() time.Time { return now.AddDate(0, 0, 1) }
+		v.Clock = func() time.Time { return now.AddDate(0, 0, 1) }
 		Expect(v.trayTip()).To(Equal("logpose"))
 		f.fire()
 		Expect(f.newDays).To(Equal(1))
@@ -167,14 +171,14 @@ var _ = Describe("view", func() {
 		v, tt := tester(testSnapshot(30))
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.HasText("game 25")).To(BeFalse())
-		v.decks.leaderPoint.i = 5
+		v.decks.LeaderPoint.I = 5
 		tt.Frame()
 		Expect(tt.HasText("Nov 6 14:00 · game 25 · 50%, 10 of the last 20 won")).To(BeTrue(), fmt.Sprint(tt.Texts()))
 	})
 
 	It("says no change when this week's rate matches last week's", func() {
 		o := stats.Overview{Week: stats.Record{Wins: 3, Losses: 2}, PrevWeek: stats.Record{Wins: 3, Losses: 2}}
-		change, d := weekChange(o)
+		change, d := overview.WeekChange(o)
 		Expect(change).To(Equal("no change"))
 		Expect(d).To(BeZero())
 	})
@@ -192,7 +196,7 @@ var _ = Describe("view", func() {
 	It("lists matches on the Matches page", func() {
 		v, tt := tester(testSnapshot(10))
 		Expect(tt.Click("Matches")).To(Succeed())
-		Expect(v.page).To(Equal(pageMatches))
+		Expect(v.Page).To(Equal(page.Matches))
 		Expect(tt.HasText("10 games · 5–5")).To(BeTrue())
 		Expect(tt.HasText("Kaido")).To(BeTrue())
 		Expect(tt.HasText("Ranked")).To(BeTrue())
@@ -204,7 +208,7 @@ var _ = Describe("view", func() {
 		Expect(tt.Click("Matches")).To(Succeed())
 		s := testSnapshot(11)
 		s.Matches[0].Opp.Name = "Newcomer"
-		v.snap = s
+		v.Snap = s
 		tt.Frame()
 		Expect(tt.HasText("11 games · 6–5")).To(BeTrue())
 		Expect(tt.HasText("Newcomer")).To(BeTrue())
@@ -218,7 +222,7 @@ var _ = Describe("view", func() {
 		Expect(tt.HasText("Your decks")).To(BeTrue())
 		Expect(tt.Click("Show Kaido")).To(Succeed())
 		tt.Frame()
-		Expect(v.page).To(Equal(pageDecks))
+		Expect(v.Page).To(Equal(page.Decks))
 		Expect(tt.Texts()).To(ContainElements("OP17 · since Nov 6", "0–1 · 1 game"))
 		Expect(tt.HasText("Results")).To(BeTrue())
 	})
@@ -254,11 +258,11 @@ var _ = Describe("view", func() {
 		}
 		Expect(tt.HasText("Best matchups")).To(BeFalse())
 		Expect(tt.Click("Show every matchup")).To(Succeed())
-		Expect(v.page).To(Equal(pageMatchups))
+		Expect(v.Page).To(Equal(page.Matchups))
 	})
 
 	It("invites a first game when the sim is there but nothing is stored", func() {
-		_, tt := tester(&snapshot{Loaded: true, SimFound: true})
+		_, tt := tester(&page.Snapshot{Loaded: true, SimFound: true})
 		Expect(tt.HasText("Play a game in the sim")).To(BeTrue())
 	})
 
@@ -301,12 +305,12 @@ var _ = Describe("view", func() {
 
 var _ = Describe("sidebar", func() {
 	It("snaps to the icon rail below its smallest width and stops at its largest", func() {
-		Expect(snapSide(100)).To(BeEquivalentTo(sideRail))
-		Expect(snapSide(140)).To(BeEquivalentTo(sideMin))
-		Expect(snapSide(250)).To(BeEquivalentTo(250))
-		Expect(snapSide(500)).To(BeEquivalentTo(sideMax))
-		Expect(prefsFrom(nil).sideWidth).To(BeEquivalentTo(sideDefault))
-		Expect(prefsFrom(map[string]string{keySidebarWidth: "90"}).sideWidth).To(BeEquivalentTo(sideRail))
+		Expect(page.SnapSide(100)).To(BeEquivalentTo(page.SideRail))
+		Expect(page.SnapSide(140)).To(BeEquivalentTo(page.SideMin))
+		Expect(page.SnapSide(250)).To(BeEquivalentTo(250))
+		Expect(page.SnapSide(500)).To(BeEquivalentTo(page.SideMax))
+		Expect(page.PrefsFrom(nil).SideWidth).To(BeEquivalentTo(page.SideDefault))
+		Expect(page.PrefsFrom(map[string]string{page.KeySidebarWidth: "90"}).SideWidth).To(BeEquivalentTo(page.SideRail))
 	})
 
 	It("folds to the rail and opens again when its edge is dragged a few DIPs at a time", func() {
@@ -319,7 +323,7 @@ var _ = Describe("sidebar", func() {
 			fa.fire()
 			Expect(fa.calls).NotTo(BeEmpty())
 			var w float32
-			_, err := fmt.Sscanf(fa.calls[len(fa.calls)-1], keySidebarWidth+"=%g", &w)
+			_, err := fmt.Sscanf(fa.calls[len(fa.calls)-1], page.KeySidebarWidth+"=%g", &w)
 			Expect(err).NotTo(HaveOccurred())
 			return w
 		}
@@ -337,18 +341,18 @@ var _ = Describe("sidebar", func() {
 			tt.Release(to, 400)
 			tt.Frame()
 		}
-		drag(sideDefault, 230)
+		drag(page.SideDefault, 230)
 		Expect(stored()).To(BeNumerically("~", 230, 3))
 		Expect(tt.Texts()).To(ContainElement("Matchups"))
 		drag(230, 90)
-		Expect(stored()).To(BeEquivalentTo(sideRail))
-		drag(sideRail, 200)
-		Expect(stored()).To(BeNumerically(">=", sideMin))
+		Expect(stored()).To(BeEquivalentTo(page.SideRail))
+		drag(page.SideRail, 200)
+		Expect(stored()).To(BeNumerically(">=", page.SideMin))
 	})
 
 	It("lists the pages read after games, a line, Cards, then Formats and Settings at the bottom", func() {
 		v, tt := tester(testSnapshot(4))
-		v.page = pageMatches
+		v.Page = page.Matches
 		order := []string{"Overview", "Matches", "Decks", "Matchups", "Cards", "Formats", "Settings"}
 		centers := func() []float32 {
 			GinkgoHelper()
@@ -368,19 +372,19 @@ var _ = Describe("sidebar", func() {
 		Expect(open[6] - open[5]).To(BeNumerically("~", step, 0.5))
 		Expect(open[5] - open[4]).To(BeNumerically(">", 4*step))
 
-		v.setPrefs(prefsFrom(map[string]string{keySidebarWidth: "90"}))
+		v.setPrefs(page.PrefsFrom(map[string]string{page.KeySidebarWidth: "90"}))
 		Expect(centers()).To(Equal(open))
 	})
 
 	It("folded, still goes to every page", func() {
 		v, tt := tester(testSnapshot(4))
-		v.setPrefs(prefsFrom(map[string]string{keySidebarWidth: "90"}))
+		v.setPrefs(page.PrefsFrom(map[string]string{page.KeySidebarWidth: "90"}))
 		tt.Frame()
 		Expect(tt.Click("Matchups")).To(Succeed())
 		tt.Frame()
-		Expect(v.page).To(Equal(pageMatchups))
+		Expect(v.Page).To(Equal(page.Matchups))
 		Expect(tt.Click("Settings")).To(Succeed())
 		tt.Frame()
-		Expect(v.page).To(Equal(pageSettings))
+		Expect(v.Page).To(Equal(page.Settings))
 	})
 })

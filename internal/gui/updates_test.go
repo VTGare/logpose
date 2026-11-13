@@ -4,6 +4,10 @@ import (
 	"image/color"
 	"time"
 
+	"github.com/VTGare/logpose/internal/gui/settings"
+
+	"github.com/VTGare/logpose/internal/gui/page"
+
 	"github.com/egoist/mygo/ui"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -17,18 +21,18 @@ const testNotes = `- Tiles fold away, and remember it.
 A **wrapped** paragraph.`
 
 var _ = Describe("updates", func() {
-	sidebar := func(u updateState) (*view, *ui.Tester, *fakeActions) {
+	sidebar := func(u settings.UpdateState) (*view, *ui.Tester, *fakeActions) {
 		v, tt := tester(testSnapshot(4))
 		fa := &fakeActions{}
 		v.setActions(fa)
-		v.settings.setUpdate(u)
+		v.settings.SetUpdate(u)
 		tt.Frame()
 		return v, tt, fa
 	}
-	ready := updateState{can: true, current: "0.1.0", phase: updateReady, next: "0.1.1", notes: testNotes}
+	ready := settings.UpdateState{Can: true, Current: "0.1.0", Phase: settings.UpdateReady, Next: "0.1.1", Notes: testNotes}
 
 	It("shows nothing in the sidebar while up to date", func() {
-		_, tt, _ := sidebar(updateState{can: true, current: "0.1.0"})
+		_, tt, _ := sidebar(settings.UpdateState{Can: true, Current: "0.1.0"})
 		Expect(tt.HasText("Restart")).To(BeFalse())
 		Expect(tt.HasText("What's new")).To(BeFalse())
 	})
@@ -51,7 +55,7 @@ var _ = Describe("updates", func() {
 	})
 
 	It("downloads a version found when the user downloads updates themselves", func() {
-		_, tt, fa := sidebar(updateState{can: true, current: "0.1.0", phase: updateFound, next: "0.1.1"})
+		_, tt, fa := sidebar(settings.UpdateState{Can: true, Current: "0.1.0", Phase: settings.UpdateFound, Next: "0.1.1"})
 		Expect(tt.HasText("0.1.1 is out")).To(BeTrue())
 		Expect(tt.Click("Get it")).To(Succeed())
 		tt.Frame()
@@ -62,7 +66,7 @@ var _ = Describe("updates", func() {
 
 	It("shows an icon on the rail", func() {
 		v, tt, fa := sidebar(ready)
-		v.setPrefs(prefsFrom(map[string]string{keySidebarWidth: "90"}))
+		v.setPrefs(page.PrefsFrom(map[string]string{page.KeySidebarWidth: "90"}))
 		tt.Frame()
 		Expect(tt.Click("0.1.1 is ready")).To(Succeed())
 		tt.Frame()
@@ -71,8 +75,8 @@ var _ = Describe("updates", func() {
 
 	It("tints the rail's update button blue, unlike the grey of the current page", func() {
 		v, tt, _ := sidebar(ready)
-		v.setPrefs(prefsFrom(map[string]string{keySidebarWidth: "90"}))
-		v.page = pageFormats
+		v.setPrefs(page.PrefsFrom(map[string]string{page.KeySidebarWidth: "90"}))
+		v.Page = page.Formats
 		tt.Frame()
 		fill := func(label string) color.RGBA {
 			GinkgoHelper()
@@ -88,25 +92,25 @@ var _ = Describe("updates", func() {
 
 	It("shows the version and checks from Settings, and stores the download choice", func() {
 		st := settingsTester()
-		st.v.settings.setUpdate(updateState{can: true, current: "0.1.0", checked: now.Add(-25 * time.Hour)})
+		st.v.settings.SetUpdate(settings.UpdateState{Can: true, Current: "0.1.0", Checked: now.Add(-25 * time.Hour)})
 		Expect(st.has("Version 0.1.0")).To(BeTrue())
 		Expect(st.has("Up to date · checked yesterday at 19:00")).To(BeTrue())
 		st.click("Check now")
 		Expect(st.has("Checking…")).To(BeTrue())
 		st.click("Download updates by itself")
-		Expect(st.fa.calls).To(Equal([]string{"check update", keyUpdateManual + "=1"}))
+		Expect(st.fa.calls).To(Equal([]string{"check update", page.KeyUpdateManual + "=1"}))
 	})
 
 	It("says when this copy can't update itself", func() {
 		st := settingsTester()
-		st.v.settings.setUpdate(updateState{current: "0.1.0"})
+		st.v.settings.SetUpdate(settings.UpdateState{Current: "0.1.0"})
 		Expect(st.has("Only logpose installed with its installer updates itself")).To(BeTrue())
 		Expect(st.has("Check now")).To(BeFalse())
 	})
 
 	It("doesn't offer shortcuts to a copy its installer put in place", func() {
 		v, tt := tester(testSnapshot(10))
-		v.setSystem(systemState{canShortcut: true, installed: true})
+		v.setSystem(settings.System{CanShortcut: true, Installed: true})
 		tt.Frame()
 		Expect(tt.HasText(offerTitle)).To(BeFalse())
 	})

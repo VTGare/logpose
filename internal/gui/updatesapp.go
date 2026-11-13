@@ -9,6 +9,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/VTGare/logpose/internal/gui/settings"
+
+	"github.com/VTGare/logpose/internal/gui/page"
+
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
@@ -25,7 +29,7 @@ const releasesURL = "https://github.com/VTGare/logpose/releases/tag/v"
 // updater holds the newer version found, between the check and the install.
 type updater struct {
 	mu    sync.Mutex
-	state updateState
+	state settings.UpdateState
 	found *mygo.Update
 }
 
@@ -46,15 +50,15 @@ func installed() bool {
 // version, and checks for newer ones now and then.
 func (a *app) startUpdates(ctx context.Context, set map[string]string) {
 	u := &a.upd
-	u.state.current = Version()
-	u.state.can = !a.opts.Dev && mygo.Updater.Enabled()
-	if ms, err := strconv.ParseInt(set[keyUpdateChecked], 10, 64); err == nil {
-		u.state.checked = time.UnixMilli(ms)
+	u.state.Current = Version()
+	u.state.Can = !a.opts.Dev && mygo.Updater.Enabled()
+	if ms, err := strconv.ParseInt(set[page.KeyUpdateChecked], 10, 64); err == nil {
+		u.state.Checked = time.UnixMilli(ms)
 	}
-	a.view.settings.setUpdate(u.state)
-	if last := set[keyLastVersion]; last != u.state.current && !a.opts.Dev {
+	a.view.settings.SetUpdate(u.state)
+	if last := set[page.KeyLastVersion]; last != u.state.Current && !a.opts.Dev {
 		if last != "" {
-			ver := u.state.current
+			ver := u.state.Current
 			a.view.queueToast(ui.Toast{
 				Title: "Updated to " + ver, Timeout: 10 * time.Second,
 				Action: "What's new", OnAction: func() {
@@ -65,12 +69,12 @@ func (a *app) startUpdates(ctx context.Context, set map[string]string) {
 			})
 		}
 		go func() {
-			if err := a.opts.Store.SetSetting(ctx, keyLastVersion, u.state.current); err != nil {
+			if err := a.opts.Store.SetSetting(ctx, page.KeyLastVersion, u.state.Current); err != nil {
 				a.opts.Log.Warn("save version", "err", err)
 			}
 		}()
 	}
-	if !u.state.can {
+	if !u.state.Can {
 		return
 	}
 	go func() {
@@ -87,13 +91,13 @@ func (a *app) startUpdates(ctx context.Context, set map[string]string) {
 	}()
 }
 
-func (a *app) setUpdate(change func(s *updateState)) {
+func (a *app) setUpdate(change func(s *settings.UpdateState)) {
 	u := &a.upd
 	u.mu.Lock()
 	change(&u.state)
 	s := u.state
 	u.mu.Unlock()
-	a.win.Update(func() { a.view.settings.setUpdate(s) })
+	a.win.Update(func() { a.view.settings.SetUpdate(s) })
 }
 
 // checkUpdate asks for a newer version and downloads it, unless the user downloads updates
@@ -101,40 +105,40 @@ func (a *app) setUpdate(change func(s *updateState)) {
 func (a *app) checkUpdate(ctx context.Context) {
 	u := &a.upd
 	u.mu.Lock()
-	busy := u.state.busy()
+	busy := u.state.Busy()
 	u.mu.Unlock()
 	if busy {
 		return
 	}
-	a.setUpdate(func(s *updateState) { s.phase = updateChecking })
+	a.setUpdate(func(s *settings.UpdateState) { s.Phase = settings.UpdateChecking })
 	up, err := mygo.Updater.Check(ctx)
 	if errors.Is(err, context.Canceled) {
 		return
 	}
 	now := time.Now()
 	if err == nil {
-		if serr := a.opts.Store.SetSetting(ctx, keyUpdateChecked, strconv.FormatInt(now.UnixMilli(), 10)); serr != nil {
+		if serr := a.opts.Store.SetSetting(ctx, page.KeyUpdateChecked, strconv.FormatInt(now.UnixMilli(), 10)); serr != nil {
 			a.opts.Log.Warn("save update check", "err", serr)
 		}
 	}
 	u.mu.Lock()
 	u.found = up
 	u.mu.Unlock()
-	a.setUpdate(func(s *updateState) {
+	a.setUpdate(func(s *settings.UpdateState) {
 		switch {
 		case err != nil:
-			s.phase, s.err = updateFailed, "Couldn't check for updates: "+err.Error()
+			s.Phase, s.Err = settings.UpdateFailed, "Couldn't check for updates: "+err.Error()
 		case up == nil:
-			s.phase, s.checked = updateIdle, now
+			s.Phase, s.Checked = settings.UpdateIdle, now
 		default:
-			s.phase, s.checked, s.next, s.notes = updateFound, now, up.Version, up.Notes
+			s.Phase, s.Checked, s.Next, s.Notes = settings.UpdateFound, now, up.Version, up.Notes
 		}
 	})
 	if err != nil {
 		a.opts.Log.Warn("update check", "err", err)
 		return
 	}
-	if up != nil && !a.applied().updateManual {
+	if up != nil && !a.applied().UpdateManual {
 		a.installUpdate(ctx)
 	}
 }
@@ -149,7 +153,7 @@ func (a *app) installUpdate(ctx context.Context) {
 	if up == nil {
 		return
 	}
-	a.setUpdate(func(s *updateState) { s.phase, s.done = updateDownloading, 0 })
+	a.setUpdate(func(s *settings.UpdateState) { s.Phase, s.Done = settings.UpdateDownloading, 0 })
 	shown := -1
 	err := up.Install(ctx, func(got, total int64) {
 		if total <= 0 {
@@ -157,18 +161,18 @@ func (a *app) installUpdate(ctx context.Context) {
 		}
 		if pct := int(got * 100 / total); pct != shown {
 			shown = pct
-			a.setUpdate(func(s *updateState) { s.done = float32(pct) / 100 })
+			a.setUpdate(func(s *settings.UpdateState) { s.Done = float32(pct) / 100 })
 		}
 	})
 	if errors.Is(err, context.Canceled) {
 		return
 	}
-	a.setUpdate(func(s *updateState) {
+	a.setUpdate(func(s *settings.UpdateState) {
 		if err != nil {
-			s.phase, s.err = updateFailed, "Couldn't install "+s.next+": "+err.Error()
+			s.Phase, s.Err = settings.UpdateFailed, "Couldn't install "+s.Next+": "+err.Error()
 			return
 		}
-		s.phase = updateReady
+		s.Phase = settings.UpdateReady
 	})
 	if err != nil {
 		a.opts.Log.Warn("update install", "err", err)

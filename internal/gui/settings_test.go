@@ -4,6 +4,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/VTGare/logpose/internal/gui/settings"
+
+	"github.com/VTGare/logpose/internal/gui/page"
+
+	"github.com/VTGare/logpose/internal/gui/kit"
+
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/arts"
@@ -14,7 +20,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func settingsSnapshot() *snapshot {
+func settingsSnapshot() *page.Snapshot {
 	s := testSnapshot(4)
 	s.Stored = 93
 	s.Cards = cards.NewDB()
@@ -24,8 +30,8 @@ func settingsSnapshot() *snapshot {
 	return s
 }
 
-func testSettingsInfo() settingsInfo {
-	return settingsInfo{
+func testSettingsInfo() settings.Info {
+	return settings.Info{
 		SimDir: `E:\Games\OPTCG\Builds_Windows`, SimVersion: "1.44a", SimExe: true, Logs: 93,
 		Fetched: now.Add(-25 * time.Hour),
 		DBPath:  `C:\Users\you\AppData\Roaming\logpose\logpose.db`, DBFolder: `AppData\Roaming\logpose`, DBSize: 1 << 20,
@@ -35,11 +41,11 @@ func testSettingsInfo() settingsInfo {
 }
 
 // settingsView is a view on Settings with the info the app would read.
-func settingsView(info settingsInfo) (*view, *ui.Tester, *fakeActions) {
+func settingsView(info settings.Info) (*view, *ui.Tester, *fakeActions) {
 	v, tt := tester(settingsSnapshot())
 	fa := &fakeActions{}
 	v.setActions(fa)
-	v.page = pageSettings
+	v.Page = page.Settings
 	v.setSettingsInfo(info)
 	return v, tt, fa
 }
@@ -100,7 +106,7 @@ var _ = Describe("settings", func() {
 		v, tt := tester(settingsSnapshot())
 		fa := &fakeActions{}
 		v.setActions(fa)
-		v.page = pageSettings
+		v.Page = page.Settings
 		tt.Frame()
 		Expect(fa.settingsLoads).To(Equal(1))
 		Expect(tt.HasText("Appearance")).To(BeFalse())
@@ -138,18 +144,18 @@ var _ = Describe("settings", func() {
 		st.click("Colorblind-safe colors")
 		st.click("Quits logpose")
 		Expect(st.fa.calls).To(Equal([]string{
-			keyTheme + "=dark", keyColorblind + "=1", keyCloseQuits + "=1",
+			page.KeyTheme + "=dark", page.KeyColorblind + "=1", page.KeyCloseQuits + "=1",
 		}))
 		Expect(st.fa.applied).To(HaveLen(3))
-		Expect(st.fa.applied[2].closeQuits).To(BeTrue())
+		Expect(st.fa.applied[2].CloseQuits).To(BeTrue())
 		var shown *ui.Theme
 		ui.NewTester(func(c *ui.Context) {
 			st.v.applyLook(c)
 			shown = c.Theme()
 		}, 100, 100).Frame()
-		win, loss := resultColors(true)
+		win, loss := kit.ResultColors(true)
 		Expect(shown.Dark).To(BeTrue())
-		Expect([]ui.Color{winColor(shown), lossColor(shown)}).To(Equal([]ui.Color{win, loss}))
+		Expect([]ui.Color{kit.WinColor(shown), kit.LossColor(shown)}).To(Equal([]ui.Color{win, loss}))
 	})
 
 	It("starts with Windows, and only then offers to start hidden", func() {
@@ -157,7 +163,7 @@ var _ = Describe("settings", func() {
 		st.click("Start hidden in the tray")
 		st.click("Start with Windows")
 		st.click("Start hidden in the tray")
-		Expect(st.fa.calls).To(Equal([]string{"login on", keyStartHidden + "=1"}))
+		Expect(st.fa.calls).To(Equal([]string{"login on", page.KeyStartHidden + "=1"}))
 	})
 
 	Describe("card art", func() {
@@ -187,7 +193,7 @@ var _ = Describe("settings", func() {
 			st.click("Show the card art folder")
 			st.click("Clear card art")
 			Expect(st.fa.calls).To(Equal([]string{`open C:\Users\you\AppData\Roaming\logpose\art`, "clear art"}))
-			st.v.settings.note(noteArt, "Cleared 258 MB.")
+			st.v.settings.Note(settings.NoteArt, "Cleared 258 MB.")
 			st.v.setArtUsage(arts.Usage{})
 			Expect(st.has("Cleared 258 MB.")).To(BeTrue())
 			Expect(st.has("0 MB on disk")).To(BeTrue())
@@ -198,18 +204,18 @@ var _ = Describe("settings", func() {
 			st.v.setArtUsage(used)
 			st.click("300 MB")
 			Expect(st.has("Thumbnails 117 MB · large images 141 MB of 300 MB")).To(BeTrue())
-			Expect(st.fa.calls).To(Equal([]string{keyArtCap + "=300"}))
+			Expect(st.fa.calls).To(Equal([]string{page.KeyArtCap + "=300"}))
 			Expect(st.fa.applied).To(HaveLen(1))
-			Expect(st.fa.applied[0].artCap).To(Equal(300))
+			Expect(st.fa.applied[0].ArtCap).To(Equal(300))
 		})
 
 		It("turns art downloads off and on", func() {
 			st := artTester()
 			st.click("Download card art")
 			st.click("Download card art")
-			Expect(st.fa.calls).To(Equal([]string{keyArtOff + "=1", keyArtOff + "="}))
+			Expect(st.fa.calls).To(Equal([]string{page.KeyArtOff + "=1", page.KeyArtOff + "="}))
 			Expect(st.fa.applied).To(HaveLen(2))
-			Expect([]bool{st.fa.applied[0].artOff, st.fa.applied[1].artOff}).To(Equal([]bool{true, false}))
+			Expect([]bool{st.fa.applied[0].ArtOff, st.fa.applied[1].ArtOff}).To(Equal([]bool{true, false}))
 		})
 
 		It("offers only the switch without an art folder", func() {
@@ -225,7 +231,7 @@ var _ = Describe("settings", func() {
 	})
 
 	It("asks for the sim's folder when there's no sim and no games", func() {
-		v, tt := tester(&snapshot{Loaded: true})
+		v, tt := tester(&page.Snapshot{Loaded: true})
 		fa := &fakeActions{}
 		v.setActions(fa)
 		tt.Frame()

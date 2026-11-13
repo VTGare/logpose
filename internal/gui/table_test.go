@@ -3,6 +3,8 @@ package gui
 import (
 	"fmt"
 
+	"github.com/VTGare/logpose/internal/gui/page"
+
 	"github.com/egoist/mygo/ui"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -128,7 +130,7 @@ var _ = Describe("Tables", func() {
 		v, tt, _ := tableTester()
 		games := headerWidth(tt, "Sort by Games")
 		stored := func(width int) {
-			v.setPrefs(prefsFrom(map[string]string{keyTables: fmt.Sprintf(`{"matchups":{"order":["last","gone"],"widths":{"gone":10,"last":%d}}}`, width)}))
+			v.setPrefs(page.PrefsFrom(map[string]string{page.KeyTables: fmt.Sprintf(`{"matchups":{"order":["last","gone"],"widths":{"gone":10,"last":%d}}}`, width)}))
 			tt.Frame()
 		}
 		stored(90)
@@ -162,7 +164,7 @@ var _ = Describe("Collapsible tiles", func() {
 
 	It("reads the collapsed tiles back", func() {
 		v, tt := handsTester()
-		v.setPrefs(prefsFrom(map[string]string{keyFolded: "a,,hands.keep"}))
+		v.setPrefs(page.PrefsFrom(map[string]string{page.KeyFolded: "a,,hands.keep"}))
 		tt.Frame()
 		Expect(tt.HasText("Kept 100% (5–0) · mulliganed 0% (0–5)")).To(BeTrue())
 		Expect(tt.HasText("Kept the first five")).To(BeFalse())

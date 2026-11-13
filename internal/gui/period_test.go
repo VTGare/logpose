@@ -3,6 +3,8 @@ package gui
 import (
 	"time"
 
+	"github.com/VTGare/logpose/internal/gui/page"
+
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/stats"
@@ -69,7 +71,7 @@ var _ = Describe("custom period", func() {
 		m.Fingerprint, m.PlayedAt = "later", now.AddDate(0, 0, 2)
 		later.Matches = append([]stats.Match{m}, later.Matches...)
 		v.setSnapshot(later)
-		v.clock = func() time.Time { return now.AddDate(0, 0, 3) }
+		v.Clock = func() time.Time { return now.AddDate(0, 0, 3) }
 		tt.Frame()
 		pill("Since Nov 4")
 		pill("49 games")
@@ -98,7 +100,7 @@ var _ = Describe("custom period", func() {
 		s := testSnapshot(48)
 		s.Formats = []stats.FormatRange{{ID: 1, Name: "OP14", Start: now.Add(-30 * time.Hour)}}
 		v.setSnapshot(s)
-		v.setPrefs(prefsFrom(map[string]string{keyStartFormat: startLatest}))
+		v.setPrefs(page.PrefsFrom(map[string]string{page.KeyStartFormat: page.StartLatest}))
 		tt.Frame()
 		click("Pick Wed Nov 4")
 		click("Pick Thu Nov 5")

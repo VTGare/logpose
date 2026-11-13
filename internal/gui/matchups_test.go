@@ -3,6 +3,8 @@ package gui
 import (
 	"fmt"
 
+	"github.com/VTGare/logpose/internal/gui/page"
+
 	"github.com/egoist/mygo/ui"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -10,14 +12,14 @@ import (
 )
 
 // matchupsSnapshot is 9 games against Kaido, 4–5, and the newest one a win against Buggy.
-func matchupsSnapshot() *snapshot {
+func matchupsSnapshot() *page.Snapshot {
 	s := testSnapshot(10)
 	s.Matches[0].Opp.Leader = "OP09-042"
 	s.Cards.Name("OP09-042", "Buggy")
 	return s
 }
 
-func matchupsTester(s *snapshot) (*view, *ui.Tester) {
+func matchupsTester(s *page.Snapshot) (*view, *ui.Tester) {
 	v, tt := tester(s)
 	Expect(tt.Click("Matchups")).To(Succeed())
 	tt.Frame()
