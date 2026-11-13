@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0
+
+- Export a match to the sim. Export to sim on a match's page, or in any game's right-click menu,
+  saves a file you open with LoadState From File in the sim, with the board at the start of every
+  turn.
+  Files go to a sim-saves folder next to your data, and Settings › Sim saves picks another one.
+- The opening shuffle doesn't name every card, so a deck card the log never shows takes its most
+  likely code from your other games with that leader. It never makes a fifth copy, and when
+  nothing fits the deck is left a card short.
+- A match's page shows the bookmark as a star by the date, and Add note as a pencil.
+- Replays keep the DON on a card when it rests or stands up, and pick the right copy when two
+  can attack, so the board matches the log's own counts in every game we checked. Your games are
+  read again on the first start.
+
 ## 0.4.0
 
 - Filter the card database by power. Open Power and drag the range, or pick exactly a power, that
