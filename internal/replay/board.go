@@ -142,12 +142,37 @@ const leaderTarget = 99
 // apply moves one card. It trusts the move's card over what the board has at the slot, and
 // returns what didn't match.
 func (s *Side) apply(m simlog.Move) []string {
+	if c := s.inPlace(m); c != nil {
+		c.Rested = m.Rested
+		return nil
+	}
 	var issues []string
 	note := func(format string, args ...any) { issues = append(issues, fmt.Sprintf(format, args...)) }
 	card := s.take(m, note)
 	card.Code = m.Card
 	s.put(m, card, note)
 	return issues
+}
+
+// inPlace is the card a move leaves where it is, or nil. The sim logs a card on the board
+// resting or standing up as a move to its own slot, and the card keeps its DON and statuses.
+func (s *Side) inPlace(m simlog.Move) *Card {
+	if m.From != m.To || m.FromSlot != m.ToSlot {
+		return nil
+	}
+	var zone []Card
+	switch m.From {
+	case simlog.ZoneLeader:
+		return &s.Leader
+	case simlog.ZoneCharacter:
+		zone = s.Characters
+	case simlog.ZoneStage:
+		zone = s.Stage
+	}
+	if m.FromSlot < 0 || m.FromSlot >= len(zone) || zone[m.FromSlot].Code != m.Card {
+		return nil
+	}
+	return &zone[m.FromSlot]
 }
 
 // take removes the moving card from its zone and returns it, without its rest state, DON and

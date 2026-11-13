@@ -114,7 +114,7 @@ type Replay struct {
 
 // Version goes up whenever Build gives different steps or boards for the same game, so facts
 // read from them are read again.
-const Version = 2
+const Version = 3
 
 var ErrNoMoves = errors.New("replay: the game has no RZ1 moves")
 

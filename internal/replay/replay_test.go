@@ -355,6 +355,34 @@ var _ = Describe("Build", func() {
 		Expect(r.Issues[0].Detail).To(Equal("attacker ST32-001 is already rested"))
 	})
 
+	It("keeps the DON on a character the sim rests in its slot before the attack line", func() {
+		lines := append(header[:len(header):len(header)],
+			"RZ1|1|1|ST32-001|0|49|1|0|1|1|0|0|0",
+			"RZ1|CHK|1|1|49|1|0|0|10|0|0|0|1|0",
+			by(bob, "Chose to go Second"),
+			"RZ1|2|1|Don|4|9|5|0|1|1|0|0|0",
+			by(alice, "Draw 1 Don"),
+			"RZ1|3|1|ST32-001|1|0|2|0|1|1|0|0|0",
+			by(alice, "Deploy "+kinemon),
+			"RZ1|4|1|Don|5|0|9|0|1|1|0|0|0",
+			"RZ1|CHK|4|1|49|0|1|0|9|0|0|0|1|1",
+			"RZ1|5|1|ST32-001|2|0|2|0|1|1|1|0|0",
+			"RZ1|CHK|5|1|49|0|1|0|9|0|0|0|1|1",
+			by(alice, "Attach 1 Don to "+kinemon+" (1 Total)"),
+			by(alice, kinemon+" attacking "+link("Monkey D. Luffy", "OP13-001")),
+			by(bob, "Concedes!"),
+		)
+		r := build(logOf(lines...))
+		Expect(r.Issues).To(BeEmpty())
+		var attack Step
+		for _, s := range r.Steps {
+			if s.Kind == KindAttack {
+				attack = s
+			}
+		}
+		Expect(looks(attack.Board.Side(1).Characters)).To(Equal([]string{"ST32-001(R)+1"}))
+	})
+
 	It("marks the replay unverified from the first count the log disagrees with", func() {
 		lines := append(header[:len(header):len(header)],
 			"RZ1|1|1|ST32-001|0|49|1|0|1|1|0|0|0",

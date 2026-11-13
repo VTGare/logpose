@@ -59,6 +59,10 @@ type builder struct {
 	// left is the attack's defender as it was when it left the board. The sim moves a K.O.'d
 	// card to the trash before it writes the "vs" line.
 	left Card
+	// rested are the cards the RZ1 stream rested where they stand this turn that no attack or
+	// block has named yet. The sim rests an attacker or blocker a few lines before the line
+	// that names it.
+	rested map[int]bool
 }
 
 const replays = 5
@@ -495,6 +499,7 @@ func (b *builder) play() {
 	b.board = b.initial.clone()
 	b.issues, b.guesses, b.started, b.refreshed = nil, nil, [3]bool{}, [3]int{}
 	b.powerChecks, b.powerCompared, b.attackerID, b.defenderID = nil, 0, 0, 0
+	b.rested = make(map[int]bool)
 	b.steps = make([]Step, len(b.drafts))
 	for i, d := range b.drafts {
 		b.steps[i] = Step{
@@ -574,7 +579,12 @@ func (b *builder) move(step int, m simlog.Move) {
 		s.setup(c, m)
 	}
 	b.started[m.Owner] = true
-	if m.From == simlog.ZoneCharacter && m.FromSlot >= 0 && m.FromSlot < len(s.Characters) &&
+	in := s.inPlace(m)
+	inPlace := in != nil
+	if inPlace && m.Rested && !in.Rested {
+		b.rested[in.ID] = true
+	}
+	if !inPlace && m.From == simlog.ZoneCharacter && m.FromSlot >= 0 && m.FromSlot < len(s.Characters) &&
 		s.Characters[m.FromSlot].ID == b.defenderID {
 		b.left = s.Characters[m.FromSlot]
 		if bt := b.steps[step].Battle; bt != nil {
@@ -585,7 +595,7 @@ func (b *builder) move(step int, m simlog.Move) {
 	for _, d := range s.apply(m) {
 		b.issues = append(b.issues, Issue{Kind: IssueMove, Step: step, Seq: m.Seq, Line: -1, Owner: m.Owner, Detail: d})
 	}
-	if m.To == simlog.ZoneCharacter && len(s.Characters) > 0 {
+	if !inPlace && m.To == simlog.ZoneCharacter && len(s.Characters) > 0 {
 		s.Characters[min(max(m.ToSlot, 0), len(s.Characters)-1)].played = b.steps[step].Turn
 	}
 	if !hasCheck {
@@ -617,11 +627,13 @@ func (b *builder) line(step, li int, l simlog.Line) {
 	switch {
 	case l.Kind == simlog.LineEndTurn:
 		b.endTurn(l.Turn)
+		clear(b.rested)
 	case l.Kind == simlog.LineAttack && len(l.Cards) >= 2:
 		b.attack(l, l.Turn, mine, theirs, issue)
 	case l.Kind == simlog.LineBlock && len(l.Cards) == 1:
-		if c := b.pick(l.Cards[0], false, mine); c != nil {
+		if c := b.choose(l.Cards[0], guess{}, func(c *Card) bool { return !c.Rested || b.rested[c.ID] }, nil, mine); c != nil {
 			c.Rested = true
+			delete(b.rested, c.ID)
 			b.defenderID = c.ID
 		}
 	case l.Source != "" && len(l.Cards) >= 2:
@@ -651,7 +663,7 @@ func (b *builder) vsLine(step int, l simlog.Line) {
 func (b *builder) attack(l simlog.Line, turn int, mine, theirs *Side, issue func(IssueKind, string)) {
 	if c := b.chooseAttacker(l.Cards[0], turn, mine); c != nil {
 		switch {
-		case c.Rested && !b.blame(c.Code, mine.Owner, true):
+		case c.Rested && !b.rested[c.ID] && !b.blame(c.Code, mine.Owner, true):
 			issue(IssueRest, "attacker "+c.Code+" is already rested")
 		case c.has(StatusNoAttack) && !b.blameStatus(c.Code, mine.Owner, StatusNoAttack):
 			issue(IssueNoAttack, "attacker "+c.Code+" can't attack")
@@ -660,6 +672,7 @@ func (b *builder) attack(l simlog.Line, turn int, mine, theirs *Side, issue func
 			issue(IssueTwice, "attacker "+c.Code+" attacked twice this turn")
 		}
 		c.Rested, c.attacked = true, turn
+		delete(b.rested, c.ID)
 		b.attackerID = c.ID
 	}
 	c := theirs.find(l.Cards[1], true)
@@ -675,9 +688,10 @@ func (b *builder) attack(l simlog.Line, turn int, mine, theirs *Side, issue func
 // played this turn comes last unless it has Rush, since the log doesn't name keyword Rush.
 // With no such copy it takes an active one, which the caller reports.
 func (b *builder) chooseAttacker(code string, turn int, s *Side) *Card {
-	c := b.choose(code, guess{}, func(c *Card) bool { return !c.Rested && !c.has(StatusNoAttack) },
+	active := func(c *Card) bool { return !c.Rested || b.rested[c.ID] }
+	c := b.choose(code, guess{}, func(c *Card) bool { return active(c) && !c.has(StatusNoAttack) },
 		func(c *Card) bool { return c.played == turn && !c.has(StatusRush) }, s)
-	if c != nil && (c.Rested || c.has(StatusNoAttack)) {
+	if c != nil && (!active(c) || c.has(StatusNoAttack)) {
 		if a := s.find(code, false); a != nil {
 			return a
 		}
