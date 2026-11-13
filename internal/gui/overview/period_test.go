@@ -1,7 +1,9 @@
-package gui
+package overview
 
 import (
 	"time"
+
+	"github.com/VTGare/logpose/internal/gui/guitest"
 
 	"github.com/VTGare/logpose/internal/gui/page"
 
@@ -16,7 +18,7 @@ import (
 var _ = Describe("custom period", func() {
 	// 48 hourly games: 20 on Fri Nov 6, 24 on Thu Nov 5 and 4 on Wed Nov 4.
 	var (
-		v  *view
+		v  *guitest.Host
 		tt *ui.Tester
 	)
 	click := func(label string) {
@@ -36,7 +38,7 @@ var _ = Describe("custom period", func() {
 	}
 
 	BeforeEach(func() {
-		v, tt = tester(testSnapshot(48))
+		v, tt = tester(guitest.Snapshot(48))
 		tt.Frame()
 		click("All time")
 	})
@@ -66,12 +68,12 @@ var _ = Describe("custom period", func() {
 		click("Ongoing")
 		pill("Since Nov 4")
 		pill("48 games")
-		later := testSnapshot(48)
+		later := guitest.Snapshot(48)
 		m := later.Matches[0]
-		m.Fingerprint, m.PlayedAt = "later", now.AddDate(0, 0, 2)
+		m.Fingerprint, m.PlayedAt = "later", guitest.Now.AddDate(0, 0, 2)
 		later.Matches = append([]stats.Match{m}, later.Matches...)
-		v.setSnapshot(later)
-		v.Clock = func() time.Time { return now.AddDate(0, 0, 3) }
+		v.Snap = later
+		v.Clock = func() time.Time { return guitest.Now.AddDate(0, 0, 3) }
 		tt.Frame()
 		pill("Since Nov 4")
 		pill("49 games")
@@ -97,10 +99,10 @@ var _ = Describe("custom period", func() {
 	})
 
 	It("overlaps a format to the days in both", func() {
-		s := testSnapshot(48)
-		s.Formats = []stats.FormatRange{{ID: 1, Name: "OP14", Start: now.Add(-30 * time.Hour)}}
-		v.setSnapshot(s)
-		v.setPrefs(page.PrefsFrom(map[string]string{page.KeyStartFormat: page.StartLatest}))
+		s := guitest.Snapshot(48)
+		s.Formats = []stats.FormatRange{{ID: 1, Name: "OP14", Start: guitest.Now.Add(-30 * time.Hour)}}
+		v.Snap = s
+		v.SetPrefs(page.PrefsFrom(map[string]string{page.KeyStartFormat: page.StartLatest}))
 		tt.Frame()
 		click("Pick Wed Nov 4")
 		click("Pick Thu Nov 5")
@@ -112,7 +114,7 @@ var _ = Describe("custom period", func() {
 
 var _ = Describe("By day", func() {
 	It("sets the period to a day or a week", func() {
-		_, tt := tester(testSnapshot(48))
+		_, tt := tester(guitest.Snapshot(48))
 		tt.Frame()
 		Expect(tt.Click("Show only this day, Yesterday")).To(Succeed())
 		tt.Frame()

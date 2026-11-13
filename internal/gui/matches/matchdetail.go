@@ -266,14 +266,14 @@ func (pg *Page) replayButton(c *ui.Context, e *page.Env, m stats.Match) {
 	case l == nil:
 		ui.Button(c, "Watch replay").Disabled(true).Tooltip("Reading the log")
 	case !l.Replayable:
-		ui.Button(c, "Watch replay").Disabled(true).Tooltip(NoMovesText)
+		ui.Button(c, "Watch replay").Disabled(true).Tooltip(noMovesText)
 	default:
 		b := ui.PrimaryButton(c, "").Label("Watch replay").Children(func() {
 			ui.Icon(c, kit.IconPlay)
 			ui.Text(c, "Watch replay").SingleLine()
 		})
 		if b.Clicked() {
-			pg.OpenReplay(e, m, -1)
+			pg.openReplay(e, m, -1)
 		}
 	}
 }

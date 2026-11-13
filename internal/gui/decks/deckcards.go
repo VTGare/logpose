@@ -96,7 +96,7 @@ func cardCols(e *page.Env, t *ui.Theme, latest map[string]int, total int, avg fl
 					sameAsOpening(c, cost(cs))
 					return
 				}
-				rateBar(c.Key("on"), cs.OnCurve, avg, 0).Tooltip("In hand by " + CurveText(cost(cs)))
+				rateBar(c.Key("on"), cs.OnCurve, avg, 0).Tooltip("In hand by " + curveText(cost(cs)))
 			},
 		},
 		{
@@ -110,7 +110,7 @@ func cardCols(e *page.Env, t *ui.Theme, latest map[string]int, total int, avg fl
 					ui.Text(c, "–").FontSize(13).TextColor(kit.FaintColor(t))
 					return
 				}
-				rateBar(c.Key("off"), cs.OffCurve, avg, 0).Tooltip("Not in hand by " + CurveText(cost(cs)))
+				rateBar(c.Key("off"), cs.OffCurve, avg, 0).Tooltip("Not in hand by " + curveText(cost(cs)))
 			},
 		},
 		{
@@ -255,8 +255,8 @@ func sameAsOpening(c *ui.Context, cost int) {
 			"the starting hand plus at most one draw.", cost))
 }
 
-// CurveText names the turn a card of this cost can first be paid for.
-func CurveText(cost int) string {
+// curveText names the turn a card of this cost can first be paid for.
+func curveText(cost int) string {
 	first, second := stats.PayTurn(cost, true), stats.PayTurn(cost, false)
 	turns := fmt.Sprintf("your %s turn going first and %s going second", ordinal(first), ordinal(second))
 	if first == second {

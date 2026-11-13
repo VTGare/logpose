@@ -174,8 +174,6 @@ type view struct {
 	matches matches.Page
 
 	decks decks.Page
-	// shownPage is the page the last frame showed.
-	shownPage string
 
 	matchups matchups.Page
 	settings settings.Page
@@ -221,19 +219,6 @@ func (v *view) setPrefs(p page.Prefs) {
 	v.Filter.Format = p.StartFormat
 }
 
-// applyLook sets the theme the user picked, or the one following Windows, with the result
-// colors of the colorblind setting.
-func (v *view) applyLook(c *ui.Context) {
-	l := kit.Look{Dark: c.Theme().Dark, Colorblind: v.Prefs.Colorblind}
-	switch v.Prefs.Theme {
-	case "dark":
-		l.Dark = true
-	case "light":
-		l.Dark = false
-	}
-	c.SetTheme(kit.Looks[l])
-}
-
 func (v *view) build(c *ui.Context) {
 	if v.matches.Detail.Fingerprint != "" && v.Page != v.matches.Detail.From {
 		v.matches.CloseMatch()
@@ -241,17 +226,15 @@ func (v *view) build(c *ui.Context) {
 	v.wakeAtMidnight()
 	v.openSub()
 	v.matches.ReplayKeys(c, &v.Env)
-	v.applyLook(c)
-	v.showToast(c)
+	v.ApplyLook(c)
+	v.ShowToast(c)
 	kit.Toasts(c)
 	open := v.matches.Detail.Fingerprint != ""
 	shown := v.Page
 	if open {
 		shown = "match " + v.matches.Detail.Fingerprint
 	}
-	v.Frame++
-	v.Entered = shown != v.shownPage
-	v.shownPage = shown
+	v.BeginFrame(shown)
 	body := func() {
 		ui.Column(c).Grow(1).Fill().Children(func() {
 			if v.Snap.Loaded && len(v.Snap.Matches) > 0 && v.current().games && !open {
@@ -432,38 +415,18 @@ func (v *view) GameMenu(m stats.Match) func(*ui.Menu) { return v.matches.GameMen
 
 func (v *view) CardMenu(card cards.Card) func(*ui.Menu) { return v.cards.CardMenu(&v.Env, card) }
 
-func (v *view) showToast(c *ui.Context) {
-	if t := v.Toast; t != nil {
-		v.Toast = nil
-		c.AddToast(*t)
-	}
-}
-
 func (v *view) OpenInCards(code string) {
-	s := &v.cards.State
-	if s.Selected != code {
-		s.Selected, s.Viewed, s.Versions = code, "", ""
-	}
-	s.Viewer = false
+	v.cards.Select(code, false)
 	v.Page = page.Cards
 }
 
 // ViewArt opens the art viewer over the page, which build draws off the Cards page.
-func (v *view) ViewArt(code string) {
-	s := &v.cards.State
-	if s.Selected != code {
-		s.Selected, s.Viewed, s.Versions = code, "", ""
-	}
-	s.Viewer = true
-}
+func (v *view) ViewArt(code string) { v.cards.Select(code, true) }
 
 // ShowsHands reports whether the page is a Decks tab where "Show hands with" fits a card.
 func (v *view) ShowsHands() bool {
-	return v.Page == page.Decks && v.matches.Detail.Fingerprint == "" && v.decks.Tab != decks.TabResults
+	return v.Page == page.Decks && v.matches.Detail.Fingerprint == "" && v.decks.ShowsHands()
 }
 
 // ShowHands opens the Hands tab on the hands the card was dealt in.
-func (v *view) ShowHands(code string) {
-	s := &v.decks
-	s.Tab, s.HandsCard, s.AllHands, s.Edit = decks.TabHands, code, false, nil
-}
+func (v *view) ShowHands(code string) { v.decks.ShowHands(code) }

@@ -5,15 +5,15 @@ import (
 	"slices"
 	"time"
 
+	"github.com/VTGare/logpose/internal/gui/guitest"
+
 	"github.com/VTGare/logpose/internal/gui/overview"
 
 	"github.com/VTGare/logpose/internal/gui/page"
 
 	"github.com/egoist/mygo/ui"
 
-	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/live"
-	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
 
@@ -21,42 +21,10 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-const me = "Me#1"
-
-var now = time.Date(2026, 11, 6, 20, 0, 0, 0, time.Local)
-
-// testSnapshot is n games with Luffy against Kaido, alternating wins and losses, newest first.
-func testSnapshot(n int) *page.Snapshot {
-	var games []store.Game
-	for i := range n {
-		loser := me
-		if i%2 == 0 {
-			loser = "Opp#2"
-		}
-		games = append(games, store.Game{
-			Fingerprint: fmt.Sprint(i),
-			PlayedAt:    now.Add(-time.Duration(i+1) * time.Hour),
-			Turns:       12,
-			First:       me,
-			Lobby:       simlog.Lobby{Code: fmt.Sprintf("XNJ8M%02d", i)},
-			End:         simlog.End{Kind: simlog.EndConcede, Loser: loser},
-			Players: []store.GamePlayer{
-				{ID: me, Name: "Me", Leader: "OP13-001"},
-				{ID: "Opp#2", Name: "Opp", Leader: "OP17-058"},
-			},
-		})
-	}
-	db := cards.NewDB()
-	db.Name("OP13-001", "Monkey D. Luffy")
-	db.Name("OP17-058", "Kaido")
-	ms := stats.Matches(games, me)
-	return &page.Snapshot{Loaded: true, SimFound: true, Matches: ms, Overview: stats.BuildOverview(ms, now), Cards: db}
-}
-
 func tester(s *page.Snapshot) (*view, *ui.Tester) {
 	v := newView(nil)
 	v.Snap = s
-	v.Clock = func() time.Time { return now }
+	v.Clock = func() time.Time { return guitest.Now }
 	// A Tester's clock stands still. A transition would never end, and every settle would run
 	// all 20 frames mygo allows. DisableAnimations shows each frame's changes at once.
 	tt := ui.NewTester(func(c *ui.Context) {
@@ -71,7 +39,7 @@ func tester(s *page.Snapshot) (*view, *ui.Tester) {
 var _ = Describe("view", func() {
 	It("opens on any page -page names", func() {
 		Expect(Pages()).To(ContainElements("overview", "decks", "decks/list", "decks/edit", "decks/build", "decks/nobuild", "matchups", "matches", "formats", "cards", "settings"))
-		v, tt := tester(testSnapshot(10))
+		v, tt := tester(guitest.Snapshot(10))
 		Expect(IsPage("cards/OP01-024")).To(BeTrue())
 		Expect(IsPage("cards/")).To(BeFalse())
 		Expect(IsPage("nowhere")).To(BeFalse())
@@ -81,7 +49,7 @@ var _ = Describe("view", func() {
 		tt.Frame()
 		Expect(tt.HasText("Turn order")).To(BeTrue())
 
-		v, tt = tester(deckSnapshot())
+		v, tt = tester(guitest.DeckSnapshot())
 		v.open("decks/list")
 		tt.Frame()
 		Expect(tt.HasText("Suggested builds · 2")).To(BeTrue())
@@ -92,18 +60,18 @@ var _ = Describe("view", func() {
 		v, tt := tester(&page.Snapshot{})
 		v.open("decks/build")
 		tt.Frame()
-		v.setSnapshot(deckSnapshot(wano))
+		v.setSnapshot(guitest.DeckSnapshot(wano))
 		tt.Frame()
 		Expect(tt.Texts()).To(ContainElement("· Wano/Miracle"))
 
-		v, tt = tester(deckSnapshot(wano))
+		v, tt = tester(guitest.DeckSnapshot(wano))
 		v.open("decks/edit")
 		tt.Frame()
 		Expect(tt.HasText("Edit Wano/Miracle")).To(BeTrue())
 	})
 
 	It("shows today, the week, each day played and every deck on the overview", func() {
-		_, tt := tester(testSnapshot(10))
+		_, tt := tester(guitest.Snapshot(10))
 		for _, text := range []string{
 			"Today", "Streak", "This week", "All time", "By day", "Your decks", "Monkey D. Luffy", "10 games · 1 h ago",
 			"Facing most this week", "Kaido",
@@ -114,32 +82,32 @@ var _ = Describe("view", func() {
 	})
 
 	It("names the days by the clock, and asks for a frame at midnight", func() {
-		v, tt := tester(testSnapshot(10))
+		v, tt := tester(guitest.Snapshot(10))
 		f := &fakeActions{}
 		v.setActions(f)
 		tt.Frame()
 		Expect(tt.Texts()).To(ContainElement("Today"))
 		Expect(f.timers).To(HaveLen(1))
-		v.Clock = func() time.Time { return now.AddDate(0, 0, 1) }
+		v.Clock = func() time.Time { return guitest.Now.AddDate(0, 0, 1) }
 		tt.Frame()
 		Expect(tt.Texts()).To(ContainElements("Yesterday", "None yet"))
 		Expect(f.timers).To(HaveLen(2))
 	})
 
 	It("puts today's record in the tray tooltip by the clock, and updates it at midnight", func() {
-		v, tt := tester(testSnapshot(3))
+		v, tt := tester(guitest.Snapshot(3))
 		f := &fakeActions{}
 		v.setActions(f)
 		tt.Frame()
 		Expect(v.trayTip()).To(Equal("logpose · today 2–1"))
-		v.Clock = func() time.Time { return now.AddDate(0, 0, 1) }
+		v.Clock = func() time.Time { return guitest.Now.AddDate(0, 0, 1) }
 		Expect(v.trayTip()).To(Equal("logpose"))
 		f.fire()
 		Expect(f.newDays).To(Equal(1))
 	})
 
 	It("narrows to games against a leader faced this week", func() {
-		_, tt := tester(testSnapshot(10))
+		_, tt := tester(guitest.Snapshot(10))
 		Expect(tt.Click("Show games vs Kaido")).To(Succeed())
 		tt.Frame()
 		Expect(tt.Texts()).To(ContainElement("vs Kaido"))
@@ -149,10 +117,10 @@ var _ = Describe("view", func() {
 	})
 
 	It("lists the days played under their week", func() {
-		s := testSnapshot(3)
-		s.Matches[2].PlayedAt = now.AddDate(0, 0, -5)
+		s := guitest.Snapshot(3)
+		s.Matches[2].PlayedAt = guitest.Now.AddDate(0, 0, -5)
 		s.Matches[2].Result = stats.Win
-		s.Overview = stats.BuildOverview(s.Matches, now)
+		s.Overview = stats.BuildOverview(s.Matches, guitest.Now)
 		_, tt := tester(s)
 		for _, text := range []string{"This week", "Today", "1–1", "Last week", "Sun Nov 1", "1–0"} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
@@ -160,7 +128,7 @@ var _ = Describe("view", func() {
 	})
 
 	It("shows the current deck and its turn order split on the Decks page", func() {
-		_, tt := tester(testSnapshot(10))
+		_, tt := tester(guitest.Snapshot(10))
 		Expect(tt.Click("Decks")).To(Succeed())
 		for _, text := range []string{"Monkey D. Luffy", "Win rate", "50%", "5–5", "Turn order", "1st", "2nd"} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
@@ -168,7 +136,7 @@ var _ = Describe("view", func() {
 	})
 
 	It("shows the game under the pointer on the Decks page's rolling chart", func() {
-		v, tt := tester(testSnapshot(30))
+		v, tt := tester(guitest.Snapshot(30))
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.HasText("game 25")).To(BeFalse())
 		v.decks.LeaderPoint.I = 5
@@ -184,17 +152,17 @@ var _ = Describe("view", func() {
 	})
 
 	It("writes a streak of one in the singular", func() {
-		_, tt := tester(testSnapshot(1))
+		_, tt := tester(guitest.Snapshot(1))
 		Expect(tt.HasText("1 win in a row")).To(BeTrue())
 	})
 
 	It("says too few for a rate under the minimum games", func() {
-		_, tt := tester(testSnapshot(3))
+		_, tt := tester(guitest.Snapshot(3))
 		Expect(tt.HasText("too few")).To(BeTrue())
 	})
 
 	It("lists matches on the Matches page", func() {
-		v, tt := tester(testSnapshot(10))
+		v, tt := tester(guitest.Snapshot(10))
 		Expect(tt.Click("Matches")).To(Succeed())
 		Expect(v.Page).To(Equal(page.Matches))
 		Expect(tt.HasText("10 games · 5–5")).To(BeTrue())
@@ -204,9 +172,9 @@ var _ = Describe("view", func() {
 	})
 
 	It("shows a newly imported game on the Matches page", func() {
-		v, tt := tester(testSnapshot(10))
+		v, tt := tester(guitest.Snapshot(10))
 		Expect(tt.Click("Matches")).To(Succeed())
-		s := testSnapshot(11)
+		s := guitest.Snapshot(11)
 		s.Matches[0].Opp.Name = "Newcomer"
 		v.Snap = s
 		tt.Frame()
@@ -215,9 +183,9 @@ var _ = Describe("view", func() {
 	})
 
 	It("opens a leader's page from the overview", func() {
-		s := testSnapshot(10)
+		s := guitest.Snapshot(10)
 		s.Matches[3].Me.Leader = "OP17-058"
-		s.Overview = stats.BuildOverview(s.Matches, now)
+		s.Overview = stats.BuildOverview(s.Matches, guitest.Now)
 		v, tt := tester(s)
 		Expect(tt.HasText("Your decks")).To(BeTrue())
 		Expect(tt.Click("Show Kaido")).To(Succeed())
@@ -228,7 +196,7 @@ var _ = Describe("view", func() {
 	})
 
 	It("shows the most played leader on the Decks page by default", func() {
-		_, tt := tester(testSnapshot(10))
+		_, tt := tester(guitest.Snapshot(10))
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.HasText("Monkey D. Luffy")).To(BeTrue())
 		Expect(tt.HasText("Win rate")).To(BeTrue())
@@ -236,7 +204,7 @@ var _ = Describe("view", func() {
 	})
 
 	It("filters the Decks page by game type", func() {
-		s := testSnapshot(10)
+		s := guitest.Snapshot(10)
 		for i := range 4 {
 			s.Matches[i].Ranked = false
 		}
@@ -244,12 +212,12 @@ var _ = Describe("view", func() {
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.Texts()).To(ContainElement("5–5 · 10 games"))
 		Expect(tt.Click("All games")).To(Succeed())
-		Expect(choose(tt, "Casual")).To(Succeed())
+		Expect(guitest.Choose(tt, "Casual")).To(Succeed())
 		Expect(tt.Texts()).To(ContainElement("2–2 · 4 games"))
 	})
 
 	It("splits matchups with enough games at 50%, and counts the rest, which open the Matchups page", func() {
-		s := testSnapshot(10)
+		s := guitest.Snapshot(10)
 		s.Matches[0].Opp.Leader = "OP09-042"
 		v, tt := tester(s)
 		Expect(tt.Click("Decks")).To(Succeed())
@@ -267,7 +235,7 @@ var _ = Describe("view", func() {
 	})
 
 	It("shows the lobby while the sim waits for a game", func() {
-		v, tt := tester(testSnapshot(10))
+		v, tt := tester(guitest.Snapshot(10))
 		v.setLive(live.State{Phase: live.Lobby, Lobby: "XABCDEF", Hosting: true})
 		tt.Frame()
 		Expect(tt.HasText("Match found")).To(BeTrue())
@@ -275,11 +243,11 @@ var _ = Describe("view", func() {
 	})
 
 	It("shows the history against the opponent in the sim", func() {
-		v, tt := tester(testSnapshot(10))
+		v, tt := tester(guitest.Snapshot(10))
 		v.setLive(live.State{
-			Phase: live.Playing, Lobby: "QWERTY", First: me,
+			Phase: live.Playing, Lobby: "QWERTY", First: guitest.Me,
 			Players: []live.Player{
-				{ID: me, Leader: "OP13-001", Local: true, Life: 4, Hand: 6},
+				{ID: guitest.Me, Leader: "OP13-001", Local: true, Life: 4, Hand: 6},
 				{ID: "Opp#2", Leader: "OP17-058", Life: 5, Hand: 5},
 			},
 		})
@@ -293,9 +261,9 @@ var _ = Describe("view", func() {
 	})
 
 	It("says when the sim didn't log the opponent's leader", func() {
-		v, tt := tester(testSnapshot(10))
+		v, tt := tester(guitest.Snapshot(10))
 		v.setLive(live.State{Phase: live.Playing, Players: []live.Player{
-			{ID: me, Local: true}, {ID: "New#3"},
+			{ID: guitest.Me, Local: true}, {ID: "New#3"},
 		}})
 		tt.Frame()
 		Expect(tt.HasText("Leader not in the sim's log")).To(BeTrue())
@@ -314,7 +282,7 @@ var _ = Describe("sidebar", func() {
 	})
 
 	It("folds to the rail and opens again when its edge is dragged a few DIPs at a time", func() {
-		v, tt := tester(testSnapshot(4))
+		v, tt := tester(guitest.Snapshot(4))
 		fa := &fakeActions{}
 		v.setActions(fa)
 		tt.Frame()
@@ -351,7 +319,7 @@ var _ = Describe("sidebar", func() {
 	})
 
 	It("lists the pages read after games, a line, Cards, then Formats and Settings at the bottom", func() {
-		v, tt := tester(testSnapshot(4))
+		v, tt := tester(guitest.Snapshot(4))
 		v.Page = page.Matches
 		order := []string{"Overview", "Matches", "Decks", "Matchups", "Cards", "Formats", "Settings"}
 		centers := func() []float32 {
@@ -377,7 +345,7 @@ var _ = Describe("sidebar", func() {
 	})
 
 	It("folded, still goes to every page", func() {
-		v, tt := tester(testSnapshot(4))
+		v, tt := tester(guitest.Snapshot(4))
 		v.setPrefs(page.PrefsFrom(map[string]string{page.KeySidebarWidth: "90"}))
 		tt.Frame()
 		Expect(tt.Click("Matchups")).To(Succeed())

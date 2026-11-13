@@ -1,42 +1,20 @@
-package gui
+package decks
 
 import (
 	"math/rand/v2"
-
-	"github.com/VTGare/logpose/internal/gui/decks"
-
-	"github.com/VTGare/logpose/internal/gui/page"
 
 	"github.com/egoist/mygo/ui"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/VTGare/logpose/internal/gui/guitest"
 	"github.com/VTGare/logpose/internal/stats"
 )
 
-// handsSnapshot is deckSnapshot's games, all going first. The even ones, all wins, keep a hand
-// with Garp and Otama. The odd ones, all losses, are dealt Shanks with Garp and mulligan.
-func handsSnapshot() *page.Snapshot {
-	s := deckSnapshot()
-	s.Cards.Name("SHK", "Shanks")
-	for i := range s.Matches {
-		m := &s.Matches[i]
-		if i%2 == 0 {
-			m.Me.HandBefore = []string{"GARP", "OTA", "X-1", "X-2", "X-3"}
-		} else {
-			m.Me.Mulliganed = true
-			m.Me.HandBefore = []string{"SHK", "GARP", "X-1", "X-2", "X-3"}
-			m.Me.HandAfter = []string{"OTA", "X-1", "X-2", "X-3", "X-4"}
-			m.Opp.Mulliganed = true
-		}
-	}
-	return s
-}
-
 // handsTester opens the Hands tab in a window tall enough for its card rows.
 func handsTester() (*view, *ui.Tester) {
-	v, tt := tester(handsSnapshot())
+	v, tt := tester(guitest.HandsSnapshot())
 	v.setActions(&fakeActions{})
 	tt.SetSize(1180, 2000)
 	v.open("decks/hands")
@@ -79,35 +57,22 @@ var _ = Describe("Hands tab", func() {
 		Expect(tt.HasText("Show all 10")).To(BeFalse())
 	})
 
-	It("opens a match from its hand and goes back to the Hands tab", func() {
-		_, tt := handsTester()
-		Expect(tt.Click("Show the hands dealt Shanks")).To(Succeed())
-		tt.Frame()
-		Expect(tt.Click("Open the match against Opp")).To(Succeed())
-		tt.Frame()
-		Expect(tt.HasText("Back to decks")).To(BeTrue())
-		Expect(tt.Click("Back to decks")).To(Succeed())
-		tt.Frame()
-		Expect(tt.HasText("Back to decks")).To(BeFalse())
-		Expect(tt.HasText("The 5 games you were dealt Shanks")).To(BeTrue())
-	})
-
 	It("says when there are too few games to compare", func() {
 		mu := stats.Mulligans{All: stats.KeepSplit{Kept: stats.Record{Wins: 3}}}
-		Expect(decks.KeepFinding(mu)).To(Equal("Too few games yet to compare kept hands with mulligans."))
+		Expect(keepFinding(mu)).To(Equal("Too few games yet to compare kept hands with mulligans."))
 	})
 
 	It("says when keeping made little difference either way", func() {
 		even := stats.KeepSplit{Kept: stats.Record{Wins: 3, Losses: 2}, Mulliganed: stats.Record{Wins: 3, Losses: 2}}
-		Expect(decks.KeepFinding(stats.Mulligans{First: even, Second: even})).To(Equal("Going first or second, keeping or mulliganing made little difference."))
+		Expect(keepFinding(stats.Mulligans{First: even, Second: even})).To(Equal("Going first or second, keeping or mulliganing made little difference."))
 		apart := stats.KeepSplit{Kept: stats.Record{Wins: 5}, Mulliganed: stats.Record{Wins: 2, Losses: 3}}
-		Expect(decks.KeepFinding(stats.Mulligans{First: apart, Second: even})).
+		Expect(keepFinding(stats.Mulligans{First: apart, Second: even})).
 			To(Equal("Going first, hands you kept won 100% and mulligans won 40%. Going second it made little difference."))
 	})
 
 	It("deals a practice hand from the latest list and plays it out turn by turn", func() {
 		v, tt := handsTester()
-		v.decks.Rng = rand.New(rand.NewPCG(1, 2))
+		v.decks.rng = rand.New(rand.NewPCG(1, 2))
 		Expect(tt.Click("New hand")).To(Succeed())
 		tt.Frame()
 		Expect(tt.HasText("Try a hand")).To(BeTrue())
@@ -134,7 +99,7 @@ var _ = Describe("Hands tab", func() {
 
 	It("hides the cards' records until the hand is kept or sent back", func() {
 		v, tt := handsTester()
-		v.decks.Rng = rand.New(rand.NewPCG(1, 2))
+		v.decks.rng = rand.New(rand.NewPCG(1, 2))
 		Expect(tt.Texts()).To(ContainElement("Kept"))
 		Expect(tt.Click("Hide numbers until I choose")).To(Succeed())
 		tt.Frame()

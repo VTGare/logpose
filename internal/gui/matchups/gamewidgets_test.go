@@ -1,4 +1,4 @@
-package gui
+package matchups
 
 import (
 	. "github.com/onsi/ginkgo/v2"

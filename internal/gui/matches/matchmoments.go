@@ -38,7 +38,7 @@ func (pg *Page) momentRow(c *ui.Context, e *page.Env, m stats.Match, i int, mo s
 	row := ui.Row(c).Gap(12).AlignItems(ui.Stretch).Cursor(ui.CursorPointer).Tooltip("Watch from here")
 	defer func() {
 		if row.Clicked() {
-			pg.OpenReplay(e, m, mo.Line)
+			pg.openReplay(e, m, mo.Line)
 		}
 	}()
 	row.Children(func() {
@@ -136,7 +136,7 @@ func (pg *Page) momentPin(c *ui.Context, e *page.Env, m stats.Match, i int, mo s
 		Background(page.SideOf(m, mo.Player).Color()).TextAlign(ui.Center).Label(fmt.Sprintf("Replay moment %d", i+1)).
 		Tooltip("Watch from here").Cursor(ui.CursorPointer)
 	if p.Clicked() {
-		pg.OpenReplay(e, m, mo.Line)
+		pg.openReplay(e, m, mo.Line)
 	}
 }
 

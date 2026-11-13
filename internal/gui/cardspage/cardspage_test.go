@@ -1,4 +1,4 @@
-package gui
+package cardspage
 
 import (
 	"cmp"
@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/VTGare/logpose/internal/gui/cardspage"
+	"github.com/VTGare/logpose/internal/gui/guitest"
 
 	"github.com/VTGare/logpose/internal/gui/page"
 
@@ -54,7 +54,7 @@ func testCards() map[string]cards.Card {
 func cardsWith(pool map[string]cards.Card) (*view, *ui.Tester, *fakeActions) {
 	db := cards.NewDB()
 	(&cards.Library{Cards: pool}).Apply(db)
-	s := testSnapshot(4)
+	s := guitest.Snapshot(4)
 	s.Cards = db
 	v, tt := tester(s)
 	fa := &fakeActions{}
@@ -94,38 +94,26 @@ func shownCards(tt *ui.Tester, pool map[string]cards.Card) []string {
 	return out
 }
 
-func click(tt *ui.Tester, label string) {
-	GinkgoHelper()
-	Expect(tt.Click(label)).To(Succeed())
-	tt.Frame()
-}
-
 func searchCards(tt *ui.Tester, text string) {
 	GinkgoHelper()
-	click(tt, "Search cards")
+	guitest.Click(tt, "Search cards")
 	tt.Type(text)
 	tt.Frame()
 }
 
-func labelled(tt *ui.Tester, label string) bool {
-	tt.Frame()
-	_, ok := tt.Find(label)
-	return ok
-}
-
 var _ = Describe("printedPower", func() {
 	It("shows a character's 0 power and no power for events", func() {
-		Expect(cardspage.PrintedPower(cards.Card{Type: "Character"})).To(Equal("0"))
-		Expect(cardspage.PrintedPower(cards.Card{Type: "Leader", Power: 5000})).To(Equal("5000"))
-		Expect(cardspage.PrintedPower(cards.Card{Type: "Event"})).To(Equal("–"))
-		Expect(cardspage.PrintedPower(cards.Card{})).To(Equal("–"))
+		Expect(PrintedPower(cards.Card{Type: "Character"})).To(Equal("0"))
+		Expect(PrintedPower(cards.Card{Type: "Leader", Power: 5000})).To(Equal("5000"))
+		Expect(PrintedPower(cards.Card{Type: "Event"})).To(Equal("–"))
+		Expect(PrintedPower(cards.Card{})).To(Equal("–"))
 	})
 })
 
 var _ = Describe("powerRange", func() {
 	It("names a range as card text does", func() {
-		all := cardspage.PowerRange{Lo: 0, Hi: 13000}
-		for r, want := range map[cardspage.PowerRange]string{
+		all := PowerRange{Lo: 0, Hi: 13000}
+		for r, want := range map[PowerRange]string{
 			all: "Any", {Lo: 6000, Hi: 6000}: "6000", {Lo: 0, Hi: 5000}: "5000 or less", {Lo: 6000, Hi: 13000}: "6000 or more",
 			{Lo: 6000, Hi: 8000}: "6000–8000",
 		} {
@@ -145,8 +133,8 @@ var _ = Describe("Cards page", func() {
 	// Tiles name a card's legality as More filters does, so specs that click a legality use the list.
 	more := func() {
 		GinkgoHelper()
-		if !labelled(tt, "Legal") {
-			click(tt, "More filters")
+		if !guitest.Labelled(tt, "Legal") {
+			guitest.Click(tt, "More filters")
 		}
 	}
 
@@ -154,7 +142,7 @@ var _ = Describe("Cards page", func() {
 	// calls is what the page asked the app for, of the kinds with the prefix.
 	calls := func(prefix string) []string {
 		var out []string
-		for _, c := range fa.calls {
+		for _, c := range fa.Calls {
 			if strings.HasPrefix(c, prefix) {
 				out = append(out, c)
 			}
@@ -166,7 +154,7 @@ var _ = Describe("Cards page", func() {
 		tt.Frame()
 		i := slices.IndexFunc(tt.Texts(), func(s string) bool { return strings.HasPrefix(s, "Art · ") })
 		Expect(i).To(BeNumerically(">=", 0))
-		click(tt, tt.Texts()[i])
+		guitest.Click(tt, tt.Texts()[i])
 	}
 
 	It("lists the newest sets first", func() {
@@ -174,77 +162,77 @@ var _ = Describe("Cards page", func() {
 	})
 
 	It("narrows by color, type and cost together", func() {
-		click(tt, "Red")
+		guitest.Click(tt, "Red")
 		Expect(shown()).To(Equal([]string{"OP14-002", "OP01-024"}))
-		click(tt, "Cost 2, 1 card")
+		guitest.Click(tt, "Cost 2, 1 card")
 		Expect(shown()).To(Equal([]string{"OP01-024"}))
-		click(tt, "Cost 2, 1 card")
-		click(tt, "Red")
-		click(tt, "Event")
+		guitest.Click(tt, "Cost 2, 1 card")
+		guitest.Click(tt, "Red")
+		guitest.Click(tt, "Event")
 		Expect(shown()).To(Equal([]string{"OP14-018"}))
 	})
 
 	It("counts the cost curve of the cards that match the other filters", func() {
-		click(tt, "Red")
-		click(tt, "Cost 2, 1 card")
-		Expect(labelled(tt, "Cost 2, 1 card")).To(BeTrue())
-		Expect(labelled(tt, "Cost 3, 1 card")).To(BeTrue())
-		Expect(labelled(tt, "Cost 1, 0 cards")).To(BeTrue())
+		guitest.Click(tt, "Red")
+		guitest.Click(tt, "Cost 2, 1 card")
+		Expect(guitest.Labelled(tt, "Cost 2, 1 card")).To(BeTrue())
+		Expect(guitest.Labelled(tt, "Cost 3, 1 card")).To(BeTrue())
+		Expect(guitest.Labelled(tt, "Cost 1, 0 cards")).To(BeTrue())
 	})
 
 	It("leaves leaders out once a cost is picked", func() {
-		click(tt, "Green")
+		guitest.Click(tt, "Green")
 		Expect(shown()).To(Equal([]string{"OP14-018", "OP14-020"}))
-		click(tt, "Cost 1, 1 card")
+		guitest.Click(tt, "Cost 1, 1 card")
 		Expect(shown()).To(Equal([]string{"OP14-018"}))
 	})
 
 	It("searches names, traits and effects", func() {
 		searchCards(tt, "draw")
 		Expect(shown()).To(Equal([]string{"OP14-002", "OP14-018"}))
-		click(tt, "Clear the filters")
+		guitest.Click(tt, "Clear the filters")
 		searchCards(tt, "warlords")
 		Expect(shown()).To(Equal([]string{"OP14-020"}))
 	})
 
 	It("turns a picked suggestion into a chip", func() {
 		searchCards(tt, "Supernovas · Trait")
-		Expect(labelled(tt, "Remove Supernovas")).To(BeTrue())
+		Expect(guitest.Labelled(tt, "Remove Supernovas")).To(BeTrue())
 		Expect(tt.HasText("Supernovas · Trait")).To(BeFalse())
 		Expect(shown()).To(Equal([]string{"OP14-002", "OP01-024"}))
-		click(tt, "Clear the filters")
+		guitest.Click(tt, "Clear the filters")
 		searchCards(tt, "Super Rare · Rarity")
 		Expect(shown()).To(Equal([]string{"OP01-024"}))
-		click(tt, "Clear the filters")
+		guitest.Click(tt, "Clear the filters")
 		searchCards(tt, "Strike · Attribute")
 		Expect(shown()).To(Equal([]string{"OP14-002"}))
 	})
 
 	It("takes either value of one field and every field", func() {
-		click(tt, "List")
+		guitest.Click(tt, "List")
 		more()
-		click(tt, "Banned")
+		guitest.Click(tt, "Banned")
 		more()
-		click(tt, "Rotated")
+		guitest.Click(tt, "Rotated")
 		Expect(shown()).To(Equal([]string{"OP14-020", "OP01-024"}))
 		searchCards(tt, "Supernovas · Trait")
 		Expect(shown()).To(Equal([]string{"OP01-024"}))
 	})
 
 	It("hides a value on the second click and clears it on the third", func() {
-		click(tt, "List")
+		guitest.Click(tt, "List")
 		more()
-		click(tt, "Rotated")
+		guitest.Click(tt, "Rotated")
 		Expect(shown()).To(Equal([]string{"OP01-024"}))
 		more()
-		click(tt, "Rotated, shown only. Click to hide")
+		guitest.Click(tt, "Rotated, shown only. Click to hide")
 		Expect(shown()).To(Equal([]string{"OP14-002", "OP14-018", "OP14-020"}))
 		searchCards(tt, "Supernovas · Trait")
 		Expect(shown()).To(Equal([]string{"OP14-002"}))
 		more()
-		click(tt, "Rotated, hidden. Click to clear")
-		Expect(labelled(tt, "Remove Rotated")).To(BeFalse())
-		Expect(labelled(tt, "Remove Supernovas")).To(BeTrue())
+		guitest.Click(tt, "Rotated, hidden. Click to clear")
+		Expect(guitest.Labelled(tt, "Remove Rotated")).To(BeFalse())
+		Expect(guitest.Labelled(tt, "Remove Supernovas")).To(BeTrue())
 		Expect(shown()).To(Equal([]string{"OP14-002", "OP01-024"}))
 	})
 
@@ -258,7 +246,7 @@ var _ = Describe("Cards page", func() {
 		_, tt, _ = cardsWith(many)
 		Expect(tt.HasText("17 cards")).To(BeTrue())
 		more()
-		click(tt, "DON!!")
+		guitest.Click(tt, "DON!!")
 		Expect(tt.HasText("16 cards")).To(BeTrue())
 	})
 
@@ -267,7 +255,7 @@ var _ = Describe("Cards page", func() {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}
 		Expect(tt.HasText("Life")).To(BeFalse())
-		click(tt, "Dracule Mihawk OP14-020")
+		guitest.Click(tt, "Dracule Mihawk OP14-020")
 		Expect(tt.HasText("Legal in Standard")).To(BeFalse())
 		Expect(tt.HasText("Life")).To(BeTrue())
 	})
@@ -276,22 +264,22 @@ var _ = Describe("Cards page", func() {
 		searchCards(tt, "Supernovas · Trait")
 		searchCards(tt, "Straw Hat Crew · Trait")
 		Expect(shown()).To(Equal([]string{"OP14-002", "OP01-024"}))
-		click(tt, "Show cards with all of these traits")
+		guitest.Click(tt, "Show cards with all of these traits")
 		Expect(shown()).To(Equal([]string{"OP01-024"}))
-		Expect(labelled(tt, "Show cards with any of these traits")).To(BeTrue())
-		click(tt, "Show cards with any of these traits")
+		Expect(guitest.Labelled(tt, "Show cards with any of these traits")).To(BeTrue())
+		guitest.Click(tt, "Show cards with any of these traits")
 		Expect(shown()).To(Equal([]string{"OP14-002", "OP01-024"}))
 	})
 
 	It("starts a field from either-or again once its chips are gone", func() {
 		searchCards(tt, "Supernovas · Trait")
 		searchCards(tt, "Straw Hat Crew · Trait")
-		click(tt, "Show cards with all of these traits")
-		click(tt, "Remove Straw Hat Crew")
-		click(tt, "Remove Supernovas")
+		guitest.Click(tt, "Show cards with all of these traits")
+		guitest.Click(tt, "Remove Straw Hat Crew")
+		guitest.Click(tt, "Remove Supernovas")
 		searchCards(tt, "Supernovas · Trait")
 		searchCards(tt, "Fallen Monk Pirates · Trait")
-		Expect(labelled(tt, "Show cards with all of these traits")).To(BeTrue())
+		Expect(guitest.Labelled(tt, "Show cards with all of these traits")).To(BeTrue())
 		Expect(shown()).To(Equal([]string{"OP14-002", "OP01-024"}))
 	})
 
@@ -306,22 +294,22 @@ var _ = Describe("Cards page", func() {
 	})
 
 	It("filters by color from the quick row and clears", func() {
-		click(tt, "Green")
+		guitest.Click(tt, "Green")
 		Expect(tt.HasText("2 cards")).To(BeTrue())
-		click(tt, "Clear the filters")
+		guitest.Click(tt, "Clear the filters")
 		Expect(tt.HasText("4 cards")).To(BeTrue())
-		Expect(labelled(tt, "Clear the filters")).To(BeFalse())
+		Expect(guitest.Labelled(tt, "Clear the filters")).To(BeFalse())
 	})
 
 	It("works the results out again when any filter changes, and clears every filter", func() {
 		set := map[string]func(){
 			"search": func() { searchCards(tt, "luffy") },
-			"color":  func() { click(tt, "Green") },
-			"type":   func() { click(tt, "Leader") },
-			"cost":   func() { click(tt, "Cost 3, 1 card") },
+			"color":  func() { guitest.Click(tt, "Green") },
+			"type":   func() { guitest.Click(tt, "Leader") },
+			"cost":   func() { guitest.Click(tt, "Cost 3, 1 card") },
 			"power": func() {
-				click(tt, "Power: Any")
-				click(tt, "maximum")
+				guitest.Click(tt, "Power: Any")
+				guitest.Click(tt, "maximum")
 				tt.Key(0, ui.KeyLeft)
 				tt.Frame()
 			},
@@ -330,29 +318,29 @@ var _ = Describe("Cards page", func() {
 		for name, f := range set {
 			f()
 			Expect(tt.HasText("4 cards")).To(BeFalse(), name)
-			click(tt, "Clear the filters")
+			guitest.Click(tt, "Clear the filters")
 			Expect(tt.HasText("4 cards")).To(BeTrue(), name)
-			Expect(labelled(tt, "Clear the filters")).To(BeFalse(), name)
+			Expect(guitest.Labelled(tt, "Clear the filters")).To(BeFalse(), name)
 		}
 	})
 
 	It("finds cards by every legality and counter the More filters offer", func() {
 		// The event's panel shows no counter that a click could hit instead.
-		click(tt, "List")
-		click(tt, "Time for the Counterattack OP14-018")
+		guitest.Click(tt, "List")
+		guitest.Click(tt, "Time for the Counterattack OP14-018")
 		for label, n := range map[string]int{
 			"Legal": 2, "Rotated": 1, "Banned": 1, "Restricted": 0, "Upcoming": 0,
 			"No counter": 2, "+1000": 2, "+2000": 0,
 		} {
 			more()
-			click(tt, label)
+			guitest.Click(tt, label)
 			Expect(shown()).To(HaveLen(n), label)
-			click(tt, "Clear the filters")
+			guitest.Click(tt, "Clear the filters")
 		}
 	})
 
 	It("writes counters short in the list", func() {
-		click(tt, "List")
+		guitest.Click(tt, "List")
 		Expect(tt.HasText("+1k")).To(BeTrue())
 	})
 
@@ -388,27 +376,27 @@ var _ = Describe("Cards page", func() {
 			return r
 		}
 		before := tile()
-		click(tt, "Formats")
-		click(tt, "Cards")
+		guitest.Click(tt, "Formats")
+		guitest.Click(tt, "Cards")
 		Expect(tile()).To(Equal(before))
 	})
 
 	It("picks a cost from the curve", func() {
-		click(tt, "Cost 2, 1 card")
+		guitest.Click(tt, "Cost 2, 1 card")
 		Expect(shown()).To(Equal([]string{"OP01-024"}))
 	})
 
 	It("offers every cost up to the highest a card has", func() {
-		Expect(labelled(tt, "Cost 0, 0 cards")).To(BeTrue())
-		Expect(labelled(tt, "Cost 3, 1 card")).To(BeTrue())
-		Expect(labelled(tt, "Cost 4, 0 cards")).To(BeFalse())
+		Expect(guitest.Labelled(tt, "Cost 0, 0 cards")).To(BeTrue())
+		Expect(guitest.Labelled(tt, "Cost 3, 1 card")).To(BeTrue())
+		Expect(guitest.Labelled(tt, "Cost 4, 0 cards")).To(BeFalse())
 	})
 
 	// lowerPower opens the power range and moves its top down by n steps.
 	lowerPower := func(n int) {
 		GinkgoHelper()
-		click(tt, "Power: Any")
-		click(tt, "maximum")
+		guitest.Click(tt, "Power: Any")
+		guitest.Click(tt, "maximum")
 		for range n {
 			tt.Key(0, ui.KeyLeft)
 			tt.Frame()
@@ -417,34 +405,34 @@ var _ = Describe("Cards page", func() {
 
 	It("narrows by a power range and offers the thresholds card text uses", func() {
 		lowerPower(2)
-		Expect(labelled(tt, "Power: 3000 or less")).To(BeTrue())
+		Expect(guitest.Labelled(tt, "Power: 3000 or less")).To(BeTrue())
 		Expect(shown()).To(Equal([]string{"OP14-002", "OP01-024"}))
-		click(tt, "Exactly 3000")
+		guitest.Click(tt, "Exactly 3000")
 		Expect(shown()).To(Equal([]string{"OP01-024"}))
-		click(tt, "3000 or more")
+		guitest.Click(tt, "3000 or more")
 		Expect(shown()).To(Equal([]string{"OP14-020", "OP01-024"}))
-		click(tt, "Clear the power range")
-		Expect(labelled(tt, "Power: Any")).To(BeTrue())
+		guitest.Click(tt, "Clear the power range")
+		Expect(guitest.Labelled(tt, "Power: Any")).To(BeTrue())
 		Expect(shown()).To(HaveLen(4))
 	})
 
 	It("drops the power range for a type without power and keeps it closed", func() {
 		lowerPower(1)
-		click(tt, "Event")
+		guitest.Click(tt, "Event")
 		Expect(shown()).To(Equal([]string{"OP14-018"}))
-		Expect(labelled(tt, "Power: Any")).To(BeTrue())
-		click(tt, "Power: Any")
-		Expect(labelled(tt, "Drag either end to narrow the power.")).To(BeFalse())
+		Expect(guitest.Labelled(tt, "Power: Any")).To(BeTrue())
+		guitest.Click(tt, "Power: Any")
+		Expect(guitest.Labelled(tt, "Drag either end to narrow the power.")).To(BeFalse())
 	})
 
 	It("disables the shortcuts that repeat one or mean any power at the lowest power", func() {
 		lowerPower(3)
-		Expect(labelled(tt, "Power: 2000")).To(BeTrue())
+		Expect(guitest.Labelled(tt, "Power: 2000")).To(BeTrue())
 		for _, name := range []string{"2000 or less", "2000 or more"} {
-			Expect(labelled(tt, name)).To(BeTrue(), name)
+			Expect(guitest.Labelled(tt, name)).To(BeTrue(), name)
 			_ = tt.Click(name)
 			tt.Frame()
-			Expect(labelled(tt, "Power: 2000")).To(BeTrue(), name)
+			Expect(guitest.Labelled(tt, "Power: 2000")).To(BeTrue(), name)
 		}
 		Expect(shown()).To(Equal([]string{"OP14-002"}))
 	})
@@ -463,8 +451,8 @@ var _ = Describe("Cards page", func() {
 		// The default window, where the popover meets the window's edge.
 		tt.SetSize(1180, 780)
 		tt.Frame()
-		click(tt, "Power: Any")
-		click(tt, "maximum")
+		guitest.Click(tt, "Power: Any")
+		guitest.Click(tt, "maximum")
 		knob := func() float32 {
 			r, ok := tt.Find("minimum")
 			Expect(ok).To(BeTrue())
@@ -480,10 +468,10 @@ var _ = Describe("Cards page", func() {
 
 	It("stretches an open end of the range to new cards", func() {
 		lowerPower(0)
-		click(tt, "minimum")
+		guitest.Click(tt, "minimum")
 		tt.Key(0, ui.KeyRight)
 		tt.Frame()
-		Expect(labelled(tt, "Power: 3000 or more")).To(BeTrue())
+		Expect(guitest.Labelled(tt, "Power: 3000 or more")).To(BeTrue())
 		more := testCards()
 		more["OP15-001"] = cards.Card{
 			Code: "OP15-001", Name: "Kaido", Type: "Character", Colors: []cards.Color{cards.Purple}, Cost: 10,
@@ -493,7 +481,7 @@ var _ = Describe("Cards page", func() {
 		(&cards.Library{Cards: more}).Apply(db)
 		v.Snap.Cards = db
 		tt.Frame()
-		Expect(labelled(tt, "Power: 3000 or more")).To(BeTrue())
+		Expect(guitest.Labelled(tt, "Power: 3000 or more")).To(BeTrue())
 		Expect(shownCards(tt, more)).To(ContainElement("OP15-001"))
 	})
 
@@ -526,62 +514,62 @@ var _ = Describe("Cards page", func() {
 		Expect(edge()).To(BeNumerically("~", start-60, 3))
 		Expect(tt.HasText("Show card details")).To(BeFalse())
 		drag(400)
-		Expect(labelled(tt, "Show card details")).To(BeTrue())
-		Expect(labelled(tt, "View the art full size")).To(BeFalse())
-		click(tt, "Show card details")
+		Expect(guitest.Labelled(tt, "Show card details")).To(BeTrue())
+		Expect(guitest.Labelled(tt, "View the art full size")).To(BeFalse())
+		guitest.Click(tt, "Show card details")
 		Expect(edge()).To(BeNumerically("~", start, 1))
 	})
 
 	Describe("the sim's art", func() {
-		luffy := func(info cardspage.SimArtInfo) {
+		luffy := func(info SimArtInfo) {
 			GinkgoHelper()
-			click(tt, "Monkey D. Luffy OP01-024")
+			guitest.Click(tt, "Monkey D. Luffy OP01-024")
 			v.cards.SetSimArt("OP01-024", info)
 			tt.Frame()
 		}
 
 		It("puts a printing in the sim from the dot under it, and offers to undo", func() {
-			luffy(cardspage.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
-			click(tt, "Art · 3")
+			luffy(SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
+			guitest.Click(tt, "Art · 3")
 			for _, text := range []string{"Base", "Alt art", "Sim's own", "In sim"} {
 				Expect(tt.HasText(text)).To(BeTrue(), text)
 			}
-			click(tt, "Use Alt art in the sim")
-			Expect(fa.calls).To(ContainElement("use art OP01-024 OP01-024_p1"))
-			click(tt, "Use Base in the sim")
-			Expect(fa.calls).NotTo(ContainElement("use art OP01-024 OP01-024"))
+			guitest.Click(tt, "Use Alt art in the sim")
+			Expect(fa.Calls).To(ContainElement("use art OP01-024 OP01-024_p1"))
+			guitest.Click(tt, "Use Base in the sim")
+			Expect(fa.Calls).NotTo(ContainElement("use art OP01-024 OP01-024"))
 
 			alt := sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024_p1"}
-			v.cards.SimArtDone(&v.Env, v.Snap.Card("OP01-024"), alt, cardspage.SimArtInfo{Cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
+			v.cards.SimArtDone(&v.Env, v.Snap.Card("OP01-024"), alt, SimArtInfo{Cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
 			tt.Frame()
 			Expect(tt.HasText("The sim now shows Monkey D. Luffy's Alt art.")).To(BeTrue())
-			click(tt, "Undo")
-			Expect(fa.calls).To(ContainElement("use art OP01-024 "))
+			guitest.Click(tt, "Undo")
+			Expect(fa.Calls).To(ContainElement("use art OP01-024 "))
 		})
 
 		It("closes the message after a change without undoing it", func() {
-			click(tt, "Monkey D. Luffy OP01-024")
+			guitest.Click(tt, "Monkey D. Luffy OP01-024")
 			alt := sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024_p1"}
-			v.cards.SimArtDone(&v.Env, v.Snap.Card("OP01-024"), alt, cardspage.SimArtInfo{Cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
+			v.cards.SimArtDone(&v.Env, v.Snap.Card("OP01-024"), alt, SimArtInfo{Cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
 			tt.Frame()
 			Expect(tt.HasText("The sim now shows Monkey D. Luffy's Alt art.")).To(BeTrue())
-			click(tt, "Close")
+			guitest.Click(tt, "Close")
 			Expect(tt.HasText("The sim now shows Monkey D. Luffy's Alt art.")).To(BeFalse())
-			Expect(fa.calls).NotTo(ContainElement("use art OP01-024 "))
+			Expect(fa.Calls).NotTo(ContainElement("use art OP01-024 "))
 		})
 
 		It("shows the picture a click picks without changing the sim", func() {
-			luffy(cardspage.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
-			click(tt, "Art · 3")
-			click(tt, "Show Alt art")
-			click(tt, "Save image…")
-			click(tt, "Show Sim's own")
-			click(tt, "Save image…")
+			luffy(SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
+			guitest.Click(tt, "Art · 3")
+			guitest.Click(tt, "Show Alt art")
+			guitest.Click(tt, "Save image…")
+			guitest.Click(tt, "Show Sim's own")
+			guitest.Click(tt, "Save image…")
 			Expect(calls("save art")).To(Equal([]string{"save art OP01-024_p1", "save art sim:OP01-024"}))
 		})
 
 		It("keeps a file of the user's as a choice and says what happens to it", func() {
-			luffy(cardspage.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtFile}, OwnFile: `C:\sim\OP01-024_OVERRIDE.png`})
+			luffy(SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtFile}, OwnFile: `C:\sim\OP01-024_OVERRIDE.png`})
 			artTab()
 			Expect(tt.HasText("Your file")).To(BeTrue())
 			Expect(tt.HasText("The sim shows a file you added yourself.")).To(BeTrue())
@@ -589,30 +577,30 @@ var _ = Describe("Cards page", func() {
 
 		It("keeps printings out of the sim while art downloads are off", func() {
 			v.setPrefs(page.PrefsFrom(map[string]string{page.KeyArtOff: "1"}))
-			luffy(cardspage.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024"}})
-			click(tt, "Art · 3")
+			luffy(SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024"}})
+			guitest.Click(tt, "Art · 3")
 			Expect(tt.HasText("Card art downloads are off in Settings, so only the sim's own art and your own file can be used.")).
 				To(BeTrue())
-			click(tt, "Use Alt art in the sim")
+			guitest.Click(tt, "Use Alt art in the sim")
 			Expect(calls("use art")).To(BeEmpty())
-			click(tt, "Use Sim's own in the sim")
+			guitest.Click(tt, "Use Sim's own in the sim")
 			Expect(calls("use art")).To(Equal([]string{"use art OP01-024 "}))
 		})
 
 		It("says why the dots are off without a sim", func() {
-			luffy(cardspage.SimArtInfo{NoSim: true})
+			luffy(SimArtInfo{NoSim: true})
 			artTab()
 			Expect(tt.HasText("logpose can't find the sim, so it can't change the sim's art.")).To(BeTrue())
-			click(tt, "Choose the sim's folder")
-			Expect(fa.calls).To(ContainElement("choose sim"))
-			Expect(fa.calls).NotTo(ContainElement(HavePrefix("use art")))
+			guitest.Click(tt, "Choose the sim's folder")
+			Expect(fa.Calls).To(ContainElement("choose sim"))
+			Expect(fa.Calls).NotTo(ContainElement(HavePrefix("use art")))
 		})
 
 		It("keeps the effect on the Card tab and names the sim's art above the tabs", func() {
-			luffy(cardspage.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024_p1"}})
+			luffy(SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024_p1"}})
 			Expect(tt.HasText("This Character cannot be K.O.'d")).To(BeTrue())
 			Expect(tt.HasText("Sim's own")).To(BeFalse())
-			click(tt, "In the sim: Alt art")
+			guitest.Click(tt, "In the sim: Alt art")
 			Expect(tt.HasText("This Character cannot be K.O.'d")).To(BeFalse())
 			Expect(tt.HasText("Sim's own")).To(BeTrue())
 		})
@@ -652,7 +640,7 @@ var _ = Describe("Cards page", func() {
 		}
 		open := func(cur sim.ArtChoice, ca arts.CardArts) {
 			GinkgoHelper()
-			v.cards.SetSimArt("OP14-002", cardspage.SimArtInfo{Cur: cur})
+			v.cards.SetSimArt("OP14-002", SimArtInfo{Cur: cur})
 			v.cards.ResetArts()
 			tt.Frame()
 			v.cards.SetArts(lastGen(), "OP14-002", ca)
@@ -666,31 +654,31 @@ var _ = Describe("Cards page", func() {
 			Expect(tt.HasText("6")).To(BeTrue())
 			Expect(tt.HasText("Offline Regional Finalist Card Set 25-26 Season 1")).To(BeFalse())
 
-			click(tt, "Show Regional, 6 versions")
+			guitest.Click(tt, "Show Regional, 6 versions")
 			for _, text := range []string{"Regional · 6 versions", "Offline finalist", "Offline Regional Finalist Card Set 25-26 Season 1"} {
 				Expect(tt.HasText(text)).To(BeTrue(), text)
 			}
-			click(tt, "Use Offline finalist, Offline Regional Finalist Card Set 25-26 Season 1 in the sim")
-			Expect(fa.calls).To(ContainElement("use art OP14-002 OP14-002_p3_bd"))
+			guitest.Click(tt, "Use Offline finalist, Offline Regional Finalist Card Set 25-26 Season 1 in the sim")
+			Expect(fa.Calls).To(ContainElement("use art OP14-002 OP14-002_p3_bd"))
 		})
 
 		It("shows a version large when its row is clicked", func() {
 			open(sim.ArtChoice{Kind: sim.ArtOwn}, regional(0))
-			click(tt, "Show Regional, 6 versions")
-			click(tt, "Save image…")
-			click(tt, "Show Regional, 6 versions")
-			click(tt, "Show Online champion, Online Regional Champion Card Set 25-26 Season 1")
-			click(tt, "Save image…")
+			guitest.Click(tt, "Show Regional, 6 versions")
+			guitest.Click(tt, "Save image…")
+			guitest.Click(tt, "Show Regional, 6 versions")
+			guitest.Click(tt, "Show Online champion, Online Regional Champion Card Set 25-26 Season 1")
+			guitest.Click(tt, "Save image…")
 			Expect(calls("save art")).To(Equal([]string{"save art OP14-002_p1_bd", "save art OP14-002_p7_bd"}))
 		})
 
 		It("puts the version shown large in the sim from its art's dot, as the viewer does", func() {
 			open(sim.ArtChoice{Kind: sim.ArtOwn}, regional(0))
-			click(tt, "Show Regional, 6 versions")
-			click(tt, "Show Online champion, Online Regional Champion Card Set 25-26 Season 1")
+			guitest.Click(tt, "Show Regional, 6 versions")
+			guitest.Click(tt, "Show Online champion, Online Regional Champion Card Set 25-26 Season 1")
 			tt.Key(0, ui.KeyEscape)
 			tt.Frame()
-			click(tt, "Use Regional in the sim")
+			guitest.Click(tt, "Use Regional in the sim")
 			Expect(calls("use art")).To(Equal([]string{"use art OP14-002 OP14-002_p7_bd"}))
 		})
 
@@ -709,15 +697,15 @@ var _ = Describe("Cards page", func() {
 			open(sim.ArtChoice{Kind: sim.ArtOwn}, regional(0))
 			Expect(tt.RightClick("Urouge OP14-002")).To(Succeed())
 			tt.Frame()
-			Expect(choose(tt, "Art in the sim", "Regional · 6 versions", "Online finalist")).NotTo(Succeed())
+			Expect(guitest.Choose(tt, "Art in the sim", "Regional · 6 versions", "Online finalist")).NotTo(Succeed())
 			tt.Key(0, ui.KeyEscape)
 			tt.Key(0, ui.KeyEscape)
 			tt.Frame()
 			Expect(tt.RightClick("Urouge OP14-002")).To(Succeed())
 			tt.Frame()
-			Expect(choose(tt, "Art in the sim", "Regional · 6 versions", "Online Regional Finalist Card Set 25-26 Season 1")).
+			Expect(guitest.Choose(tt, "Art in the sim", "Regional · 6 versions", "Online Regional Finalist Card Set 25-26 Season 1")).
 				To(Succeed())
-			Expect(fa.calls).To(ContainElement("use art OP14-002 OP14-002_p6_bd"))
+			Expect(fa.Calls).To(ContainElement("use art OP14-002 OP14-002_p6_bd"))
 		})
 
 		It("names a single art in the menu with its product, but the base card", func() {
@@ -728,7 +716,7 @@ var _ = Describe("Cards page", func() {
 			ca.Arts = []arts.Art{ca.Arts[0], sp}
 			open(sim.ArtChoice{Kind: sim.ArtOwn}, ca)
 			Expect(tt.RightClick("Urouge OP14-002")).To(Succeed())
-			Expect(choose(tt, "Art in the sim")).To(Succeed())
+			Expect(guitest.Choose(tt, "Art in the sim")).To(Succeed())
 			Expect(tt.HasText("SP, Premium Booster")).To(BeTrue())
 			Expect(tt.HasText("Base")).To(BeTrue())
 			Expect(tt.HasText("Base, The Azure Sea's Seven")).To(BeFalse())
@@ -740,7 +728,7 @@ var _ = Describe("Cards page", func() {
 		})
 
 		It("asks for a card's arts once, again after a reset, and drops a step from before it", func() {
-			v.cards.SetSimArt("OP14-002", cardspage.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
+			v.cards.SetSimArt("OP14-002", SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
 			tt.Frame()
 			Expect(fa.artLoads).To(HaveLen(1))
 			first := lastGen()
@@ -765,9 +753,9 @@ var _ = Describe("Cards page", func() {
 	Describe("the art viewer", func() {
 		luffyViewer := func() {
 			GinkgoHelper()
-			click(tt, "Monkey D. Luffy OP01-024")
-			v.cards.SetSimArt("OP01-024", cardspage.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
-			click(tt, "View full size")
+			guitest.Click(tt, "Monkey D. Luffy OP01-024")
+			v.cards.SetSimArt("OP01-024", SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
+			guitest.Click(tt, "View full size")
 		}
 
 		It("lists the card's pictures and names the one in the sim", func() {
@@ -780,40 +768,40 @@ var _ = Describe("Cards page", func() {
 		It("walks the pictures with the up and down keys, around the ends", func() {
 			luffyViewer()
 			tt.Key(0, ui.KeyDown)
-			click(tt, "Use this art in the sim")
+			guitest.Click(tt, "Use this art in the sim")
 			Expect(calls("use art")).To(Equal([]string{"use art OP01-024 OP01-024_p1"}))
 			alt := sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024_p1"}
-			v.cards.SimArtDone(&v.Env, v.Snap.Card("OP01-024"), alt, cardspage.SimArtInfo{Cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
+			v.cards.SimArtDone(&v.Env, v.Snap.Card("OP01-024"), alt, SimArtInfo{Cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
 			tt.Key(0, ui.KeyUp)
 			tt.Key(0, ui.KeyUp)
-			click(tt, "Use this art in the sim")
+			guitest.Click(tt, "Use this art in the sim")
 			Expect(calls("use art")).To(Equal([]string{"use art OP01-024 OP01-024_p1", "use art OP01-024 "}))
 		})
 
 		It("puts the picture a click picks in the sim", func() {
 			luffyViewer()
-			click(tt, "View Alt art")
+			guitest.Click(tt, "View Alt art")
 			Expect(calls("use art")).To(BeEmpty())
-			click(tt, "Use this art in the sim")
+			guitest.Click(tt, "Use this art in the sim")
 			Expect(calls("use art")).To(Equal([]string{"use art OP01-024 OP01-024_p1"}))
 		})
 
 		It("closes on Escape and on its close button", func() {
 			luffyViewer()
-			Expect(labelled(tt, "Close the viewer")).To(BeTrue())
+			Expect(guitest.Labelled(tt, "Close the viewer")).To(BeTrue())
 			tt.Key(0, ui.KeyEscape)
-			Expect(labelled(tt, "Close the viewer")).To(BeFalse())
-			click(tt, "View the art full size")
-			Expect(labelled(tt, "Close the viewer")).To(BeTrue())
-			click(tt, "Close the viewer")
-			Expect(labelled(tt, "Close the viewer")).To(BeFalse())
+			Expect(guitest.Labelled(tt, "Close the viewer")).To(BeFalse())
+			guitest.Click(tt, "View the art full size")
+			Expect(guitest.Labelled(tt, "Close the viewer")).To(BeTrue())
+			guitest.Click(tt, "Close the viewer")
+			Expect(guitest.Labelled(tt, "Close the viewer")).To(BeFalse())
 		})
 
 		It("opens on the card whose menu asked for it", func() {
-			click(tt, "Monkey D. Luffy OP01-024")
+			guitest.Click(tt, "Monkey D. Luffy OP01-024")
 			Expect(tt.RightClick("Urouge OP14-002")).To(Succeed())
-			Expect(choose(tt, "View art")).To(Succeed())
-			Expect(labelled(tt, "Close the viewer")).To(BeTrue())
+			Expect(guitest.Choose(tt, "View art")).To(Succeed())
+			Expect(guitest.Labelled(tt, "Close the viewer")).To(BeTrue())
 			Expect(tt.Texts()).To(ContainElement("OP14-002 · Red Character"))
 			Expect(tt.Texts()).NotTo(ContainElement("OP01-024 · Red Character"))
 		})
@@ -890,37 +878,37 @@ var _ = Describe("Card sort", func() {
 	})
 
 	It("sorts from the pill's menu and saves the sort", func() {
-		click(tt, "Sort: Set · by number")
-		click(tt, "Rarity")
+		guitest.Click(tt, "Sort: Set · by number")
+		guitest.Click(tt, "Rarity")
 		Expect(tt.HasText("Rarity · rarest first")).To(BeTrue())
 		Expect(shownCards(tt, pool)).To(Equal([]string{"OP01-024", "OP14-002", "OP14-018", "OP14-020"}))
-		click(tt, "Sort: Rarity · rarest first")
-		click(tt, "Commonest first")
+		guitest.Click(tt, "Sort: Rarity · rarest first")
+		guitest.Click(tt, "Commonest first")
 		Expect(tt.HasText("Rarity · commonest first")).To(BeTrue())
-		Expect(fa.calls).To(ContainElements("card_sort=rarity", "card_sort=rarity reversed"))
+		Expect(fa.Calls).To(ContainElements("card_sort=rarity", "card_sort=rarity reversed"))
 	})
 
 	It("sorts the list on a header click and turns it around on the next", func() {
-		click(tt, "List")
+		guitest.Click(tt, "List")
 		Expect(tt.HasText("Effect")).To(BeTrue())
-		click(tt, "Sort by Power")
+		guitest.Click(tt, "Sort by Power")
 		Expect(shownCards(tt, pool)).To(Equal([]string{"OP14-020", "OP01-024", "OP14-002", "OP14-018"}))
-		click(tt, "Sort by Power")
+		guitest.Click(tt, "Sort by Power")
 		Expect(shownCards(tt, pool)).To(Equal([]string{"OP14-002", "OP01-024", "OP14-020", "OP14-018"}))
-		click(tt, "Sort by Name")
+		guitest.Click(tt, "Sort by Name")
 		Expect(shownCards(tt, pool)).To(Equal([]string{"OP14-020", "OP01-024", "OP14-018", "OP14-002"}))
-		Expect(fa.calls).To(ContainElements("card_list=1", "card_sort=power", "card_sort=power reversed", "card_sort=name"))
+		Expect(fa.Calls).To(ContainElements("card_list=1", "card_sort=power", "card_sort=power reversed", "card_sort=name"))
 	})
 })
 
 var _ = Describe("effect text", func() {
 	It("draws keywords as on the card and traits in gold", func() {
-		spans := cardspage.EffectSpans("[On Play] Give {Supernovas} +1000.\n[Trigger] Draw 1.", kit.Graphite())
+		spans := effectSpans("[On Play] Give {Supernovas} +1000.\n[Trigger] Draw 1.", kit.Graphite())
 		Expect(spans[0].Text).To(Equal("On Play"))
-		Expect(spans[0].Background).To(Equal(cardspage.KwBlue))
+		Expect(spans[0].Background).To(Equal(kwBlue))
 		Expect(spans[2].Text).To(Equal("{Supernovas}"))
 		Expect(spans[2].Color).To(Equal(kit.CardGold))
 		Expect(spans[5].Text).To(Equal("Trigger"))
-		Expect(spans[5].Background).To(Equal(cardspage.KwYellow))
+		Expect(spans[5].Background).To(Equal(kwYellow))
 	})
 })

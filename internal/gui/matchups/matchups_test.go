@@ -1,7 +1,9 @@
-package gui
+package matchups
 
 import (
 	"fmt"
+
+	"github.com/VTGare/logpose/internal/gui/guitest"
 
 	"github.com/VTGare/logpose/internal/gui/page"
 
@@ -13,17 +15,10 @@ import (
 
 // matchupsSnapshot is 9 games against Kaido, 4–5, and the newest one a win against Buggy.
 func matchupsSnapshot() *page.Snapshot {
-	s := testSnapshot(10)
+	s := guitest.Snapshot(10)
 	s.Matches[0].Opp.Leader = "OP09-042"
 	s.Cards.Name("OP09-042", "Buggy")
 	return s
-}
-
-func matchupsTester(s *page.Snapshot) (*view, *ui.Tester) {
-	v, tt := tester(s)
-	Expect(tt.Click("Matchups")).To(Succeed())
-	tt.Frame()
-	return v, tt
 }
 
 var _ = Describe("Matchups page", func() {
@@ -49,14 +44,6 @@ var _ = Describe("Matchups page", func() {
 		Expect(tt.HasText("Latest games")).To(BeFalse())
 	})
 
-	It("opens Matches filtered to the matchup", func() {
-		_, tt := matchupsTester(matchupsSnapshot())
-		Expect(tt.Click("Show in Matches")).To(Succeed())
-		tt.Frame()
-		Expect(tt.Texts()).To(ContainElements("Monkey D. Luffy", "vs Kaido", "9 games · 4–5"))
-		Expect(tt.HasText("Sort by 2 leaders faced")).To(BeFalse())
-	})
-
 	It("counts only the games in the filters' scope", func() {
 		s := matchupsSnapshot()
 		for i := range 4 {
@@ -64,7 +51,7 @@ var _ = Describe("Matchups page", func() {
 		}
 		_, tt := matchupsTester(s)
 		Expect(tt.Click("All games")).To(Succeed())
-		Expect(choose(tt, "Casual")).To(Succeed())
+		Expect(guitest.Choose(tt, "Casual")).To(Succeed())
 		Expect(tt.Texts()).To(ContainElements("2 leaders faced", "Kaido", "1–2", "Buggy", "1–0"))
 		Expect(tt.Texts()).NotTo(ContainElement("4–5"))
 	})
@@ -79,3 +66,28 @@ var _ = Describe("Matchups page", func() {
 		Expect(tt.HasText("1 leader faced")).To(BeTrue())
 	})
 })
+
+// view is the Matchups page in a host, under the filter bar.
+type view struct {
+	*guitest.Host
+	pg *Page
+}
+
+func (v *view) setPrefs(p page.Prefs) { v.SetPrefs(p) }
+
+func (v *view) setActions(f *guitest.EnvActions) { v.Act = f }
+
+func matchupsTester(s *page.Snapshot) (*view, *ui.Tester) {
+	pg := &Page{}
+	h, tt := guitest.WithBar(s, pg.Draw)
+	h.Page = page.Matchups
+	tt.Frame()
+	return &view{h, pg}, tt
+}
+
+func tableTester() (*view, *ui.Tester, *guitest.EnvActions) {
+	v, tt := matchupsTester(matchupsSnapshot())
+	act := &guitest.EnvActions{}
+	v.setActions(act)
+	return v, tt, act
+}

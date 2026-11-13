@@ -1,10 +1,9 @@
-package gui
+package settings
 
 import (
-	"image/color"
 	"time"
 
-	"github.com/VTGare/logpose/internal/gui/settings"
+	"github.com/VTGare/logpose/internal/gui/guitest"
 
 	"github.com/VTGare/logpose/internal/gui/page"
 
@@ -21,18 +20,18 @@ const testNotes = `- Tiles fold away, and remember it.
 A **wrapped** paragraph.`
 
 var _ = Describe("updates", func() {
-	sidebar := func(u settings.UpdateState) (*view, *ui.Tester, *fakeActions) {
-		v, tt := tester(testSnapshot(4))
+	sidebar := func(u UpdateState) (*view, *ui.Tester, *fakeActions) {
+		v, tt := tester(guitest.Snapshot(4))
 		fa := &fakeActions{}
 		v.setActions(fa)
 		v.settings.SetUpdate(u)
 		tt.Frame()
 		return v, tt, fa
 	}
-	ready := settings.UpdateState{Can: true, Current: "0.1.0", Phase: settings.UpdateReady, Next: "0.1.1", Notes: testNotes}
+	ready := UpdateState{Can: true, Current: "0.1.0", Phase: UpdateReady, Next: "0.1.1", Notes: testNotes}
 
 	It("shows nothing in the sidebar while up to date", func() {
-		_, tt, _ := sidebar(settings.UpdateState{Can: true, Current: "0.1.0"})
+		_, tt, _ := sidebar(UpdateState{Can: true, Current: "0.1.0"})
 		Expect(tt.HasText("Restart")).To(BeFalse())
 		Expect(tt.HasText("What's new")).To(BeFalse())
 	})
@@ -42,7 +41,7 @@ var _ = Describe("updates", func() {
 		Expect(tt.HasText("0.1.1 is ready")).To(BeTrue())
 		Expect(tt.Click("Restart")).To(Succeed())
 		tt.Frame()
-		Expect(fa.calls).To(Equal([]string{"restart to update"}))
+		Expect(fa.Calls).To(Equal([]string{"restart to update"}))
 	})
 
 	It("shows the release notes from the sidebar", func() {
@@ -55,11 +54,11 @@ var _ = Describe("updates", func() {
 	})
 
 	It("downloads a version found when the user downloads updates themselves", func() {
-		_, tt, fa := sidebar(settings.UpdateState{Can: true, Current: "0.1.0", Phase: settings.UpdateFound, Next: "0.1.1"})
+		_, tt, fa := sidebar(UpdateState{Can: true, Current: "0.1.0", Phase: UpdateFound, Next: "0.1.1"})
 		Expect(tt.HasText("0.1.1 is out")).To(BeTrue())
 		Expect(tt.Click("Get it")).To(Succeed())
 		tt.Frame()
-		Expect(fa.calls).To(Equal([]string{"install update"}))
+		Expect(fa.Calls).To(Equal([]string{"install update"}))
 		Expect(tt.HasText("Getting 0.1.1 · 0%")).To(BeTrue())
 		Expect(tt.HasText("Get it")).To(BeFalse())
 	})
@@ -70,47 +69,30 @@ var _ = Describe("updates", func() {
 		tt.Frame()
 		Expect(tt.Click("0.1.1 is ready")).To(Succeed())
 		tt.Frame()
-		Expect(fa.calls).To(Equal([]string{"restart to update"}))
-	})
-
-	It("tints the rail's update button blue, unlike the grey of the current page", func() {
-		v, tt, _ := sidebar(ready)
-		v.setPrefs(page.PrefsFrom(map[string]string{page.KeySidebarWidth: "90"}))
-		v.Page = page.Formats
-		tt.Frame()
-		fill := func(label string) color.RGBA {
-			GinkgoHelper()
-			r, ok := tt.Find(label)
-			Expect(ok).To(BeTrue(), label)
-			return tt.Image().RGBAAt(int(r.X+6), int(r.Y+r.H/2))
-		}
-		upd, page := fill("0.1.1 is ready"), fill("Formats")
-		Expect(upd).NotTo(Equal(page))
-		Expect(upd.B).To(BeNumerically(">", upd.R+20))
-		Expect(page.B).To(BeNumerically("<", page.R+8))
+		Expect(fa.Calls).To(Equal([]string{"restart to update"}))
 	})
 
 	It("shows the version and checks from Settings, and stores the download choice", func() {
 		st := settingsTester()
-		st.v.settings.SetUpdate(settings.UpdateState{Can: true, Current: "0.1.0", Checked: now.Add(-25 * time.Hour)})
+		st.v.settings.SetUpdate(UpdateState{Can: true, Current: "0.1.0", Checked: guitest.Now.Add(-25 * time.Hour)})
 		Expect(st.has("Version 0.1.0")).To(BeTrue())
 		Expect(st.has("Up to date · checked yesterday at 19:00")).To(BeTrue())
 		st.click("Check now")
 		Expect(st.has("Checking…")).To(BeTrue())
 		st.click("Download updates by itself")
-		Expect(st.fa.calls).To(Equal([]string{"check update", page.KeyUpdateManual + "=1"}))
+		Expect(st.fa.Calls).To(Equal([]string{"check update", page.KeyUpdateManual + "=1"}))
 	})
 
 	It("says when this copy can't update itself", func() {
 		st := settingsTester()
-		st.v.settings.SetUpdate(settings.UpdateState{Current: "0.1.0"})
+		st.v.settings.SetUpdate(UpdateState{Current: "0.1.0"})
 		Expect(st.has("Only logpose installed with its installer updates itself")).To(BeTrue())
 		Expect(st.has("Check now")).To(BeFalse())
 	})
 
 	It("doesn't offer shortcuts to a copy its installer put in place", func() {
-		v, tt := tester(testSnapshot(10))
-		v.setSystem(settings.System{CanShortcut: true, Installed: true})
+		v, tt := tester(guitest.Snapshot(10))
+		v.setSystem(System{CanShortcut: true, Installed: true})
 		tt.Frame()
 		Expect(tt.HasText(offerTitle)).To(BeFalse())
 	})

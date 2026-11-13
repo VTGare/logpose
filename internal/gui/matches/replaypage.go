@@ -89,7 +89,7 @@ func (pg *Page) replayWaiting(c *ui.Context, rs *replayState) {
 		msg := "Building the replay"
 		switch {
 		case errors.Is(rs.err, replay.ErrNoMoves):
-			msg = NoMovesText
+			msg = noMovesText
 		case rs.err != nil:
 			msg = "The game's log couldn't be read: " + rs.err.Error()
 		}
@@ -97,7 +97,7 @@ func (pg *Page) replayWaiting(c *ui.Context, rs *replayState) {
 	})
 }
 
-const NoMovesText = "This game's log comes from a sim version without the move stream, so it can't be replayed."
+const noMovesText = "This game's log comes from a sim version without the move stream, so it can't be replayed."
 
 func (pg *Page) replayLeft(c *ui.Context, e *page.Env, sv *stepView, side float32) {
 	t := c.Theme()

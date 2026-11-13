@@ -912,7 +912,7 @@ func (pg *Page) simArtLine(c *ui.Context, ca arts.CardArts, info SimArtInfo, loa
 func cardFacts(c *ui.Context, e *page.Env, card cards.Card) {
 	t := c.Theme()
 	if card.Effect != "" {
-		ui.RichText(c, EffectSpans(card.Effect, t)...).FontSize(14).LineHeight(1.5).Wrap()
+		ui.RichText(c, effectSpans(card.Effect, t)...).FontSize(14).LineHeight(1.5).Wrap()
 	}
 	tags(c, card.Traits)
 	var more []string
@@ -1006,10 +1006,10 @@ func tags(c *ui.Context, values []string) {
 // Keyword colors follow the cards: blue for timings, pink for Once Per Turn, red for Counter,
 // yellow for Trigger, and dark for DON!! and keywords that are always on.
 var (
-	KwBlue   = ui.Hex("#1E6FB8")
+	kwBlue   = ui.Hex("#1E6FB8")
 	kwPink   = ui.Hex("#C2185B")
 	kwRed    = ui.Hex("#B3261E")
-	KwYellow = ui.Hex("#D9B300")
+	kwYellow = ui.Hex("#D9B300")
 	kwDark   = ui.Hex("#2B2B30")
 )
 
@@ -1019,17 +1019,17 @@ func keywordColor(k string) (back, text ui.Color) {
 	case k == "Counter":
 		return kwRed, white
 	case k == "Trigger":
-		return KwYellow, ui.Hex("#1A1A1A")
+		return kwYellow, ui.Hex("#1A1A1A")
 	case k == "Once Per Turn":
 		return kwPink, white
 	case strings.HasPrefix(k, "DON!!"), k == "Rush", k == "Blocker", k == "Double Attack", k == "Banish", k == "Unblockable":
 		return kwDark, white
 	}
-	return KwBlue, white
+	return kwBlue, white
 }
 
-// EffectSpans draws an effect's [keywords] as on the card and its {traits} in gold.
-func EffectSpans(effect string, t *ui.Theme) []ui.Span {
+// effectSpans draws an effect's [keywords] as on the card and its {traits} in gold.
+func effectSpans(effect string, t *ui.Theme) []ui.Span {
 	var out []ui.Span
 	for i, line := range strings.Split(effect, "\n") {
 		if i > 0 {
@@ -1101,4 +1101,13 @@ func (pg *Page) do(fn func(Actions)) {
 	if pg.Act != nil {
 		fn(pg.Act)
 	}
+}
+
+// Select makes the card the one the page shows, with the art viewer open or closed.
+func (pg *Page) Select(code string, viewer bool) {
+	s := &pg.State
+	if s.Selected != code {
+		s.Selected, s.Viewed, s.Versions = code, "", ""
+	}
+	s.Viewer = viewer
 }

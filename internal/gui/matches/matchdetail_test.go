@@ -1,10 +1,9 @@
-package gui
+package matches
 
 import (
 	"fmt"
-	"time"
 
-	"github.com/VTGare/logpose/internal/gui/matches"
+	"github.com/VTGare/logpose/internal/gui/guitest"
 
 	"github.com/VTGare/logpose/internal/gui/page"
 
@@ -18,15 +17,6 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-// hover rests the pointer on the element showing text until its tooltip shows.
-func hover(tt *ui.Tester, text string) {
-	r, ok := tt.Find(text)
-	Expect(ok).To(BeTrue(), text)
-	tt.Move(r.X+r.W/2, r.Y+r.H/2)
-	tt.Advance(time.Second)
-	tt.Frame()
-}
-
 var _ = Describe("match detail", func() {
 	var fa *fakeActions
 
@@ -38,7 +28,7 @@ var _ = Describe("match detail", func() {
 	}
 
 	It("opens a match from the Matches page and goes back to the list", func() {
-		s := testSnapshot(10)
+		s := guitest.Snapshot(10)
 		s.Matches[0].Me.HandBefore = []string{"OP13-001", "OP17-058"}
 		s.Matches[0].Me.Mulliganed = true
 		s.Matches[0].Me.HandAfter = []string{"OP17-058"}
@@ -57,40 +47,14 @@ var _ = Describe("match detail", func() {
 		Expect(tt.HasText("10 games · 5–5")).To(BeTrue())
 	})
 
-	It("opens a match from its tile on the overview and goes back there", func() {
-		_, tt := open(testSnapshot(1))
-		Expect(tt.Click("Open the match against Opp")).To(Succeed())
-		Expect(tt.HasText("Opening hands")).To(BeTrue())
-		Expect(tt.Click("Back to overview")).To(Succeed())
-		Expect(tt.HasText("Opening hands")).To(BeFalse())
-		Expect(tt.HasText("Open the match against Opp")).To(BeTrue())
-	})
-
-	It("closes the match when its page is picked in the sidebar", func() {
-		_, tt := open(testSnapshot(1))
-		Expect(tt.Click("Open the match against Opp")).To(Succeed())
-		Expect(tt.Click("Overview")).To(Succeed())
-		Expect(tt.HasText("Opening hands")).To(BeFalse())
-		Expect(tt.HasText("Open the match against Opp")).To(BeTrue())
-	})
-
-	It("closes the match when another page is picked", func() {
-		_, tt := open(testSnapshot(1))
-		Expect(tt.Click("Open the match against Opp")).To(Succeed())
-		Expect(tt.Click("Matches")).To(Succeed())
-		tt.Frame()
-		Expect(tt.HasText("Opening hands")).To(BeFalse())
-		Expect(tt.HasText("Back to overview")).To(BeFalse())
-	})
-
 	It("shows life, hand and board by turn once the log is read", func() {
-		v, tt := open(testSnapshot(3))
+		v, tt := open(guitest.Snapshot(3))
 		v.OpenMatch(v.Snap.Matches[1])
-		v.matches.SetTimeline(matches.MatchTimeline{Fingerprint: "0", Me: []int{9}})
+		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0", Me: []int{9}})
 		tt.Frame()
 		Expect(tt.HasText("Reading the log")).To(BeTrue())
 
-		v.matches.SetTimeline(matches.MatchTimeline{
+		v.matches.SetTimeline(MatchTimeline{
 			Fingerprint: "1",
 			Me:          []int{5, 5, 4}, Opp: []int{4, 3, 3},
 			MeHand: []int{5, 6, 4}, OppHand: []int{5, 7, 6},
@@ -113,7 +77,7 @@ var _ = Describe("match detail", func() {
 	})
 
 	It("bookmarks the match from its page", func() {
-		s := testSnapshot(3)
+		s := guitest.Snapshot(3)
 		v, tt := open(s)
 		v.OpenMatch(s.Matches[0])
 		tt.Frame()
@@ -129,7 +93,7 @@ var _ = Describe("match detail", func() {
 	})
 
 	It("shows only bookmarked matches when asked, with a star by the date", func() {
-		s := testSnapshot(3)
+		s := guitest.Snapshot(3)
 		s.Matches[1].Bookmarked = true
 		_, tt := open(s)
 		Expect(tt.Click("Matches")).To(Succeed())
@@ -141,15 +105,15 @@ var _ = Describe("match detail", func() {
 	})
 
 	It("says when the log doesn't track life", func() {
-		v, tt := open(testSnapshot(3))
+		v, tt := open(guitest.Snapshot(3))
 		v.OpenMatch(v.Snap.Matches[0])
-		v.matches.SetTimeline(matches.MatchTimeline{Fingerprint: "0"})
+		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0"})
 		tt.Frame()
 		Expect(tt.HasText("The log doesn't track life for this game.")).To(BeTrue())
 	})
 
 	It("sets the game type of a game in a room lobby from the top bar", func() {
-		s := testSnapshot(3)
+		s := guitest.Snapshot(3)
 		v, tt := open(s)
 		v.OpenMatch(s.Matches[0])
 		tt.Frame()
@@ -157,25 +121,25 @@ var _ = Describe("match detail", func() {
 		Expect(tt.Click("Auto: Ranked")).To(Succeed())
 		Expect(tt.Click("Friendly")).To(Succeed())
 		Expect(fa.types).To(Equal([]string{"0=2"}))
-		hover(tt, "Friendly")
+		guitest.Hover(tt, "Friendly")
 		Expect(tt.HasText("Counted as a friendly, as you set it.")).To(BeTrue(), fmt.Sprint(tt.Texts()))
 	})
 
 	It("says why the guess counts a game as it does, from every stored game in its lobby", func() {
-		s := testSnapshot(3)
+		s := guitest.Snapshot(3)
 		g := s.Matches[0].Game
 		g.Fingerprint = "other"
-		ms := stats.Matches([]store.Game{s.Matches[0].Game, g}, me)
+		ms := stats.Matches([]store.Game{s.Matches[0].Game, g}, guitest.Me)
 		s.Matches[0] = ms[0]
 		v, tt := open(s)
 		v.OpenMatch(s.Matches[0])
 		tt.Frame()
-		hover(tt, "Auto: Friendly")
+		guitest.Hover(tt, "Auto: Friendly")
 		Expect(tt.HasText("Counted as a friendly, since its lobby has 2 games.")).To(BeTrue(), fmt.Sprint(tt.Texts()))
 	})
 
 	It("offers no game type choice in a private lobby", func() {
-		s := testSnapshot(3)
+		s := guitest.Snapshot(3)
 		s.Matches[0].Lobby = simlog.Lobby{Code: "7KQ2MP"}
 		s.Matches[0].Ranked = false
 		v, tt := open(s)
@@ -186,7 +150,7 @@ var _ = Describe("match detail", func() {
 	})
 
 	It("saves the note when the box loses focus, and only once", func() {
-		s := testSnapshot(3)
+		s := guitest.Snapshot(3)
 		v, tt := open(s)
 		v.OpenMatch(s.Matches[0])
 		tt.Frame()
@@ -203,28 +167,15 @@ var _ = Describe("match detail", func() {
 		Expect(fa.notes).To(HaveLen(1))
 	})
 
-	It("saves the note being typed when the page changes", func() {
-		s := testSnapshot(3)
-		s.Matches[1].Note = "old note"
-		v, tt := open(s)
-		v.OpenMatch(s.Matches[1])
-		tt.Frame()
-		Expect(tt.Click("Match note")).To(Succeed())
-		tt.Type(" and more")
-		Expect(tt.Click("Overview")).To(Succeed())
-		Expect(fa.notes).To(Equal([]string{"1=old note and more"}))
-		Expect(tt.HasText("Match note")).To(BeFalse())
-	})
-
 	It("lists key moments with their cards in table talk", func() {
-		s := testSnapshot(3)
+		s := guitest.Snapshot(3)
 		s.Matches[0].End = simlog.End{Kind: simlog.EndLethal, Loser: "Opp#2"}
 		v, tt := open(s)
 		v.OpenMatch(s.Matches[0])
-		v.matches.SetTimeline(matches.MatchTimeline{Fingerprint: "0", Moments: []simlog.Moment{
+		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0", Moments: []simlog.Moment{
 			{
-				Turn: 3, Player: me,
-				Reasons:    []simlog.Reason{{Kind: simlog.ReasonBoard, Player: me, N: 3}},
+				Turn: 3, Player: guitest.Me,
+				Reasons:    []simlog.Reason{{Kind: simlog.ReasonBoard, Player: guitest.Me, N: 3}},
 				Played:     []string{"OP13-001", "OP17-058", "OP17-058"},
 				Characters: []string{"OP13-001", "OP17-058", "OP17-058"},
 				Board:      []string{"OP17-058", "OP13-001"},
@@ -237,7 +188,7 @@ var _ = Describe("match detail", func() {
 				Removed: []string{"OP17-058", "OP17-058"},
 			},
 			{
-				Turn: 5, Player: me,
+				Turn: 5, Player: guitest.Me,
 				Reasons: []simlog.Reason{
 					{Kind: simlog.ReasonLifeLost, Player: "Opp#2", N: 2},
 					{Kind: simlog.ReasonAtZero, Player: "Opp#2"},
@@ -256,16 +207,16 @@ var _ = Describe("match detail", func() {
 	})
 
 	It("says when no turn stood out", func() {
-		v, tt := open(testSnapshot(3))
+		v, tt := open(guitest.Snapshot(3))
 		v.OpenMatch(v.Snap.Matches[0])
-		v.matches.SetTimeline(matches.MatchTimeline{Fingerprint: "0"})
+		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0"})
 		tt.Frame()
 		Expect(tt.HasText("Nothing stood out in this game.")).To(BeTrue())
 	})
 
 	Describe("the Matches row menu", func() {
 		rightClick := func() (*view, *ui.Tester) {
-			v, tt := open(testSnapshot(3))
+			v, tt := open(guitest.Snapshot(3))
 			Expect(tt.Click("Matches")).To(Succeed())
 			Expect(tt.RightClick("19:00")).To(Succeed())
 			tt.Frame()
@@ -284,7 +235,7 @@ var _ = Describe("match detail", func() {
 
 		It("opens the match", func() {
 			_, tt := rightClick()
-			Expect(choose(tt, "Open match")).To(Succeed())
+			Expect(guitest.Choose(tt, "Open match")).To(Succeed())
 			tt.Frame()
 			Expect(tt.HasText("Opening hands")).To(BeTrue())
 			Expect(fa.loaded).To(Equal([]string{"0"}))
@@ -292,19 +243,19 @@ var _ = Describe("match detail", func() {
 
 		It("bookmarks the match", func() {
 			_, tt := rightClick()
-			Expect(choose(tt, "Bookmark")).To(Succeed())
+			Expect(guitest.Choose(tt, "Bookmark")).To(Succeed())
 			Expect(fa.bookmarks).To(Equal([]string{"0=true"}))
 		})
 
 		It("sets the game type", func() {
 			_, tt := rightClick()
-			Expect(choose(tt, "Game type", "Friendly")).To(Succeed())
+			Expect(guitest.Choose(tt, "Game type", "Friendly")).To(Succeed())
 			Expect(fa.types).To(Equal([]string{"0=2"}))
 		})
 
 		It("opens the match to write a note", func() {
 			_, tt := rightClick()
-			Expect(choose(tt, "Add note…")).To(Succeed())
+			Expect(guitest.Choose(tt, "Add note…")).To(Succeed())
 			Expect(fa.loaded).To(Equal([]string{"0"}))
 			tt.Frame()
 			tt.Type("close game")
@@ -314,7 +265,7 @@ var _ = Describe("match detail", func() {
 
 		It("filters to the opponent, shown as a pill that removes it", func() {
 			_, tt := rightClick()
-			Expect(choose(tt, "Filter to games vs Opp")).To(Succeed())
+			Expect(guitest.Choose(tt, "Filter to games vs Opp")).To(Succeed())
 			tt.Frame()
 			Expect(tt.Click("Remove the filter vs Opp")).To(Succeed())
 			_, pill := tt.Find("Remove the filter vs Opp")
@@ -323,7 +274,7 @@ var _ = Describe("match detail", func() {
 
 		It("filters to the matchup", func() {
 			_, tt := rightClick()
-			Expect(choose(tt, "Filter to Monkey D. Luffy vs Kaido")).To(Succeed())
+			Expect(guitest.Choose(tt, "Filter to Monkey D. Luffy vs Kaido")).To(Succeed())
 			tt.Frame()
 			_, pill := tt.Find("Remove the filter vs Kaido")
 			Expect(pill).To(BeTrue())

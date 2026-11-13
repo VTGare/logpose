@@ -1,4 +1,4 @@
-package gui
+package matches
 
 import (
 	"errors"
@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/VTGare/logpose/internal/gui/matches"
+	"github.com/VTGare/logpose/internal/gui/guitest"
 
 	"github.com/VTGare/logpose/internal/gui/page"
 
@@ -21,13 +21,13 @@ import (
 
 // sixTurns is the replay package's fixture: a real game's first six turns between Alice and
 // Bob, as match "0".
-func sixTurns() matches.LoadedReplay {
-	text, err := os.ReadFile("../replay/testdata/six-turns.log")
+func sixTurns() LoadedReplay {
+	text, err := os.ReadFile("../../replay/testdata/six-turns.log")
 	Expect(err).NotTo(HaveOccurred())
 	g := parseOne(string(text))
 	r, err := replay.Build(g, nil)
 	Expect(err).NotTo(HaveOccurred())
-	return matches.LoadedReplay{Fingerprint: "0", Game: g, Replay: r}
+	return LoadedReplay{Fingerprint: "0", Game: g, Replay: r}
 }
 
 func parseOne(text string) *simlog.Game {
@@ -45,7 +45,7 @@ var _ = Describe("replay", func() {
 	)
 
 	BeforeEach(func() {
-		s := testSnapshot(3)
+		s := guitest.Snapshot(3)
 		s.Matches[0].Me.ID, s.Matches[0].Me.Name = "Alice#1111", "Alice"
 		s.Matches[0].Opp.ID, s.Matches[0].Opp.Name = "Bob#2222", "Bob"
 		v, tt = tester(s)
@@ -54,10 +54,10 @@ var _ = Describe("replay", func() {
 	})
 
 	// watch opens match 0's replay from its page and shows it built.
-	watch := func() matches.LoadedReplay {
+	watch := func() LoadedReplay {
 		v.Page = page.Matches
 		v.OpenMatch(v.Snap.Matches[0])
-		v.matches.SetTimeline(matches.MatchTimeline{Fingerprint: "0", Replayable: true})
+		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0", Replayable: true})
 		tt.Frame()
 		Expect(tt.Click("Watch replay")).To(Succeed())
 		Expect(fa.replays).To(Equal([]string{"0"}))
@@ -99,7 +99,7 @@ var _ = Describe("replay", func() {
 		v.OpenMatch(v.Snap.Matches[0])
 		tt.Frame()
 		Expect(tt.Click("Watch replay")).To(Succeed())
-		v.matches.SetTimeline(matches.MatchTimeline{Fingerprint: "0"})
+		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0"})
 		tt.Frame()
 		Expect(tt.Click("Watch replay")).To(Succeed())
 		Expect(fa.replays).To(BeEmpty())
@@ -109,30 +109,30 @@ var _ = Describe("replay", func() {
 
 	It("says why a game without moves can't be replayed", func() {
 		v.Page = page.Matches
-		v.matches.OpenReplay(&v.Env, v.Snap.Matches[0], -1)
-		v.matches.SetReplay(matches.LoadedReplay{Fingerprint: "0", Err: replay.ErrNoMoves})
+		v.matches.openReplay(&v.Env, v.Snap.Matches[0], -1)
+		v.matches.SetReplay(LoadedReplay{Fingerprint: "0", Err: replay.ErrNoMoves})
 		tt.Frame()
-		Expect(tt.HasText(matches.NoMovesText)).To(BeTrue())
+		Expect(tt.HasText(noMovesText)).To(BeTrue())
 	})
 
 	It("opens from the Matches row menu", func() {
 		Expect(tt.Click("Matches")).To(Succeed())
 		Expect(tt.RightClick("19:00")).To(Succeed())
-		Expect(choose(tt, "Watch replay")).To(Succeed())
+		Expect(guitest.Choose(tt, "Watch replay")).To(Succeed())
 		tt.Frame()
 		Expect(tt.HasText("Building the replay")).To(BeTrue())
 		Expect(fa.loaded).To(Equal([]string{"0"}))
 		Expect(fa.replays).To(BeEmpty())
-		v.matches.SetTimeline(matches.MatchTimeline{Fingerprint: "0", Replayable: true, Game: sixTurns().Game})
+		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0", Replayable: true, Game: sixTurns().Game})
 		Expect(fa.replays).To(Equal([]string{"0"}))
-		v.matches.SetTimeline(matches.MatchTimeline{Fingerprint: "0", Replayable: true, Game: sixTurns().Game})
+		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0", Replayable: true, Game: sixTurns().Game})
 		Expect(fa.replays).To(HaveLen(1))
 	})
 
 	It("says when the match's log can't be read", func() {
 		v.Page = page.Matches
-		v.matches.OpenReplay(&v.Env, v.Snap.Matches[0], -1)
-		v.matches.SetTimeline(matches.MatchTimeline{Fingerprint: "0", Err: errors.New("no such game")})
+		v.matches.openReplay(&v.Env, v.Snap.Matches[0], -1)
+		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0", Err: errors.New("no such game")})
 		tt.Frame()
 		Expect(fa.replays).To(BeEmpty())
 		Expect(tt.HasText("The game's log couldn't be read: no such game")).To(BeTrue())
@@ -143,7 +143,7 @@ var _ = Describe("replay", func() {
 		line := l.Replay.Steps[19].Lines[0]
 		v.Page = page.Matches
 		v.OpenMatch(v.Snap.Matches[0])
-		v.matches.SetTimeline(matches.MatchTimeline{
+		v.matches.SetTimeline(MatchTimeline{
 			Fingerprint: "0", Replayable: true, Me: []int{5, 4, 3}, Opp: []int{5, 5, 4},
 			Moments: []simlog.Moment{{
 				Turn: 5, Player: "Bob#2222", Line: line,
@@ -288,11 +288,11 @@ var _ = Describe("replay", func() {
 
 		Expect(tt.Click("2×")).To(Succeed())
 		Expect(tt.Click("Play")).To(Succeed())
-		fa.fire()
+		fa.Fire()
 		Expect(at(1)).To(BeTrue())
 		Expect(rs.Glide).To(SatisfyAll(BeNumerically(">", 0), BeNumerically("<", byHand)))
 		Expect(tt.Click("4×")).To(Succeed())
-		fa.fire()
+		fa.Fire()
 		Expect(at(2)).To(BeTrue())
 		Expect(rs.Glide).To(BeZero())
 	})
@@ -300,17 +300,17 @@ var _ = Describe("replay", func() {
 	It("plays a step per tick until paused", func() {
 		watch()
 		Expect(tt.Click("Play")).To(Succeed())
-		fa.fire()
+		fa.Fire()
 		Expect(at(1)).To(BeTrue())
-		fa.fire()
+		fa.Fire()
 		Expect(at(2)).To(BeTrue())
 		Expect(tt.Click("Pause")).To(Succeed())
-		fa.fire()
+		fa.Fire()
 		Expect(at(2)).To(BeTrue())
 		tt.Key(0, ui.KeySpace)
 		Expect(tt.HasText("Pause")).To(BeTrue())
 		Expect(tt.Click("4×")).To(Succeed())
-		fa.fire()
+		fa.Fire()
 		Expect(at(3)).To(BeTrue())
 	})
 
@@ -319,24 +319,24 @@ var _ = Describe("replay", func() {
 		tt.Key(0, ui.KeyEnd)
 		tt.Key(0, ui.KeyLeft)
 		Expect(tt.Click("Play")).To(Succeed())
-		fa.fire()
+		fa.Fire()
 		Expect(at(29)).To(BeTrue())
 		Expect(tt.HasText("Play")).To(BeTrue())
-		Expect(fa.timers).To(BeEmpty())
+		Expect(fa.Timers()).To(BeZero())
 	})
 })
 
 var _ = Describe("battlePair", func() {
 	It("draws the attack from the copy that attacked, not the first one rested", func() {
-		shanks := func(id int, rested bool) matches.Placed {
-			return matches.Placed{Card: replay.Card{ID: id, Code: "OP17-022", Rested: rested}, Mine: true}
+		shanks := func(id int, rested bool) Placed {
+			return Placed{Card: replay.Card{ID: id, Code: "OP17-022", Rested: rested}, Mine: true}
 		}
-		cards := []matches.Placed{
+		cards := []Placed{
 			shanks(1001, true), shanks(1002, true), shanks(1003, false),
 			{Card: replay.Card{ID: 2999, Code: "OP17-039", Rested: true}},
 		}
 		bt := &replay.Battle{Attacker: "OP17-022", Target: "OP17-039", AttackerOwner: 1, AttackerID: 1002, DefenderID: 2999}
-		a, t := matches.BattlePair(cards, bt, true)
+		a, t := BattlePair(cards, bt, true)
 		Expect([]int{a, t}).To(Equal([]int{1, 3}))
 	})
 })

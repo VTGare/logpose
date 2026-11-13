@@ -31,6 +31,8 @@ type Env struct {
 	// Entered is true in a page's first frame, when bars grow from zero and charts draw in.
 	Entered bool
 	Frame   int
+	// shown is what the last frame showed.
+	shown string
 
 	Art      *ArtCache
 	Filter   filters
@@ -164,4 +166,32 @@ const (
 // small move would snap straight back.
 type PaneDrag struct {
 	at float32
+}
+
+// ApplyLook sets the theme the user picked, or the one following Windows, with the result
+// colors of the colorblind setting.
+func (e *Env) ApplyLook(c *ui.Context) {
+	l := kit.Look{Dark: c.Theme().Dark, Colorblind: e.Prefs.Colorblind}
+	switch e.Prefs.Theme {
+	case "dark":
+		l.Dark = true
+	case "light":
+		l.Dark = false
+	}
+	c.SetTheme(kit.Looks[l])
+}
+
+// ShowToast shows the message queued for this frame.
+func (e *Env) ShowToast(c *ui.Context) {
+	if t := e.Toast; t != nil {
+		e.Toast = nil
+		c.AddToast(*t)
+	}
+}
+
+// BeginFrame counts the frame. shown names what it shows, a page or an open match.
+func (e *Env) BeginFrame(shown string) {
+	e.Frame++
+	e.Entered = shown != e.shown
+	e.shown = shown
 }

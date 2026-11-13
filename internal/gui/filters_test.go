@@ -3,6 +3,8 @@ package gui
 import (
 	"fmt"
 
+	"github.com/VTGare/logpose/internal/gui/guitest"
+
 	"github.com/VTGare/logpose/internal/gui/page"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -13,7 +15,7 @@ var _ = Describe("turn order and result filters", func() {
 	// mixedTurns has 10 games, 5–5. The first 4 went second, 2–2, and the last one's log doesn't
 	// say who went first.
 	mixedTurns := func() *page.Snapshot {
-		s := testSnapshot(10)
+		s := guitest.Snapshot(10)
 		for i := range 4 {
 			s.Matches[i].WentFirst = false
 		}
@@ -24,11 +26,11 @@ var _ = Describe("turn order and result filters", func() {
 	It("narrows every page to the turn order chosen from its pill", func() {
 		_, tt := tester(mixedTurns())
 		Expect(tt.Click("Either turn")).To(Succeed())
-		Expect(choose(tt, "Going second")).To(Succeed())
+		Expect(guitest.Choose(tt, "Going second")).To(Succeed())
 		Expect(tt.Texts()).To(ContainElements("Going second", "4 games"))
 
 		Expect(tt.Click("Going second")).To(Succeed())
-		Expect(choose(tt, "Going first")).To(Succeed())
+		Expect(guitest.Choose(tt, "Going first")).To(Succeed())
 		Expect(tt.Texts()).To(ContainElement("5 games"))
 		Expect(tt.Click("Decks")).To(Succeed())
 		tt.Frame()
@@ -58,7 +60,7 @@ var _ = Describe("turn order and result filters", func() {
 		Expect(tt.Click("Losses")).To(Succeed())
 		Expect(tt.HasText("Clear")).To(BeTrue())
 		Expect(tt.Click("Either turn")).To(Succeed())
-		Expect(choose(tt, "Going second")).To(Succeed())
+		Expect(guitest.Choose(tt, "Going second")).To(Succeed())
 		Expect(tt.Click("Clear")).To(Succeed())
 		tt.Frame()
 		Expect(tt.Texts()).To(ContainElement("Either turn"))

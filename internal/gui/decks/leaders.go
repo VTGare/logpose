@@ -123,17 +123,17 @@ type deckTab struct {
 }
 
 const (
-	TabResults = iota
+	tabResults = iota
 	tabList
 	tabCards
-	TabHands
+	tabHands
 )
 
 var DeckPageTabs = [...]deckTab{
-	TabResults: {label: "Results", Draw: (*Page).resultsTab},
+	tabResults: {label: "Results", Draw: (*Page).resultsTab},
 	tabList:    {label: "List", Sub: "list", Draw: func(pg *Page, c *ui.Context, e *page.Env, _ leaderDecks, d *deckData) { pg.listTab(c, e, d) }},
 	tabCards:   {label: "Cards", Sub: "cards", Draw: func(_ *Page, c *ui.Context, e *page.Env, _ leaderDecks, d *deckData) { cardsTab(c, e, d) }},
-	TabHands:   {label: "Hands", Sub: "hands", Draw: func(pg *Page, c *ui.Context, e *page.Env, _ leaderDecks, d *deckData) { pg.handsTab(c, e, d) }},
+	tabHands:   {label: "Hands", Sub: "hands", Draw: func(pg *Page, c *ui.Context, e *page.Env, _ leaderDecks, d *deckData) { pg.handsTab(c, e, d) }},
 }
 
 func (pg *Page) resultsTab(c *ui.Context, e *page.Env, ld leaderDecks, d *deckData) {
@@ -456,4 +456,12 @@ func (pg *Page) Open(e *page.Env, sub string) {
 			pg.Tab = i
 		}
 	}
+}
+
+// ShowsHands reports whether the tab shown is one where "Show hands with" fits a card.
+func (pg *Page) ShowsHands() bool { return pg.Tab != tabResults }
+
+// ShowHands opens the Hands tab on the hands the card was dealt in.
+func (pg *Page) ShowHands(code string) {
+	pg.Tab, pg.handsCard, pg.AllHands, pg.Edit = tabHands, code, false, nil
 }

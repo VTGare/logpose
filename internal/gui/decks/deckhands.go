@@ -48,7 +48,7 @@ func keepTile(c *ui.Context, e *page.Env, mu stats.Mulligans, avg float64) {
 	t := c.Theme()
 	sum := fmt.Sprintf("Kept %s · mulliganed %s", page.RateRecord(mu.All.Kept), page.RateRecord(mu.All.Mulliganed))
 	e.FoldTile(c, "hands.keep", kit.FoldHead{Label: "Keep or mulligan", Summary: sum}, func() {
-		ui.Text(c, KeepFinding(mu)).FontSize(14).Wrap()
+		ui.Text(c, keepFinding(mu)).FontSize(14).Wrap()
 		ui.Row(c).Gap(12).Padding(6, 0, 0, 0).Children(func() {
 			ui.Box(c).Width(keepLabelW)
 			ui.Text(c, "Kept the first five").FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
@@ -93,9 +93,9 @@ func oppLine(k stats.KeepSplit) string {
 		kit.Pct(mull), kit.Record(k.Mulliganed), kit.Pct(kept), kit.Record(k.Kept))
 }
 
-// KeepFinding says in words where keeping and mulliganing differ by turn order, or in all games
+// keepFinding says in words where keeping and mulliganing differ by turn order, or in all games
 // when neither turn order has enough games of both.
-func KeepFinding(mu stats.Mulligans) string {
+func keepFinding(mu stats.Mulligans) string {
 	var told, even []string
 	for _, s := range []struct {
 		name string
@@ -203,7 +203,7 @@ func (pg *Page) dealtRow(c *ui.Context, e *page.Env, tv kit.TableView[stats.Deal
 	t := c.Theme()
 	s := pg
 	card := e.Snap.Card(d.Card)
-	open := s.HandsCard == d.Card
+	open := s.handsCard == d.Card
 	verb := "Show"
 	if open {
 		verb = "Hide"
@@ -220,9 +220,9 @@ func (pg *Page) dealtRow(c *ui.Context, e *page.Env, tv kit.TableView[stats.Deal
 	}
 	if row.Clicked() {
 		if open {
-			s.HandsCard = ""
+			s.handsCard = ""
 		} else {
-			s.HandsCard, s.AllHands = d.Card, false
+			s.handsCard, s.AllHands = d.Card, false
 		}
 	}
 	row.Children(func() {

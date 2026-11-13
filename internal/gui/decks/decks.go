@@ -46,15 +46,15 @@ type Page struct {
 	// renaming shows the rename bar under the build row for the chosen build.
 	renaming bool
 	rename   string
-	// HandsCard is the card whose dealt hands the Hands tab shows, and allHands shows every one
+	// handsCard is the card whose dealt hands the Hands tab shows, and allHands shows every one
 	// of them rather than the latest few.
-	HandsCard string
+	handsCard string
 	AllHands  bool
 	// tester is the Hands tab's practice deal, and hideNumbers keeps the cards' records hidden
 	// until the hand is kept or sent back.
 	tester      handTest
 	hideNumbers bool
-	Rng         *rand.Rand
+	rng         *rand.Rand
 }
 
 type scopeKind int

@@ -102,18 +102,18 @@ func (pg *Page) handTester(c *ui.Context, e *page.Env, gs []stats.DeckGame, deal
 		return
 	}
 	list := gs[0].Facts.List
-	if s.Rng == nil {
-		s.Rng = rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
+	if s.rng == nil {
+		s.rng = rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
 	}
 	h := &s.tester
 	if h.list != listKey(list) {
-		h.deal(list, s.Rng)
+		h.deal(list, s.rng)
 	}
 	if c.Shortcut(0, ui.KeyN) {
-		h.deal(list, s.Rng)
+		h.deal(list, s.rng)
 	}
 	if c.Shortcut(0, ui.KeyM) {
-		h.mulligan(s.Rng)
+		h.mulligan(s.rng)
 	}
 	if c.Shortcut(0, ui.KeyT) {
 		h.next()
@@ -171,13 +171,13 @@ func (pg *Page) testerControls(c *ui.Context, list map[string]int) {
 		}
 		if ui.Segmented(c, &order, "Going first", "Going second").Changed() {
 			h.second = order == 1
-			h.deal(list, s.Rng)
+			h.deal(list, s.rng)
 		}
 		if ui.Button(c, "New hand").Tooltip("N").Clicked() {
-			h.deal(list, s.Rng)
+			h.deal(list, s.rng)
 		}
 		if ui.Button(c, "Mulligan").Tooltip("M").Disabled(!h.canMulligan()).Clicked() {
-			h.mulligan(s.Rng)
+			h.mulligan(s.rng)
 		}
 		next := "Next turn"
 		if h.turn == 0 {

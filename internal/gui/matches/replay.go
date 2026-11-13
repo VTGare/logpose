@@ -95,8 +95,8 @@ func glideTime(playing bool, speed int) time.Duration {
 	return replaySpeeds[speed].glide
 }
 
-// OpenReplay shows the match's replay, at the step of a log line or, with -1, from the start.
-func (pg *Page) OpenReplay(e *page.Env, m stats.Match, line int) {
+// openReplay shows the match's replay, at the step of a log line or, with -1, from the start.
+func (pg *Page) openReplay(e *page.Env, m stats.Match, line int) {
 	if rs := pg.Detail.Replay; rs != nil && rs.Fingerprint == m.Fingerprint {
 		return
 	}

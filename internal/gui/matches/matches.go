@@ -351,7 +351,7 @@ func (pg *Page) GameMenu(e *page.Env, m stats.Match) func(*ui.Menu) {
 			pg.OpenMatch(e, m)
 		}
 		if menu.Item("Watch replay").Chosen() {
-			pg.OpenReplay(e, m, -1)
+			pg.openReplay(e, m, -1)
 		}
 		menu.Separator()
 		if stats.CanBeRanked(m.Game) {
