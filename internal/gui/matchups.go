@@ -11,7 +11,7 @@ import (
 	"github.com/VTGare/logpose/internal/stats"
 )
 
-type matchupsState struct {
+type matchupsPage struct {
 	// pick is the opposing leader shown in full, or "" for the most played one.
 	pick string
 
@@ -20,44 +20,43 @@ type matchupsState struct {
 }
 
 // matchupData is the deck the filter names, or the most played one in scope, and its matchups.
-func (v *view) matchupData() (string, []stats.Matchup) {
-	sc := v.scoped()
-	deck := v.filter.deck
+func (pg *matchupsPage) matchupData(e *env) (string, []stats.Matchup) {
+	sc := e.scoped()
+	deck := e.filter.deck
 	if deck == "" && len(sc.decks) > 0 {
 		deck = sc.decks[0].Leader
 	}
-	s := &v.matchups
-	if s.gen != sc.gen {
-		s.gen = sc.gen
-		s.list = stats.Matchups(sc.anyTurn, deck, v.filter.turn)
+	if pg.gen != sc.gen {
+		pg.gen = sc.gen
+		pg.list = stats.Matchups(sc.anyTurn, deck, e.filter.turn)
 	}
-	return deck, s.list
+	return deck, pg.list
 }
 
 // matchupNone is the pick when the user closed the open row.
 const matchupNone = "-"
 
-func (v *view) matchupsPage(c *ui.Context) {
+func (pg *matchupsPage) draw(c *ui.Context, e *env) {
 	t := c.Theme()
-	deck, list := v.matchupData()
+	deck, list := pg.matchupData(e)
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
-			v.deckTabs(c, v.scoped().decks, deck, "Show matchups with ", v.setDeck)
+			e.deckTabs(c, e.scoped().decks, deck, "Show matchups with ", e.setDeck)
 			if len(list) == 0 {
 				ui.Text(c, "No opposing leaders in the logs for these games.").TextColor(t.TextMuted)
 				return
 			}
 			open := list[0].Leader
-			if v.matchups.pick != "" {
-				open = v.matchups.pick
+			if pg.pick != "" {
+				open = pg.pick
 			}
-			tv := arrangeTable(v, "matchups", muGap, v.matchupCols(t, len(list), open), "games", true)
+			tv := arrangeTable(e, "matchups", muGap, matchupCols(e, t, len(list), open), "games", true)
 			tv.tie = func(a, b stats.Matchup) int { return cmp.Compare(b.Record.Games(), a.Record.Games()) }
 			rows := tv.sorted(list)
 			panel(c).Padding(4, 0, 8, 0).Children(func() {
 				tv.header(c, 16)
 				for _, mu := range rows {
-					v.matchupRow(c.Key(mu.Leader), tv, deck, mu, mu.Leader == open)
+					pg.matchupRow(c.Key(mu.Leader), e, tv, deck, mu, mu.Leader == open)
 				}
 			})
 		})
@@ -82,8 +81,8 @@ const (
 	muGap    = 12
 )
 
-func (v *view) matchupCols(t *ui.Theme, n int, open string) []tableCol[stats.Matchup] {
-	name := func(mu stats.Matchup) string { return v.snap.card(mu.Leader).Name + " " + mu.Leader }
+func matchupCols(e *env, t *ui.Theme, n int, open string) []tableCol[stats.Matchup] {
+	name := func(mu stats.Matchup) string { return e.snap.card(mu.Leader).Name + " " + mu.Leader }
 	turn := func(id, title, tip string, rec func(stats.Matchup) stats.Record) tableCol[stats.Matchup] {
 		return tableCol[stats.Matchup]{
 			id: id, title: title, width: muTurnW, end: true, tip: tip,
@@ -104,9 +103,9 @@ func (v *view) matchupCols(t *ui.Theme, n int, open string) []tableCol[stats.Mat
 			by: func(a, b stats.Matchup) int { return cmp.Compare(name(a), name(b)) },
 			cell: func(c *ui.Context, mu stats.Matchup) {
 				ui.Row(c).Gap(12).AlignItems(ui.Center).MinWidth(0).Children(func() {
-					v.artStrip(c, mu.Leader, muArtW, 28)
+					e.artStrip(c, mu.Leader, muArtW, 28)
 					ui.Row(c).Gap(6).AlignItems(ui.End).MinWidth(0).Children(func() {
-						nameText := ui.Text(c, v.snap.card(mu.Leader).Name).FontWeight(500).SingleLine().Tooltip(v.snap.card(mu.Leader).Name)
+						nameText := ui.Text(c, e.snap.card(mu.Leader).Name).FontWeight(500).SingleLine().Tooltip(e.snap.card(mu.Leader).Name)
 						if mu.Leader == open {
 							nameText.FontWeight(600)
 						}
@@ -133,7 +132,7 @@ func (v *view) matchupCols(t *ui.Theme, n int, open string) []tableCol[stats.Mat
 					}
 					few := !mu.Record.Enough()
 					ui.Box(c).Grow(1).Basis(0).Opacity(map[bool]float32{true: 0.35, false: 1}[few]).Children(func() {
-						v.splitBar(c, mu.Record.Share())
+						e.splitBar(c, mu.Record.Share())
 					})
 				})
 			},
@@ -154,7 +153,7 @@ func (v *view) matchupCols(t *ui.Theme, n int, open string) []tableCol[stats.Mat
 			id: "last", title: "Last faced", width: muLastW, end: true,
 			by: func(a, b stats.Matchup) int { return a.Games[0].PlayedAt.Compare(b.Games[0].PlayedAt) },
 			cell: func(c *ui.Context, mu stats.Matchup) {
-				ui.Text(c, ago(v.now(), mu.Games[0].PlayedAt)).FontSize(12).TextColor(faintColor(t)).SingleLine()
+				ui.Text(c, ago(e.now(), mu.Games[0].PlayedAt)).FontSize(12).TextColor(faintColor(t)).SingleLine()
 			},
 		},
 	}
@@ -162,12 +161,12 @@ func (v *view) matchupCols(t *ui.Theme, n int, open string) []tableCol[stats.Mat
 
 // matchupRow is one opposing leader's line, and under it, when it's open, its turn order, how
 // its games went and its latest games. Clicking the line opens it or closes it.
-func (v *view) matchupRow(c *ui.Context, tv tableView[stats.Matchup], deck string, mu stats.Matchup, open bool) {
+func (pg *matchupsPage) matchupRow(c *ui.Context, e *env, tv tableView[stats.Matchup], deck string, mu stats.Matchup, open bool) {
 	t := c.Theme()
-	name := v.snap.card(mu.Leader).Name
+	name := e.snap.card(mu.Leader).Name
 	ui.Column(c).Transition(slide).Children(func() {
 		line := ui.Row(c).Gap(tv.gap).Padding(6, 16).AlignItems(ui.Center).Cursor(ui.CursorPointer).
-			Label("Show the matchup vs " + name + " " + cards.SetOf(mu.Leader)).PopoverMenu(v.opponentMenu(deck, mu.Leader))
+			Label("Show the matchup vs " + name + " " + cards.SetOf(mu.Leader)).PopoverMenu(e.opponentMenu(deck, mu.Leader))
 		if open {
 			line.Background(t.Surface).BorderStartWidth(3).BorderColor(t.Accent)
 		} else if line.Hovered() {
@@ -175,30 +174,30 @@ func (v *view) matchupRow(c *ui.Context, tv tableView[stats.Matchup], deck strin
 		}
 		if line.Clicked() {
 			if open {
-				v.matchups.pick = matchupNone
+				pg.pick = matchupNone
 			} else {
-				v.matchups.pick = mu.Leader
+				pg.pick = mu.Leader
 			}
 		}
 		line.Children(func() { tv.cells(c, mu) })
 		if open {
-			v.matchupOpen(c, deck, mu)
+			matchupOpen(c, e, deck, mu)
 		}
 	})
 }
 
 // matchupOpen is the open row's detail: turn order, how the games went and the latest games,
 // then links to the matchup's games and to a filter on the leader.
-func (v *view) matchupOpen(c *ui.Context, deck string, mu stats.Matchup) {
+func matchupOpen(c *ui.Context, e *env, deck string, mu stats.Matchup) {
 	t := c.Theme()
 	label := func(text string) { ui.Text(c, text).FontSize(12).TextColor(t.TextMuted) }
-	name := v.snap.card(mu.Leader).Name
+	name := e.snap.card(mu.Leader).Name
 	ui.Column(c.Key("open")).Gap(12).Padding(8, 16, 14, 16+muArtW+12).Background(t.Surface).BorderStartWidth(3).
 		BorderColor(t.Accent).Clip().Transition(unfold).Children(func() {
 		ui.Row(c).Gap(28).AlignItems(ui.Start).Children(func() {
 			ui.Column(c).Grow(1).Basis(0).Gap(8).Children(func() {
 				label("Turn order")
-				v.turnRows(c, mu.TurnOrder, v.filter.turn, v.setTurn)
+				e.turnRows(c, mu.TurnOrder, e.filter.turn, e.setTurn)
 			})
 			ui.Column(c).Grow(1).Basis(0).Gap(8).Children(func() {
 				label("How the games went")
@@ -207,16 +206,16 @@ func (v *view) matchupOpen(c *ui.Context, deck string, mu stats.Matchup) {
 			ui.Column(c).Grow(1.3).Basis(0).Gap(4).Children(func() {
 				label("Latest games")
 				for i, m := range mu.Games[:min(len(mu.Games), 4)] {
-					v.matchupGame(c.Key(i), m)
+					matchupGame(c.Key(i), e, m)
 				}
 			})
 		})
 		ui.Row(c).Gap(24).AlignItems(ui.Center).Children(func() {
 			if iconLink(c.Key("show"), iconMatches, "Show in Matches") {
-				v.showOpponentGames(deck, mu.Leader)
+				e.showOpponentGames(deck, mu.Leader)
 			}
 			if iconLink(c.Key("filter"), iconFilter, "Filter to games vs "+name) {
-				v.filterOpponent(mu.Leader)
+				e.filterOpponent(mu.Leader)
 			}
 		})
 	})
@@ -265,9 +264,9 @@ func howGamesWent(c *ui.Context, mu stats.Matchup) {
 }
 
 // matchupGame is one game in short: the result, the opponent, turn order, turns and the date.
-func (v *view) matchupGame(c *ui.Context, m stats.Match) {
+func matchupGame(c *ui.Context, e *env, m stats.Match) {
 	t := c.Theme()
-	v.gameLine(c, m).Gap(10).Padding(3, 0).Children(func() {
+	e.gameLine(c, m).Gap(10).Padding(3, 0).Children(func() {
 		resultBadge(c, m.Result)
 		ui.Text(c, m.Opp.Name).FontSize(13).FontWeight(500).SingleLine().Grow(1).Basis(0)
 		turnMark(c, m)

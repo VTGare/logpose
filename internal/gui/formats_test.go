@@ -66,7 +66,7 @@ var _ = Describe("formats", func() {
 	It("asks for a name before adding a format", func() {
 		v, tt := tester(withFormats())
 		fa := &fakeActions{}
-		v.act = fa
+		v.setActions(fa)
 		v.page = pageFormats
 		tt.Frame()
 		Expect(tt.Click("Add")).To(Succeed())
@@ -84,7 +84,7 @@ var _ = Describe("formats", func() {
 		s.Debuts = []stats.SetDebut{{Set: "OP18", First: time.Date(2026, 11, 2, 18, 30, 0, 0, time.Local)}}
 		v, tt := tester(s)
 		fa := &fakeActions{}
-		v.act = fa
+		v.setActions(fa)
 		tt.Frame()
 		Expect(tt.HasText("OP18 cards first showed up in your games on Nov 2")).To(BeTrue())
 		Expect(tt.Click("Start a format on Nov 2")).To(Succeed())

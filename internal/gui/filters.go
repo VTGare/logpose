@@ -54,32 +54,32 @@ const (
 const startUnpicked = formatAll
 
 // cleared is where Clear puts the filters: every one off and the format at the default.
-func (v *view) cleared() filters { return filters{format: v.prefs.startFormat} }
+func (e *env) cleared() filters { return filters{format: e.prefs.startFormat} }
 
 // filtersActive reports whether the filters differ from where Clear puts them. Two format
 // values that pick the same games count as the same.
-func (v *view) filtersActive() bool {
-	f := v.filter
-	f.format = v.prefs.startFormat
-	return f != v.cleared() || !v.atStartFormat()
+func (e *env) filtersActive() bool {
+	f := e.filter
+	f.format = e.prefs.startFormat
+	return f != e.cleared() || !e.atStartFormat()
 }
 
 // canClear reports whether Clear has anything to do, the Matches page's result switch included.
-func (v *view) canClear() bool {
-	return v.filtersActive() || v.page == pageMatches && v.matches.result != anyResult
+func (e *env) canClear() bool {
+	return e.filtersActive() || e.page == pageMatches && e.listResult != anyResult
 }
 
-func (v *view) atStartFormat() bool {
-	a, aok := v.rangeOf(v.filter.format)
-	b, bok := v.rangeOf(v.prefs.startFormat)
+func (e *env) atStartFormat() bool {
+	a, aok := e.rangeOf(e.filter.format)
+	b, bok := e.rangeOf(e.prefs.startFormat)
 	return aok == bok && a.ID == b.ID
 }
 
 // formatRange is the format the filter picks. There's none with no formats or all of them.
-func (v *view) formatRange() (stats.FormatRange, bool) { return v.rangeOf(v.filter.format) }
+func (e *env) formatRange() (stats.FormatRange, bool) { return e.rangeOf(e.filter.format) }
 
-func (v *view) rangeOf(format int64) (stats.FormatRange, bool) {
-	fs := v.snap.Formats
+func (e *env) rangeOf(format int64) (stats.FormatRange, bool) {
+	fs := e.snap.Formats
 	switch {
 	case len(fs) == 0 || format == formatAll:
 		return stats.FormatRange{}, false
@@ -95,35 +95,35 @@ func (v *view) rangeOf(format int64) (stats.FormatRange, bool) {
 }
 
 // startFormatName names the default format: the latest one's name or All formats.
-func (v *view) startFormatName() string {
-	if fr, ok := v.rangeOf(v.prefs.startFormat); ok {
+func (e *env) startFormatName() string {
+	if fr, ok := e.rangeOf(e.prefs.startFormat); ok {
 		return fr.Name
 	}
 	return "All formats"
 }
 
 // setStartFormat saves the format pages start on. It leaves the format picked now alone.
-func (v *view) setStartFormat(format int64) {
-	prefStartFormat.set(v, format)
+func (e *env) setStartFormat(format int64) {
+	prefStartFormat.set(e, format)
 }
 
 // startOnMenu is the two defaults as radio items.
-func (v *view) startOnMenu(m *ui.Menu) {
-	fs := v.snap.Formats
+func (e *env) startOnMenu(m *ui.Menu) {
+	fs := e.snap.Formats
 	latest := "Latest format, now " + fs[len(fs)-1].Name
-	if m.Item(latest).Radio(v.prefs.startFormat == formatCurrent).Chosen() {
-		v.setStartFormat(formatCurrent)
+	if m.Item(latest).Radio(e.prefs.startFormat == formatCurrent).Chosen() {
+		e.setStartFormat(formatCurrent)
 	}
-	if m.Item("All formats").Radio(v.prefs.startFormat == formatAll).Chosen() {
-		v.setStartFormat(formatAll)
+	if m.Item("All formats").Radio(e.prefs.startFormat == formatAll).Chosen() {
+		e.setStartFormat(formatAll)
 	}
 }
 
 // currentScope is the filters as a stats.Scope. A format holds ranked games only, since casual
 // lobbies can be any format. A period and a format overlap to the days in both.
-func (v *view) currentScope() stats.Scope {
-	s := v.scopeAnyPeriod()
-	since, until := v.periodBounds()
+func (e *env) currentScope() stats.Scope {
+	s := e.scopeAnyPeriod()
+	since, until := e.periodBounds()
 	if since.After(s.Since) {
 		s.Since = since
 	}
@@ -133,45 +133,45 @@ func (v *view) currentScope() stats.Scope {
 	return s
 }
 
-func (v *view) scopeAnyPeriod() stats.Scope {
-	f := v.filter
+func (e *env) scopeAnyPeriod() stats.Scope {
+	f := e.filter
 	s := stats.Scope{Type: stats.GameType(f.gameType), Turn: f.turn, Deck: f.deck, Opp: f.opp, OppLeader: f.oppLeader}
-	if fr, ok := v.formatRange(); ok {
+	if fr, ok := e.formatRange(); ok {
 		fs := fr.Scope()
 		s.Type, s.Since, s.Until = fs.Type, fs.Since, fs.Until
 	}
 	return s
 }
 
-func (v *view) formatLabel() string {
-	if fr, ok := v.formatRange(); ok {
+func (e *env) formatLabel() string {
+	if fr, ok := e.formatRange(); ok {
 		return fr.Name
 	}
 	return "All formats"
 }
 
-func (v *view) formatMenu(m *ui.Menu) {
-	fs := v.snap.Formats
+func (e *env) formatMenu(m *ui.Menu) {
+	fs := e.snap.Formats
 	for i := len(fs) - 1; i >= 0; i-- {
 		f := fs[i]
-		on := v.filter.format == f.ID || v.filter.format == formatCurrent && i == len(fs)-1
-		label := fmt.Sprintf("%s · since %s", f.Name, v.date(f.Start))
+		on := e.filter.format == f.ID || e.filter.format == formatCurrent && i == len(fs)-1
+		label := fmt.Sprintf("%s · since %s", f.Name, e.date(f.Start))
 		if m.Item(label).Radio(on).Chosen() {
-			v.filter.format = f.ID
+			e.filter.format = f.ID
 			if i == len(fs)-1 {
-				v.filter.format = formatCurrent
+				e.filter.format = formatCurrent
 			}
 		}
 	}
-	if m.Item("All formats").Radio(len(fs) == 0 || v.filter.format == formatAll).Chosen() && len(fs) > 0 {
-		v.filter.format = formatAll
+	if m.Item("All formats").Radio(len(fs) == 0 || e.filter.format == formatAll).Chosen() && len(fs) > 0 {
+		e.filter.format = formatAll
 	}
 	m.Separator()
 	if len(fs) > 0 {
-		m.Submenu("Start on", v.startOnMenu)
+		m.Submenu("Start on", e.startOnMenu)
 	}
 	if m.Item("Manage formats").Chosen() {
-		v.page = pageFormats
+		e.page = pageFormats
 	}
 }
 
@@ -192,66 +192,66 @@ type scoped struct {
 	decks            []stats.LeaderRecord
 }
 
-func (v *view) scoped() *scoped {
-	sc := &v.scope
-	now := v.now()
+func (e *env) scoped() *scoped {
+	sc := &e.scope
+	now := e.now()
 	day := stats.DayStart(now)
-	if sc.snap == v.snap && sc.filters == v.filter && sc.day.Equal(day) {
+	if sc.snap == e.snap && sc.filters == e.filter && sc.day.Equal(day) {
 		return sc
 	}
-	*sc = scoped{snap: v.snap, filters: v.filter, day: day, gen: sc.gen + 1}
-	s := v.currentScope()
-	sc.matches = s.Apply(v.snap.Matches)
+	*sc = scoped{snap: e.snap, filters: e.filter, day: day, gen: sc.gen + 1}
+	s := e.currentScope()
+	sc.matches = s.Apply(e.snap.Matches)
 	sc.overview = stats.BuildOverview(sc.matches, now)
 	s.Deck = ""
-	sc.anyDeck = s.Apply(v.snap.Matches)
+	sc.anyDeck = s.Apply(e.snap.Matches)
 	sc.decks = stats.Leaders(sc.anyDeck)
 	s.Turn = stats.EitherTurn
-	sc.anyTurn = s.Apply(v.snap.Matches)
+	sc.anyTurn = s.Apply(e.snap.Matches)
 	return sc
 }
 
-func (v *view) deckLabel() string {
-	if v.filter.deck == "" {
+func (e *env) deckLabel() string {
+	if e.filter.deck == "" {
 		return "All decks"
 	}
-	return v.snap.card(v.filter.deck).Name
+	return e.snap.card(e.filter.deck).Name
 }
 
-func (v *view) deckMenu(m *ui.Menu) {
-	if m.Item("All decks").Radio(v.filter.deck == "").Chosen() {
-		v.setDeck("")
+func (e *env) deckMenu(m *ui.Menu) {
+	if m.Item("All decks").Radio(e.filter.deck == "").Chosen() {
+		e.setDeck("")
 	}
 	m.Separator()
-	for _, lr := range v.scoped().decks {
-		label := fmt.Sprintf("%s · %s", v.snap.card(lr.Leader).Name, games(lr.Record.Games()))
-		if m.Item(label).Radio(v.filter.deck == lr.Leader).Chosen() {
-			v.setDeck(lr.Leader)
+	for _, lr := range e.scoped().decks {
+		label := fmt.Sprintf("%s · %s", e.snap.card(lr.Leader).Name, games(lr.Record.Games()))
+		if m.Item(label).Radio(e.filter.deck == lr.Leader).Chosen() {
+			e.setDeck(lr.Leader)
 		}
 	}
 }
 
-func (v *view) setDeck(code string) {
-	v.filter.deck = code
+func (e *env) setDeck(code string) {
+	e.filter.deck = code
 }
 
-func (v *view) clearFilters() {
-	v.filter = v.cleared()
-	v.matches.result = anyResult
+func (e *env) clearFilters() {
+	e.filter = e.cleared()
+	e.listResult = anyResult
 }
 
 // setTurn sets the turn order filter, or clears it when it's already set to t.
-func (v *view) setTurn(t stats.TurnOrderFilter) {
-	if v.filter.turn == t {
+func (e *env) setTurn(t stats.TurnOrderFilter) {
+	if e.filter.turn == t {
 		t = stats.EitherTurn
 	}
-	v.filter.turn = t
+	e.filter.turn = t
 }
 
-func (v *view) turnMenu(m *ui.Menu) {
+func (e *env) turnMenu(m *ui.Menu) {
 	for i, l := range turnLabels {
-		if m.Item(l).Radio(int(v.filter.turn) == i).Chosen() {
-			v.filter.turn = stats.TurnOrderFilter(i)
+		if m.Item(l).Radio(int(e.filter.turn) == i).Chosen() {
+			e.filter.turn = stats.TurnOrderFilter(i)
 		}
 	}
 }
@@ -269,8 +269,8 @@ func removablePill(c *ui.Context, key, label string, clear func()) {
 	}
 }
 
-func (v *view) oppName(id string) string {
-	for _, m := range v.snap.Matches {
+func (e *env) oppName(id string) string {
+	for _, m := range e.snap.Matches {
 		if m.Opp.ID == id {
 			return m.Opp.Name
 		}
@@ -297,45 +297,45 @@ func filterPill(c *ui.Context, label string, on bool) ui.Element {
 
 // filterBar is the filters over every page, as pills that each open a menu. Pills that narrow
 // what the pages show are tinted.
-func (v *view) filterBar(c *ui.Context) {
+func (e *env) filterBar(c *ui.Context) {
 	t := c.Theme()
 	pill := func(key, label string, on bool, build func(m *ui.Menu), clear func(*ui.Menu)) {
 		pillMenu(c.Key(key), func() { filterPill(c, label, on).PopoverMenuButton(build) }, clear)
 	}
 	ui.Row(c).Padding(14, 20, 0, 20).Gap(8).Children(func() {
-		_, inFormat := v.formatRange()
-		pill("format", v.formatLabel(), inFormat, v.formatMenu,
-			v.clearPillMenu("Back to "+v.startFormatName(), v.atStartFormat(), func() { v.filter.format = v.prefs.startFormat }))
-		pillMenu(c.Key("period"), func() { v.periodPill(c) },
-			v.clearPillMenu("Clear period", v.filter.period == 0, func() {
-				v.filter.period, v.filter.from, v.filter.to, v.filter.ongoing = 0, time.Time{}, time.Time{}, false
+		_, inFormat := e.formatRange()
+		pill("format", e.formatLabel(), inFormat, e.formatMenu,
+			e.clearPillMenu("Back to "+e.startFormatName(), e.atStartFormat(), func() { e.filter.format = e.prefs.startFormat }))
+		pillMenu(c.Key("period"), func() { e.periodPill(c) },
+			e.clearPillMenu("Clear period", e.filter.period == 0, func() {
+				e.filter.period, e.filter.from, e.filter.to, e.filter.ongoing = 0, time.Time{}, time.Time{}, false
 			}))
-		pill("deck", v.deckLabel(), v.filter.deck != "", v.deckMenu,
-			v.clearPillMenu("Clear deck", v.filter.deck == "", func() { v.filter.deck = "" }))
+		pill("deck", e.deckLabel(), e.filter.deck != "", e.deckMenu,
+			e.clearPillMenu("Clear deck", e.filter.deck == "", func() { e.filter.deck = "" }))
 		if inFormat {
 			ui.Text(c, "Ranked").FontSize(13).TextColor(t.TextMuted).Padding(6, 12).Radius(16).Border(1, t.Border)
 		} else {
-			pill("type", gameTypeLabels[v.filter.gameType], v.filter.gameType != 0, func(m *ui.Menu) {
+			pill("type", gameTypeLabels[e.filter.gameType], e.filter.gameType != 0, func(m *ui.Menu) {
 				for i, l := range gameTypeLabels {
-					if m.Item(l).Radio(v.filter.gameType == i).Chosen() {
-						v.filter.gameType = i
+					if m.Item(l).Radio(e.filter.gameType == i).Chosen() {
+						e.filter.gameType = i
 					}
 				}
-			}, v.clearPillMenu("Clear game type", v.filter.gameType == 0, func() { v.filter.gameType = 0 }))
+			}, e.clearPillMenu("Clear game type", e.filter.gameType == 0, func() { e.filter.gameType = 0 }))
 		}
-		pill("turn", turnLabels[v.filter.turn], v.filter.turn != stats.EitherTurn, v.turnMenu,
-			v.clearPillMenu("Clear turn order", v.filter.turn == stats.EitherTurn, func() { v.filter.turn = stats.EitherTurn }))
+		pill("turn", turnLabels[e.filter.turn], e.filter.turn != stats.EitherTurn, e.turnMenu,
+			e.clearPillMenu("Clear turn order", e.filter.turn == stats.EitherTurn, func() { e.filter.turn = stats.EitherTurn }))
 		// The opponent filters have no menu of their own, so they show only while set.
-		if v.filter.opp != "" {
-			removablePill(c, "opp", "vs "+v.oppName(v.filter.opp), func() { v.filter.opp = "" })
+		if e.filter.opp != "" {
+			removablePill(c, "opp", "vs "+e.oppName(e.filter.opp), func() { e.filter.opp = "" })
 		}
-		if v.filter.oppLeader != "" {
-			removablePill(c, "oppLeader", "vs "+v.snap.card(v.filter.oppLeader).Name, func() { v.filter.oppLeader = "" })
+		if e.filter.oppLeader != "" {
+			removablePill(c, "oppLeader", "vs "+e.snap.card(e.filter.oppLeader).Name, func() { e.filter.oppLeader = "" })
 		}
-		if v.canClear() && ui.Text(c, "Clear").FontSize(13).TextColor(t.Accent).Padding(6, 4).Clicked() {
-			v.clearFilters()
+		if e.canClear() && ui.Text(c, "Clear").FontSize(13).TextColor(t.Accent).Padding(6, 4).Clicked() {
+			e.clearFilters()
 		}
 		ui.Spacer(c)
-		ui.Text(c, games(len(v.scoped().matches))).FontSize(13).TextColor(faintColor(t))
+		ui.Text(c, games(len(e.scoped().matches))).FontSize(13).TextColor(faintColor(t))
 	})
 }

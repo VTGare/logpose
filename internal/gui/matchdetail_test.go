@@ -29,7 +29,7 @@ var _ = Describe("match detail", func() {
 	open := func(s *snapshot) (*view, *ui.Tester) {
 		v, tt := tester(s)
 		fa = &fakeActions{}
-		v.act = fa
+		v.setActions(fa)
 		return v, tt
 	}
 

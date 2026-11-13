@@ -106,7 +106,7 @@ func (v *view) cardsMissing(c *ui.Context) {
 		if ui.Button(c, "Download cards").Clicked() {
 			v.do(func(a actions) { a.RefreshCards() })
 		}
-		if n := v.settings.notes[noteCards]; n != "" {
+		if n := v.settings.noteOn(noteCards); n != "" {
 			ui.Text(c, n).FontSize(13).TextColor(t.TextMuted)
 		}
 	})
@@ -476,7 +476,7 @@ func (v *view) viewControls(c *ui.Context, count int) {
 	v.sortPill(c)
 	view := boolInt(v.prefs.cardList)
 	if ui.Segmented(c, &view, "Images", "List").Label("Show as").Changed() {
-		prefCardList.set(v, view == 1)
+		prefCardList.set(&v.env, view == 1)
 	}
 }
 
@@ -509,7 +509,7 @@ func (v *view) sortPill(c *ui.Context) {
 }
 
 func (v *view) setCardSort(by cardSort) {
-	prefCardSort.set(v, by)
+	prefCardSort.set(&v.env, by)
 }
 
 func (v *view) moreFilters(c *ui.Context) {
@@ -966,7 +966,7 @@ func (v *view) panelStrip(c *ui.Context) {
 		b.Background(t.SurfaceHover)
 	}
 	if b.Clicked() {
-		prefPanelWidth.set(v, panelDefault)
+		prefPanelWidth.set(&v.env, panelDefault)
 	}
 	b.Tooltip("Show card details")
 	b.Children(func() {

@@ -130,7 +130,7 @@ func keepFinding(mu stats.Mulligans) string {
 // dealt in.
 func (v *view) dealtPanel(c *ui.Context, cs []stats.DealtCard, avg float64) {
 	t := c.Theme()
-	tv := arrangeTable(v, "hands.dealt", 12, v.dealtCols(t, avg), "dealt", true)
+	tv := arrangeTable(&v.env, "hands.dealt", 12, v.dealtCols(t, avg), "dealt", true)
 	tv.trail = chevronColW
 	tv.tie = func(a, b stats.DealtCard) int { return cmp.Compare(b.Dealt(), a.Dealt()) }
 	rows := tv.sorted(cs)

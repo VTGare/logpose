@@ -9,6 +9,7 @@ import (
 
 	"github.com/VTGare/logpose/internal/arts"
 	"github.com/VTGare/logpose/internal/cards"
+	"github.com/VTGare/logpose/internal/shortcut"
 	"github.com/VTGare/logpose/internal/store"
 )
 
@@ -22,7 +23,34 @@ const (
 	noteArt     = "art"
 )
 
-type settingsState struct {
+type settingsActions interface {
+	CheckUpdate()
+	InstallUpdate()
+	RestartToUpdate()
+	SetSetting(key, value string)
+	SetOpenAtLogin(on bool)
+	SetShortcut(place shortcut.Place, on bool)
+	ChooseSimFolder()
+	FindSim()
+	OpenPath(path string)
+	ShowFile(path string)
+	ImportAgain()
+	RefreshCards()
+	Backup()
+	LoadSettings()
+	LoadArtUsage()
+	ClearArt()
+}
+
+type settingsPage struct {
+	act settingsActions
+
+	// system is what Windows says about logpose's startup and shortcuts.
+	system systemState
+	upd    updateState
+	// updNotes shows the next version's release notes.
+	updNotes bool
+
 	notes map[string]string
 	// allNames shows every player in the You list, not only the top ones.
 	allNames bool
@@ -37,12 +65,20 @@ type settingsState struct {
 	infoFor *snapshot
 }
 
-func (s *settingsState) note(part, text string) {
-	if s.notes == nil {
-		s.notes = make(map[string]string)
+func (pg *settingsPage) do(fn func(settingsActions)) {
+	if pg.act != nil {
+		fn(pg.act)
 	}
-	s.notes[part] = text
 }
+
+func (pg *settingsPage) note(part, text string) {
+	if pg.notes == nil {
+		pg.notes = make(map[string]string)
+	}
+	pg.notes[part] = text
+}
+
+func (pg *settingsPage) noteOn(part string) string { return pg.notes[part] }
 
 const cardDataHelp = "Cards come from Limitless (onepiece.limitlesstcg.com), which has every card, its " +
 	"text and its art, and bans come from Bandai's list. logpose checks both once a day, and never " +
@@ -53,40 +89,39 @@ const cardDataHelp = "Cards come from Limitless (onepiece.limitlesstcg.com), whi
 // topNames is how many players the You list shows before "Show all".
 const topNames = 3
 
-func (v *view) settingsPage(c *ui.Context) {
-	s := &v.settings
-	if s.frame != v.frame-1 {
-		v.do(func(a actions) { a.LoadArtUsage() })
+func (pg *settingsPage) draw(c *ui.Context, e *env) {
+	if pg.frame != e.frame-1 {
+		pg.do(func(a settingsActions) { a.LoadArtUsage() })
 	}
-	s.frame = v.frame
+	pg.frame = e.frame
 	// A new snapshot can mean new games, logs or card data, so the page reads them again.
-	if s.infoFor != v.snap {
-		s.infoFor = v.snap
-		v.do(func(a actions) { a.LoadSettings() })
+	if pg.infoFor != e.snap {
+		pg.infoFor = e.snap
+		pg.do(func(a settingsActions) { a.LoadSettings() })
 	}
-	if s.info == nil {
+	if pg.info == nil {
 		return
 	}
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
 			ui.Text(c, "Settings").FontSize(20).FontWeight(600)
 			ui.Row(c).Gap(12).AlignItems(ui.Stretch).Children(func() {
-				v.simTile(c)
-				v.logsTile(c)
-				v.cardsTile(c)
-				v.dataTile(c)
+				pg.simTile(c)
+				pg.logsTile(c)
+				pg.cardsTile(c, e)
+				pg.dataTile(c, e)
 			})
 			ui.Row(c).Gap(16).AlignItems(ui.Start).Children(func() {
 				ui.Column(c).Grow(1).Basis(0).Gap(16).Children(func() {
-					panel(c).Padding(14, 16).Gap(4).Children(func() { v.youSettings(c) })
-					panel(c).Padding(14, 16).Gap(4).Children(func() { v.artSettings(c) })
+					panel(c).Padding(14, 16).Gap(4).Children(func() { pg.youSettings(c) })
+					panel(c).Padding(14, 16).Gap(4).Children(func() { pg.artSettings(c, e) })
 				})
 				panel(c).Grow(1).Basis(0).Padding(14, 16).Gap(4).Children(func() {
-					v.lookSettings(c)
+					lookSettings(c, e)
 					ui.Box(c).Height(14)
-					v.startupSettings(c)
+					pg.startupSettings(c, e)
 					ui.Box(c).Height(14)
-					v.updateSettings(c)
+					pg.updateSettings(c, e)
 				})
 			})
 		})
@@ -95,7 +130,7 @@ func (v *view) settingsPage(c *ui.Context) {
 
 // statusTile is one of the tiles across the top of Settings: a dot that's green when the part
 // works, what logpose found, a note from the last action and the part's buttons.
-func (v *view) statusTile(c *ui.Context, part, label string, ok bool, value, sub, help string, buttons func()) {
+func (pg *settingsPage) statusTile(c *ui.Context, part, label string, ok bool, value, sub, help string, buttons func()) {
 	t := c.Theme()
 	panel(c).Grow(1).Basis(0).Padding(12, 14).Gap(2).Children(func() {
 		ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
@@ -111,7 +146,7 @@ func (v *view) statusTile(c *ui.Context, part, label string, ok bool, value, sub
 		})
 		ui.Text(c, value).FontSize(15).FontWeight(600).Margin(2, 0, 0, 0).SingleLine()
 		ui.Text(c, sub).FontSize(12).TextColor(faintColor(t)).SingleLine().Tooltip(sub)
-		if n := v.settings.notes[part]; n != "" {
+		if n := pg.notes[part]; n != "" {
 			ui.Text(c, n).FontSize(12).TextColor(t.Accent).Wrap()
 		}
 		ui.Spacer(c)
@@ -119,12 +154,12 @@ func (v *view) statusTile(c *ui.Context, part, label string, ok bool, value, sub
 	})
 }
 
-func (v *view) simTile(c *ui.Context) {
-	s := v.settings.info
+func (pg *settingsPage) simTile(c *ui.Context) {
+	s := pg.info
 	if s.SimDir == "" {
-		v.statusTile(c, noteSim, "OPTCGSim", false, "Not found", "Start the sim, or choose its folder", "", func() {
+		pg.statusTile(c, noteSim, "OPTCGSim", false, "Not found", "Start the sim, or choose its folder", "", func() {
 			if ui.Button(c, "Choose folder…").Clicked() {
-				v.do(func(a actions) { a.ChooseSimFolder() })
+				pg.do(func(a settingsActions) { a.ChooseSimFolder() })
 			}
 		})
 		return
@@ -142,78 +177,78 @@ func (v *view) simTile(c *ui.Context) {
 	case s.SimChosen:
 		sub += " · chosen by you"
 	}
-	v.statusTile(c, noteSim, "OPTCGSim", s.SimExe, value, sub, "", func() {
+	pg.statusTile(c, noteSim, "OPTCGSim", s.SimExe, value, sub, "", func() {
 		if ui.Button(c, "Change…").Label("Change the sim's folder").Clicked() {
-			v.do(func(a actions) { a.ChooseSimFolder() })
+			pg.do(func(a settingsActions) { a.ChooseSimFolder() })
 		}
 		if ui.Button(c, "Open").Label("Open the sim's folder").Clicked() {
-			v.do(func(a actions) { a.OpenPath(s.SimDir) })
+			pg.do(func(a settingsActions) { a.OpenPath(s.SimDir) })
 		}
 		if s.SimChosen && !s.SimFlag && ui.Button(c, "Find again").Label("Find the sim on its own").Clicked() {
-			v.do(func(a actions) { a.FindSim() })
+			pg.do(func(a settingsActions) { a.FindSim() })
 		}
 	})
 }
 
-func (v *view) logsTile(c *ui.Context) {
-	s := v.settings.info
+func (pg *settingsPage) logsTile(c *ui.Context) {
+	s := pg.info
 	if s.SimDir == "" {
-		v.statusTile(c, noteLogs, "Logs", false, "No logs", "They're in the sim's folder", "", func() {
+		pg.statusTile(c, noteLogs, "Logs", false, "No logs", "They're in the sim's folder", "", func() {
 			ui.Button(c, "Import again").Disabled(true)
 		})
 		return
 	}
-	v.statusTile(c, noteLogs, "Logs", true, fmt.Sprintf("%d in AutoSaved", s.Logs), "Watching for new games", "", func() {
+	pg.statusTile(c, noteLogs, "Logs", true, fmt.Sprintf("%d in AutoSaved", s.Logs), "Watching for new games", "", func() {
 		if ui.Button(c, "Import again").Label("Import every log again").Clicked() {
-			v.do(func(a actions) { a.ImportAgain() })
+			pg.do(func(a settingsActions) { a.ImportAgain() })
 		}
 	})
 }
 
-func (v *view) cardsTile(c *ui.Context) {
-	s := v.settings.info
+func (pg *settingsPage) cardsTile(c *ui.Context, e *env) {
+	s := pg.info
 	// Card data counts as current until three of its daily checks were missed.
-	ok := !s.Fetched.IsZero() && v.now().Sub(s.Fetched) < 3*cards.LibraryMaxAge
+	ok := !s.Fetched.IsZero() && e.now().Sub(s.Fetched) < 3*cards.LibraryMaxAge
 	count := 0
-	if v.snap.Cards != nil {
-		count = v.snap.Cards.Len()
+	if e.snap.Cards != nil {
+		count = e.snap.Cards.Len()
 	}
 	sub := "Only the sim's card list"
 	if !s.Fetched.IsZero() {
-		sub = "Refreshed " + dayAndTime(v.now(), s.Fetched)
+		sub = "Refreshed " + dayAndTime(e.now(), s.Fetched)
 	}
-	v.statusTile(c, noteCards, "Card data", ok, fmt.Sprintf("%s cards", thousands(count)), sub, cardDataHelp, func() {
+	pg.statusTile(c, noteCards, "Card data", ok, fmt.Sprintf("%s cards", thousands(count)), sub, cardDataHelp, func() {
 		if ui.Button(c, "Refresh now").Label("Refresh card data").Clicked() {
-			v.do(func(a actions) { a.RefreshCards() })
+			pg.do(func(a settingsActions) { a.RefreshCards() })
 		}
 	})
 }
 
-func (v *view) dataTile(c *ui.Context) {
-	s := v.settings.info
+func (pg *settingsPage) dataTile(c *ui.Context, e *env) {
+	s := pg.info
 	sub := megabytes(s.DBSize) + " in " + s.DBFolder
-	v.statusTile(c, noteData, "Database", true, games(v.snap.Stored), sub, "", func() {
+	pg.statusTile(c, noteData, "Database", true, games(e.snap.Stored), sub, "", func() {
 		if ui.Button(c, "Back up…").Label("Back up the database").Clicked() {
-			v.do(func(a actions) { a.Backup() })
+			pg.do(func(a settingsActions) { a.Backup() })
 		}
 		if ui.Button(c, "Show").Label("Show the database in its folder").Clicked() {
-			v.do(func(a actions) { a.ShowFile(s.DBPath) })
+			pg.do(func(a settingsActions) { a.ShowFile(s.DBPath) })
 		}
 	})
 }
 
-func (v *view) youSettings(c *ui.Context) {
+func (pg *settingsPage) youSettings(c *ui.Context) {
 	t := c.Theme()
-	s := v.settings.info
+	s := pg.info
 	ui.Text(c, "You").FontSize(13).FontWeight(600)
 	ui.Text(c, "Your games are the ones with these names. Pick more than one for an alt account.").FontSize(12).TextColor(t.TextMuted).Wrap()
 	auto := len(s.You) == 0
 	if switchRow(c, "Pick automatically", "The name in the most games", &auto, false) {
 		switch {
 		case auto:
-			v.setYou(nil)
+			pg.setYou(nil)
 		case len(s.Players) > 0:
-			v.setYou([]string{s.Players[0].ID})
+			pg.setYou([]string{s.Players[0].ID})
 		}
 	}
 	picked := s.You
@@ -221,7 +256,7 @@ func (v *view) youSettings(c *ui.Context) {
 		picked = []string{s.Players[0].ID}
 	}
 	rows := s.Players
-	if !v.settings.allNames && len(rows) > topNames {
+	if !pg.allNames && len(rows) > topNames {
 		rows = slices.Clone(rows[:topNames])
 		for _, p := range s.Players[topNames:] {
 			if slices.Contains(picked, p.ID) {
@@ -245,90 +280,90 @@ func (v *view) youSettings(c *ui.Context) {
 			switch {
 			case auto || on == was:
 			case on:
-				v.setYou(append(slices.Clone(picked), p.ID))
+				pg.setYou(append(slices.Clone(picked), p.ID))
 			case len(picked) > 1:
-				v.setYou(slices.DeleteFunc(slices.Clone(picked), func(n string) bool { return n == p.ID }))
+				pg.setYou(slices.DeleteFunc(slices.Clone(picked), func(n string) bool { return n == p.ID }))
 			}
 		}
 	})
 	if len(s.Players) > topNames {
 		label := fmt.Sprintf("Show all %d names", len(s.Players))
-		if v.settings.allNames {
+		if pg.allNames {
 			label = "Show fewer"
 		}
 		if ui.Text(c, label).FontSize(12).TextColor(t.Accent).Cursor(ui.CursorPointer).Clicked() {
-			v.settings.allNames = !v.settings.allNames
+			pg.allNames = !pg.allNames
 		}
 	}
 }
 
 // setYou saves the user's names. The page shows them before the new snapshot arrives.
-func (v *view) setYou(names []string) {
-	v.settings.info.You = names
-	v.do(func(a actions) { a.SetSetting(store.SettingYou, store.JoinNames(names)) })
+func (pg *settingsPage) setYou(names []string) {
+	pg.info.You = names
+	pg.do(func(a settingsActions) { a.SetSetting(store.SettingYou, store.JoinNames(names)) })
 }
 
 var themes = []string{"", "dark", "light"}
 
-func (v *view) lookSettings(c *ui.Context) {
+func lookSettings(c *ui.Context, e *env) {
 	ui.Text(c, "Appearance").FontSize(13).FontWeight(600)
-	theme := max(slices.Index(themes, v.prefs.theme), 0)
+	theme := max(slices.Index(themes, e.prefs.theme), 0)
 	prefRow(c, "Theme", "", func() { ui.Segmented(c, &theme, "Windows", "Dark", "Light").Label("Theme") })
-	if themes[theme] != v.prefs.theme {
-		prefTheme.set(v, themes[theme])
+	if themes[theme] != e.prefs.theme {
+		prefTheme.set(e, themes[theme])
 	}
 	divider(c)
-	cb := v.prefs.colorblind
+	cb := e.prefs.colorblind
 	if switchRow(c, "Colorblind-safe colors", "Wins and losses in blue and orange instead of green and red", &cb, false) {
-		prefColorblind.set(v, cb)
+		prefColorblind.set(e, cb)
 	}
 }
 
-func (v *view) startupSettings(c *ui.Context) {
+func (pg *settingsPage) startupSettings(c *ui.Context, e *env) {
 	t := c.Theme()
 	ui.Text(c, "Startup and tray").FontSize(13).FontWeight(600)
-	login := v.system.openAtLogin
+	login := pg.system.openAtLogin
 	if switchRow(c, "Start with Windows", "", &login, false) {
-		v.system.openAtLogin = login
-		v.do(func(a actions) { a.SetOpenAtLogin(login) })
+		pg.system.openAtLogin = login
+		pg.do(func(a settingsActions) { a.SetOpenAtLogin(login) })
 	}
-	v.shortcutRows(c)
+	pg.shortcutRows(c, e)
 	divider(c)
-	hidden := v.prefs.startHidden
-	if switchRow(c, "Start hidden in the tray", "Only when it starts with Windows", &hidden, !v.system.openAtLogin) {
-		prefStartHidden.set(v, hidden)
+	hidden := e.prefs.startHidden
+	if switchRow(c, "Start hidden in the tray", "Only when it starts with Windows", &hidden, !pg.system.openAtLogin) {
+		prefStartHidden.set(e, hidden)
 	}
 	divider(c)
 	closing := 0
-	if v.prefs.closeQuits {
+	if e.prefs.closeQuits {
 		closing = 1
 	}
 	prefRow(c, "Closing the window", "", func() {
 		ui.Segmented(c, &closing, "Hides it to the tray", "Quits logpose").Label("Closing the window")
 	})
-	if quits := closing == 1; quits != v.prefs.closeQuits {
-		prefCloseQuits.set(v, quits)
+	if quits := closing == 1; quits != e.prefs.closeQuits {
+		prefCloseQuits.set(e, quits)
 	}
-	if n := v.settings.notes[noteStartup]; n != "" {
+	if n := pg.notes[noteStartup]; n != "" {
 		ui.Text(c, n).FontSize(12).TextColor(t.Accent)
 	}
 }
 
-func (v *view) artSettings(c *ui.Context) {
+func (pg *settingsPage) artSettings(c *ui.Context, e *env) {
 	t := c.Theme()
 	ui.Text(c, "Card art").FontSize(13).FontWeight(600)
 	ui.Text(c, "Pictures of cards come from Limitless and stay on this PC.").FontSize(12).TextColor(t.TextMuted).Wrap()
-	on := !v.prefs.artOff
+	on := !e.prefs.artOff
 	if switchRow(c, "Download card art", "Off shows the sim's own images", &on, false) {
-		prefArtOff.set(v, !on)
+		prefArtOff.set(e, !on)
 	}
-	dir := v.settings.info.ArtDir
+	dir := pg.info.ArtDir
 	if dir == "" {
 		return
 	}
 	divider(c)
-	capIndex := slices.Index(artCaps, v.prefs.artCap)
-	u := v.settings.art
+	capIndex := slices.Index(artCaps, e.prefs.artCap)
+	u := pg.art
 	label, sub := "Counting…", ""
 	if u != nil {
 		label = megabytes(u.Total()) + " on disk"
@@ -337,14 +372,14 @@ func (v *view) artSettings(c *ui.Context) {
 	prefRow(c, label, sub, func() {
 		ui.Row(c).Gap(6).Children(func() {
 			if ui.Button(c, "Show").Label("Show the card art folder").Clicked() {
-				v.do(func(a actions) { a.OpenPath(dir) })
+				pg.do(func(a settingsActions) { a.OpenPath(dir) })
 			}
 			if ui.Button(c, "Clear").Label("Clear card art").Disabled(u == nil || u.Total() == 0).Clicked() {
-				v.do(func(a actions) { a.ClearArt() })
+				pg.do(func(a settingsActions) { a.ClearArt() })
 			}
 		})
 	})
-	if n := v.settings.notes[noteArt]; n != "" {
+	if n := pg.notes[noteArt]; n != "" {
 		ui.Text(c, n).FontSize(12).TextColor(t.Accent)
 	}
 	divider(c)
@@ -355,7 +390,7 @@ func (v *view) artSettings(c *ui.Context) {
 		ui.Segmented(c, &picked, artCapLabels...).Label("Keep large images up to")
 	})
 	if picked != capIndex {
-		prefArtCap.set(v, artCaps[picked])
+		prefArtCap.set(e, artCaps[picked])
 	}
 	ui.Text(c, "Past this, the ones you opened longest ago are deleted. Thumbnails stay.").
 		FontSize(12).TextColor(t.TextMuted).Wrap()
@@ -406,7 +441,7 @@ func divider(c *ui.Context) {
 }
 
 // setupPage asks for the sim's folder when logpose can't find the sim and has no games yet.
-func (v *view) setupPage(c *ui.Context) {
+func (pg *settingsPage) setupPage(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).Fill().Center().Padding(32).Children(func() {
 		panel(c).Width(560).Padding(24, 26).Gap(8).Children(func() {
@@ -415,12 +450,12 @@ func (v *view) setupPage(c *ui.Context) {
 				TextColor(t.TextMuted).Wrap()
 			ui.Row(c).Gap(12).AlignItems(ui.Center).Margin(8, 0, 0, 0).Children(func() {
 				if ui.PrimaryButton(c, "Choose folder…").Clicked() {
-					v.do(func(a actions) { a.ChooseSimFolder() })
+					pg.do(func(a settingsActions) { a.ChooseSimFolder() })
 				}
 				ui.Box(c).Size(8, 8).Radius(4).Background(t.Accent.Alpha(0.8))
 				ui.Text(c, "Looking for a running sim").FontSize(13).TextColor(faintColor(t))
 			})
-			if n := v.settings.notes[noteSim]; n != "" {
+			if n := pg.notes[noteSim]; n != "" {
 				ui.Text(c, n).FontSize(13).TextColor(warnColor).Wrap()
 			}
 			ui.Box(c).Height(1).Margin(10, 0, 4, 0).Background(t.Border)

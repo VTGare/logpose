@@ -53,8 +53,8 @@ func lift(el ui.Element, radius float32) ui.Element {
 
 // grow is a value that goes to target over d, from zero in a page's first frame, so bars grow
 // when a page opens and follow the filters after.
-func (v *view) grow(el ui.Element, key any, target float32, d time.Duration) float32 {
-	if v.entered {
+func (e *env) grow(el ui.Element, key any, target float32, d time.Duration) float32 {
+	if e.entered {
 		el.Jump(key, 0)
 	}
 	return el.AnimateTo(key, target, ui.Animation{Duration: d})

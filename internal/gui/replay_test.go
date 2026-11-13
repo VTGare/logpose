@@ -46,7 +46,7 @@ var _ = Describe("replay", func() {
 		s.Matches[0].Opp.ID, s.Matches[0].Opp.Name = "Bob#2222", "Bob"
 		v, tt = tester(s)
 		fa = &fakeActions{}
-		v.act = fa
+		v.setActions(fa)
 	})
 
 	// watch opens match 0's replay from its page and shows it built.

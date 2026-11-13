@@ -49,17 +49,17 @@ func (u updateState) getting() string {
 	return fmt.Sprintf("Getting %s · %d%%", u.next, int(u.done*100))
 }
 
-func (v *view) setUpdate(u updateState) {
-	if u.phase == updateReady && v.upd.phase != updateReady {
-		v.updNotes = false
+func (pg *settingsPage) setUpdate(u updateState) {
+	if u.phase == updateReady && pg.upd.phase != updateReady {
+		pg.updNotes = false
 	}
-	v.upd = u
+	pg.upd = u
 }
 
 // updateBox sits above Formats and Settings in the sidebar while a newer version is found or ready. The
 // rail shows it as an icon.
-func (v *view) updateBox(c *ui.Context, wide bool) {
-	u := v.upd
+func (pg *settingsPage) updateBox(c *ui.Context, wide bool) {
+	u := pg.upd
 	if !u.pending() {
 		return
 	}
@@ -75,10 +75,10 @@ func (v *view) updateBox(c *ui.Context, wide bool) {
 	run := func() {
 		switch u.phase {
 		case updateReady:
-			v.do(func(a actions) { a.RestartToUpdate() })
+			pg.do(func(a settingsActions) { a.RestartToUpdate() })
 		case updateFound:
-			v.upd.phase = updateDownloading
-			v.do(func(a actions) { a.InstallUpdate() })
+			pg.upd.phase = updateDownloading
+			pg.do(func(a settingsActions) { a.InstallUpdate() })
 		}
 	}
 	if !wide {
@@ -103,10 +103,10 @@ func (v *view) updateBox(c *ui.Context, wide bool) {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(0, 0, 0, 16).Children(func() {
 			info := ui.ButtonBase(c).Label("What's new in " + u.next).Background(ui.Transparent)
 			if info.Clicked() {
-				v.updNotes = !v.updNotes
+				pg.updNotes = !pg.updNotes
 			}
 			col := t.TextMuted
-			if info.Hovered() || v.updNotes {
+			if info.Hovered() || pg.updNotes {
 				col = t.Text
 			}
 			info.Children(func() { ui.Text(c, "What's new").FontSize(12).TextColor(col) })
@@ -119,7 +119,7 @@ func (v *view) updateBox(c *ui.Context, wide bool) {
 			}
 		})
 	})
-	v.updateNotes(c, box)
+	pg.updateNotes(c, box)
 }
 
 func railUpdateTint(t *ui.Theme, hovered bool) ui.Color {
@@ -140,10 +140,10 @@ func updateHint(p updatePhase) string {
 }
 
 // updateNotes is the next version's release notes, under the sidebar's box.
-func (v *view) updateNotes(c *ui.Context, anchor ui.Element) {
+func (pg *settingsPage) updateNotes(c *ui.Context, anchor ui.Element) {
 	t := c.Theme()
-	u := v.upd
-	ui.PopoverBase(c, anchor, &v.updNotes, func(panel ui.Element) {
+	u := pg.upd
+	ui.PopoverBase(c, anchor, &pg.updNotes, func(panel ui.Element) {
 		popover(panel.Margin(0, 0, 6, 0).Padding(14, 16).Width(420), t)
 		ui.Column(c).Gap(6).Children(func() {
 			ui.Text(c, "logpose "+u.next).FontWeight(600)
@@ -189,31 +189,31 @@ func noteLines(md string) []noteLine {
 	return out
 }
 
-func (v *view) updateSettings(c *ui.Context) {
-	u := v.upd
+func (pg *settingsPage) updateSettings(c *ui.Context, e *env) {
+	u := pg.upd
 	ui.Text(c, "Updates").FontSize(13).FontWeight(600)
-	prefRow(c, "Version "+u.current, v.updateStatus(), func() {
+	prefRow(c, "Version "+u.current, pg.updateStatus(e), func() {
 		if !u.can {
 			return
 		}
 		b := ui.Button(c, "Check now").Disabled(u.busy())
 		if b.Clicked() {
-			v.upd.phase = updateChecking
-			v.do(func(a actions) { a.CheckUpdate() })
+			pg.upd.phase = updateChecking
+			pg.do(func(a settingsActions) { a.CheckUpdate() })
 		}
 	})
 	divider(c)
-	auto := !v.prefs.updateManual
+	auto := !e.prefs.updateManual
 	if switchRow(c, "Download updates by itself", "Off only tells you when there's one", &auto, !u.can) {
-		prefUpdateManual.set(v, !auto)
+		prefUpdateManual.set(e, !auto)
 	}
 	if u.phase == updateFailed {
 		ui.Text(c, u.err).FontSize(12).TextColor(warnColor).Wrap()
 	}
 }
 
-func (v *view) updateStatus() string {
-	u := v.upd
+func (pg *settingsPage) updateStatus(e *env) string {
+	u := pg.upd
 	switch {
 	case !u.can:
 		return "Only logpose installed with its installer updates itself"
@@ -230,5 +230,5 @@ func (v *view) updateStatus() string {
 	case u.checked.IsZero():
 		return "Not checked yet"
 	}
-	return "Up to date · checked " + dayAndTime(v.now(), u.checked)
+	return "Up to date · checked " + dayAndTime(e.now(), u.checked)
 }

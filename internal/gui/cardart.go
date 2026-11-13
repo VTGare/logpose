@@ -34,22 +34,22 @@ func cardKind(w float32) artKind {
 
 // cardImage is the picture ref names, w wide, or the card's placeholder while it loads or when
 // there is none. While a large image loads, the small one stands in.
-func (v *view) cardImage(c *ui.Context, ref string, w float32) ui.Element {
+func (e *env) cardImage(c *ui.Context, ref string, w float32) ui.Element {
 	kind := cardKind(w)
-	art := v.art.get(ref, kind)
+	art := e.art.get(ref, kind)
 	if art == nil && kind != artFull {
-		art = v.art.get(ref, artFull)
+		art = e.art.get(ref, artFull)
 	}
 	if art == nil {
-		return v.cardPlaceholder(c, parseArtRef(ref).card(), w, cardHeight(w))
+		return e.cardPlaceholder(c, parseArtRef(ref).card(), w, cardHeight(w))
 	}
 	return ui.Image(c, art).Size(w, cardHeight(w)).Fit(ui.Cover).Radius(4)
 }
 
 // cardPlaceholder is a block in the card's colors, in the game's order.
-func (v *view) cardPlaceholder(c *ui.Context, code string, w, h float32) ui.Element {
+func (e *env) cardPlaceholder(c *ui.Context, code string, w, h float32) ui.Element {
 	return ui.Row(c).Size(w, h).Radius(4).Clip().AlignItems(ui.Stretch).Children(func() {
-		for i, col := range colorsOf(v.snap.card(code)) {
+		for i, col := range colorsOf(e.snap.card(code)) {
 			ui.Box(c.Key(i)).Grow(1).Background(col.Card)
 		}
 	})
@@ -57,28 +57,28 @@ func (v *view) cardPlaceholder(c *ui.Context, code string, w, h float32) ui.Elem
 
 // card is a card's picture named after it, with the card's menu. A card smaller than the
 // preview shows the whole card large while the pointer rests on it, with notes under it.
-func (v *view) card(c *ui.Context, code string, w float32, notes ...string) ui.Element {
-	card := v.snap.card(code)
-	el := v.cardImage(c, code, w).Label(card.Name).PopoverMenu(v.cardMenu(card))
+func (e *env) card(c *ui.Context, code string, w float32, notes ...string) ui.Element {
+	card := e.snap.card(code)
+	el := e.cardImage(c, code, w).Label(card.Name).PopoverMenu(e.nav.cardMenu(card))
 	if needsPreview(c, w) {
-		v.cardPreview(c, el, code, notes...)
+		e.cardPreview(c, el, code, notes...)
 	}
 	return el
 }
 
 // cardPreview shows the card large while the pointer rests on anchor, with notes under it.
 // Without art it names the card.
-func (v *view) cardPreview(c *ui.Context, anchor ui.Element, ref string, notes ...string) {
+func (e *env) cardPreview(c *ui.Context, anchor ui.Element, ref string, notes ...string) {
 	pw := previewWidth(c)
 	ui.TooltipBase(c, anchor, func(tip ui.Element) {
-		art := v.art.get(ref, artLarge)
+		art := e.art.get(ref, artLarge)
 		if art == nil {
-			art = v.art.get(ref, artFull)
+			art = e.art.get(ref, artFull)
 		}
 		tip.Radius(10).Shadow(0, 6, 24, 0, ui.RGBA(0, 0, 0, 0.5)).Background(panelDark).Children(func() {
 			ui.Column(c).Gap(6).Children(func() {
 				if art == nil {
-					ui.Text(c, v.snap.card(parseArtRef(ref).card()).Name).FontSize(13).TextColor(pillText).Padding(6, 10)
+					ui.Text(c, e.snap.card(parseArtRef(ref).card()).Name).FontSize(13).TextColor(pillText).Padding(6, 10)
 				} else {
 					ui.Image(c, art).Size(pw, cardHeight(pw)).Fit(ui.Cover).Radius(10)
 				}
@@ -101,10 +101,10 @@ func previewWidth(c *ui.Context) float32 {
 // needsPreview reports whether a card w wide is small enough for its preview to add something.
 func needsPreview(c *ui.Context, w float32) bool { return w < previewWidth(c)*0.85 }
 
-func (v *view) artStrip(c *ui.Context, code string, w, h float32) {
-	if art := v.art.get(code, artCrop); art != nil {
+func (e *env) artStrip(c *ui.Context, code string, w, h float32) {
+	if art := e.art.get(code, artCrop); art != nil {
 		ui.Image(c, art).Size(w, h).Fit(ui.Cover).Radius(4)
 		return
 	}
-	v.cardPlaceholder(c, code, w, h)
+	e.cardPlaceholder(c, code, w, h)
 }

@@ -155,15 +155,15 @@ func (v *view) resultsTab(c *ui.Context, ld leaderDecks, d *deckData) {
 
 // deckTabs is a tab for each deck with its art, set, games and rate, calling pick with the one
 // clicked. label starts each tab's name for assistive technology.
-func (v *view) deckTabs(c *ui.Context, all []stats.LeaderRecord, chosen, label string, pick func(string)) {
+func (e *env) deckTabs(c *ui.Context, all []stats.LeaderRecord, chosen, label string, pick func(string)) {
 	t := c.Theme()
 	ui.Row(c).Gap(8).Wrap().Children(func() {
 		for i, lr := range all {
-			name := v.snap.card(lr.Leader).Name
+			name := e.snap.card(lr.Leader).Name
 			on := lr.Leader == chosen
 			tab := ui.Row(c.Key(i)).Gap(10).AlignItems(ui.Center).Padding(6, 12, 6, 6).
 				Border(1, t.Border.Alpha(0.6)).Label(label + name).Transition(ui.ElementTransition{Duration: hoverTime, Colors: true}).
-				PopoverMenu(v.yourDeckMenu(lr.Leader))
+				PopoverMenu(e.yourDeckMenu(lr.Leader))
 			if on {
 				tab = tab.Background(t.Surface).Border(1, t.Border)
 			} else if tab.Hovered() {
@@ -174,7 +174,7 @@ func (v *view) deckTabs(c *ui.Context, all []stats.LeaderRecord, chosen, label s
 				pick(lr.Leader)
 			}
 			tab.Children(func() {
-				v.artStrip(c, lr.Leader, 48, 34)
+				e.artStrip(c, lr.Leader, 48, 34)
 				ui.Column(c).Gap(1).Children(func() {
 					nameText := ui.Text(c, name).FontSize(13).FontWeight(600).SingleLine()
 					if !on {

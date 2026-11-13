@@ -46,7 +46,7 @@ const (
 
 // tableView is a hand-built table's columns as the user arranged them.
 type tableView[T any] struct {
-	v    *view
+	env  *env
 	id   string
 	gap  float32
 	cols []tableCol[T]
@@ -63,12 +63,12 @@ type tableView[T any] struct {
 // arrangeTable puts cols in the user's order with their widths, and picks the sort. Columns the
 // layout doesn't know keep their place and default width, and IDs it has that cols don't are
 // ignored.
-func arrangeTable[T any](v *view, id string, gap float32, cols []tableCol[T], sort string, desc bool) tableView[T] {
-	lay := v.prefs.tables[id]
+func arrangeTable[T any](e *env, id string, gap float32, cols []tableCol[T], sort string, desc bool) tableView[T] {
+	lay := e.prefs.tables[id]
 	if lay == nil {
 		lay = &tableLayout{}
 	}
-	tv := tableView[T]{v: v, id: id, gap: gap, lay: lay, sort: sort, desc: desc}
+	tv := tableView[T]{env: e, id: id, gap: gap, lay: lay, sort: sort, desc: desc}
 	if lay.Sort != "" && slices.ContainsFunc(cols, func(c tableCol[T]) bool { return c.id == lay.Sort && c.sortable() }) {
 		tv.sort, tv.desc = lay.Sort, lay.Desc
 	}
@@ -254,9 +254,9 @@ func (tv tableView[T]) moveColumn(from, to string) {
 // save keeps the table's layout, and stores every table's once the changes stop for a moment,
 // since a resize changes it on each frame of the drag.
 func (tv tableView[T]) save() {
-	v := tv.v
-	v.prefs.tables[tv.id] = tv.lay
-	v.later(keyTables, func() { v.savePref(prefTables) })
+	e := tv.env
+	e.prefs.tables[tv.id] = tv.lay
+	e.later(keyTables, func() { e.savePref(prefTables) })
 }
 
 // sorted is a sorted copy of rows, by the sort in force.

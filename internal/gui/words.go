@@ -40,11 +40,11 @@ func dateText(now, t time.Time) string {
 // weekdayText is "Sun Oct 25", with the year when it isn't now's.
 func weekdayText(now, t time.Time) string { return t.Format("Mon ") + dateText(now, t) }
 
-func (v *view) date(t time.Time) string    { return dateText(v.now(), t) }
-func (v *view) weekday(t time.Time) string { return weekdayText(v.now(), t) }
+func (e *env) date(t time.Time) string    { return dateText(e.now(), t) }
+func (e *env) weekday(t time.Time) string { return weekdayText(e.now(), t) }
 
 // dateTime is the date and the time, such as "Oct 25 18:50".
-func (v *view) dateTime(t time.Time) string { return v.date(t) + " " + t.Format("15:04") }
+func (e *env) dateTime(t time.Time) string { return e.date(t) + " " + t.Format("15:04") }
 
 // span is "a – b", or a alone when the two are the same.
 func span(a, b string) string {

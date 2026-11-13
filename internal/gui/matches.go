@@ -23,9 +23,6 @@ type matchesState struct {
 	row     int
 	// bookmarked is 1 while the list shows only bookmarked matches.
 	bookmarked int
-	// result indexes resultLabels. It narrows the list only, since on the other pages it would
-	// make every win rate 100% or 0%.
-	result int
 }
 
 const anyResult = 0
@@ -171,7 +168,7 @@ func (v *view) matchesPage(c *ui.Context) {
 		s.sorted = sortMatches(cols, ms, s.sort)
 		s.sortKey, s.from = s.sort, ms
 	}
-	rows, marked := s.shown()
+	rows, marked := s.shown(v.listResult)
 	items := matchItems(rows, byDay)
 	// Deck, your leader, shows only while the games cover more than one deck.
 	if v.filter.deck != "" || !slices.ContainsFunc(rows, func(m stats.Match) bool { return m.Me.Leader != rows[0].Me.Leader }) {
@@ -193,7 +190,7 @@ func (v *view) matchesPage(c *ui.Context) {
 			if marked > 0 || s.bookmarked == 1 {
 				ui.Segmented(c, &s.bookmarked, "All", fmt.Sprintf("Bookmarked · %d", marked))
 			}
-			ui.Segmented(c, &s.result, resultLabels...).Label("Result")
+			ui.Segmented(c, &v.listResult, resultLabels...).Label("Result")
 			ui.Spacer(c)
 			ui.Text(c, summary(rows)).TextColor(t.TextMuted)
 		})
@@ -225,10 +222,10 @@ func (v *view) matchesPage(c *ui.Context) {
 
 // shown is the sorted matches the result and bookmark switches let through, and how many of
 // them before the bookmark switch are bookmarked.
-func (s *matchesState) shown() (rows []stats.Match, marked int) {
+func (s *matchesState) shown(result int) (rows []stats.Match, marked int) {
 	rows = s.sorted
-	if s.result != anyResult {
-		want := resultFilters[s.result]
+	if result != anyResult {
+		want := resultFilters[result]
 		rows = slices.DeleteFunc(slices.Clone(rows), func(m stats.Match) bool { return m.Result != want })
 	}
 	for _, m := range rows {

@@ -33,7 +33,7 @@ func handsSnapshot() *snapshot {
 // handsTester opens the Hands tab in a window tall enough for its card rows.
 func handsTester() (*view, *ui.Tester) {
 	v, tt := tester(handsSnapshot())
-	v.act = &fakeActions{}
+	v.setActions(&fakeActions{})
 	tt.SetSize(1180, 2000)
 	v.open("decks/hands")
 	tt.Frame()

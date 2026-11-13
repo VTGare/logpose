@@ -15,7 +15,7 @@ var _ = Describe("shortcuts", func() {
 	offer := func() (*ui.Tester, *fakeActions, func(string)) {
 		v, tt := tester(testSnapshot(10))
 		fa := &fakeActions{}
-		v.act = fa
+		v.setActions(fa)
 		v.setSystem(systemState{canShortcut: true})
 		tt.Frame()
 		click := func(label string) {

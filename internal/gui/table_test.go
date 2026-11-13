@@ -13,7 +13,7 @@ import (
 func tableTester() (*view, *ui.Tester, *fakeActions) {
 	v, tt := tester(matchupsSnapshot())
 	act := &fakeActions{}
-	v.act = act
+	v.setActions(act)
 	Expect(tt.Click("Matchups")).To(Succeed())
 	return v, tt, act
 }
@@ -146,7 +146,7 @@ var _ = Describe("Collapsible tiles", func() {
 	It("collapses a tile to its summary, stores it, and opens it again", func() {
 		v, tt := handsTester()
 		act := &fakeActions{}
-		v.act = act
+		v.setActions(act)
 		Expect(tt.Click("Collapse Keep or mulligan")).To(Succeed())
 		tt.Frame()
 		Expect(tt.HasText("Kept 100% (5–0) · mulliganed 0% (0–5)")).To(BeTrue())

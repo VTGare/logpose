@@ -58,59 +58,59 @@ func (v *view) gameMenu(m stats.Match) func(*ui.Menu) {
 	}
 }
 
-func (v *view) yourDeckMenu(leader string) func(*ui.Menu) {
+func (e *env) yourDeckMenu(leader string) func(*ui.Menu) {
 	return func(m *ui.Menu) {
 		if m.Item("Open on Decks").Chosen() {
-			v.openLeader(leader)
+			e.openLeader(leader)
 		}
 		if m.Item("Open on Matchups").Chosen() {
-			v.setDeck(leader)
-			v.page = pageMatchups
+			e.setDeck(leader)
+			e.page = pageMatchups
 		}
 		if m.Item("Show in Matches").Chosen() {
-			v.setDeck(leader)
-			v.page = pageMatches
+			e.setDeck(leader)
+			e.page = pageMatches
 		}
 		m.Separator()
-		v.leaderCardItems(m, leader)
+		e.leaderCardItems(m, leader)
 	}
 }
 
 // opponentMenu is the menu of an opposing leader. deck is the user's deck it's faced with, or
 // "" to keep the deck filter as it is.
-func (v *view) opponentMenu(deck, leader string) func(*ui.Menu) {
+func (e *env) opponentMenu(deck, leader string) func(*ui.Menu) {
 	return func(m *ui.Menu) {
 		if m.Item("Show in Matches").Chosen() {
-			v.showOpponentGames(deck, leader)
+			e.showOpponentGames(deck, leader)
 		}
-		if m.Item("Filter to games vs " + v.snap.card(leader).Name).Chosen() {
-			v.filterOpponent(leader)
+		if m.Item("Filter to games vs " + e.snap.card(leader).Name).Chosen() {
+			e.filterOpponent(leader)
 		}
 		m.Separator()
-		v.leaderCardItems(m, leader)
+		e.leaderCardItems(m, leader)
 	}
 }
 
-func (v *view) showOpponentGames(deck, leader string) {
+func (e *env) showOpponentGames(deck, leader string) {
 	if deck != "" {
-		v.filter.deck = deck
+		e.filter.deck = deck
 	}
-	v.filter.oppLeader = leader
-	v.page = pageMatches
+	e.filter.oppLeader = leader
+	e.page = pageMatches
 }
 
-func (v *view) filterOpponent(leader string) {
-	v.filter.oppLeader = leader
+func (e *env) filterOpponent(leader string) {
+	e.filter.oppLeader = leader
 }
 
 // leaderCardItems are the items of a leader as a card, after what the menu does with it as a
 // deck.
-func (v *view) leaderCardItems(m *ui.Menu, code string) {
+func (e *env) leaderCardItems(m *ui.Menu, code string) {
 	if m.Item("Open in Cards").Chosen() {
-		v.openInCards(code)
+		e.nav.openInCards(code)
 	}
 	if m.Item("View art").Chosen() {
-		v.viewArt(code)
+		e.nav.viewArt(code)
 	}
 }
 
@@ -151,13 +151,13 @@ func pillMenu(c *ui.Context, pill func(), menu func(*ui.Menu)) {
 
 // clearPillMenu is a pill's right-click menu: one item to reset it, greyed out while it's
 // already there, and Clear all filters.
-func (v *view) clearPillMenu(label string, at bool, reset func()) func(*ui.Menu) {
+func (e *env) clearPillMenu(label string, at bool, reset func()) func(*ui.Menu) {
 	return func(m *ui.Menu) {
 		if m.Item(label).Disabled(at).Chosen() {
 			reset()
 		}
-		if m.Item("Clear all filters").Disabled(!v.canClear()).Chosen() {
-			v.clearFilters()
+		if m.Item("Clear all filters").Disabled(!e.canClear()).Chosen() {
+			e.clearFilters()
 		}
 	}
 }

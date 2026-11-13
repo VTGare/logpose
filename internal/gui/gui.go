@@ -141,7 +141,7 @@ func (a *app) ready(ctx context.Context) {
 	if a.opts.Page != "" {
 		a.view.open(a.opts.Page)
 	}
-	a.view.act = &appActions{a: a, ctx: ctx}
+	a.view.setActions(&appActions{a: a, ctx: ctx})
 	// The window's look and close behavior are needed before it shows, so they're read here.
 	set, err := a.opts.Store.Settings(ctx)
 	if err != nil {

@@ -14,13 +14,12 @@ import (
 var shortcutNames = [...]string{shortcut.StartMenu: "Start menu", shortcut.Desktop: "Desktop"}
 
 // shortcutCard offers shortcuts once, on the Overview, until it's answered or both exist.
-func (v *view) shortcutCard(c *ui.Context) {
-	p := &v.system
-	if !p.canShortcut || p.installed || v.prefs.shortcutsOffered || p.shortcuts[shortcut.StartMenu] && p.shortcuts[shortcut.Desktop] {
+func (pg *settingsPage) shortcutCard(c *ui.Context, e *env) {
+	p := &pg.system
+	if !p.canShortcut || p.installed || e.prefs.shortcutsOffered || p.shortcuts[shortcut.StartMenu] && p.shortcuts[shortcut.Desktop] {
 		return
 	}
 	t := c.Theme()
-	s := &v.settings
 	panel(c).Padding(14, 18).Children(func() {
 		ui.Row(c).Gap(16).AlignItems(ui.Center).Children(func() {
 			ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
@@ -32,51 +31,51 @@ func (v *view) shortcutCard(c *ui.Context) {
 				if p.shortcuts[place] {
 					continue
 				}
-				on := !s.offerSkip[place]
+				on := !pg.offerSkip[place]
 				ui.Checkbox(c, &on, shortcutNames[place])
-				s.offerSkip[place] = !on
+				pg.offerSkip[place] = !on
 			}
 			add := ui.PrimaryButton(c, "Add")
-			add.Disabled(s.offerSkip[shortcut.StartMenu] && s.offerSkip[shortcut.Desktop])
+			add.Disabled(pg.offerSkip[shortcut.StartMenu] && pg.offerSkip[shortcut.Desktop])
 			if add.Clicked() {
 				for _, place := range shortcut.Places {
-					if !p.shortcuts[place] && !s.offerSkip[place] {
-						v.setShortcut(place, true)
+					if !p.shortcuts[place] && !pg.offerSkip[place] {
+						pg.setShortcut(place, true)
 					}
 				}
-				v.answerShortcuts()
+				answerShortcuts(e)
 			}
 			if ui.Button(c, "Not now").Clicked() {
-				v.answerShortcuts()
+				answerShortcuts(e)
 			}
 		})
 	})
 }
 
-func (v *view) shortcutRows(c *ui.Context) {
-	if !v.system.canShortcut {
+func (pg *settingsPage) shortcutRows(c *ui.Context, e *env) {
+	if !pg.system.canShortcut {
 		return
 	}
 	for _, place := range shortcut.Places {
 		divider(c)
-		on := v.system.shortcuts[place]
+		on := pg.system.shortcuts[place]
 		if switchRow(c, shortcutNames[place]+" shortcut", "", &on, false) {
-			v.setShortcut(place, on)
-			v.answerShortcuts()
+			pg.setShortcut(place, on)
+			answerShortcuts(e)
 		}
 	}
 }
 
-func (v *view) setShortcut(place shortcut.Place, on bool) {
-	v.system.shortcuts[place] = on
-	v.do(func(a actions) { a.SetShortcut(place, on) })
+func (pg *settingsPage) setShortcut(place shortcut.Place, on bool) {
+	pg.system.shortcuts[place] = on
+	pg.do(func(a settingsActions) { a.SetShortcut(place, on) })
 }
 
-func (v *view) answerShortcuts() {
-	if v.prefs.shortcutsOffered {
+func answerShortcuts(e *env) {
+	if e.prefs.shortcutsOffered {
 		return
 	}
-	prefShortcutsOffered.set(v, true)
+	prefShortcutsOffered.set(e, true)
 }
 
 // shortcutLink starts this exe as it was started, so -db and -sim carry over. A test copy's

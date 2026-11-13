@@ -36,7 +36,7 @@ func shows(tt *ui.Tester, items ...string) {
 var _ = Describe("right-click menus", func() {
 	It("gives a game on the Overview the Matches row's menu", func() {
 		v, tt := tester(testSnapshot(3))
-		v.act = &fakeActions{}
+		v.setActions(&fakeActions{})
 		Expect(tt.RightClick("Open the match against Opp")).To(Succeed())
 		shows(tt, "Open match", "Watch replay", "Game type", "Add note…", "Bookmark", "Filter to games vs Opp")
 		Expect(choose(tt, "Open match")).To(Succeed())
@@ -177,7 +177,7 @@ var _ = Describe("the default format", func() {
 	It("saves the choice under Start on without changing the format picked", func() {
 		v, tt := tester(withFormats())
 		fa := &fakeActions{}
-		v.act = fa
+		v.setActions(fa)
 		Expect(tt.Click("All formats")).To(Succeed())
 		Expect(choose(tt, "Start on", "Latest format, now New format")).To(Succeed())
 		Expect(fa.calls).To(Equal([]string{keyStartFormat + "=" + startLatest}))
@@ -188,7 +188,7 @@ var _ = Describe("the default format", func() {
 	It("offers the same choice on the Formats page", func() {
 		v, tt := tester(withFormats())
 		fa := &fakeActions{}
-		v.act = fa
+		v.setActions(fa)
 		v.page = pageFormats
 		tt.Frame()
 		Expect(tt.HasText("Pages start on")).To(BeTrue())

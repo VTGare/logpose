@@ -46,7 +46,7 @@ func (d leaderDecks) scopeRows() []scopeRow {
 // buildsTable compares the leader's builds and the games in no build. Clicking a row chooses it.
 func (v *view) buildsTable(c *ui.Context, d leaderDecks) {
 	t := c.Theme()
-	tv := arrangeTable(v, "decks.builds", tableGap, v.buildCols(t), "", false)
+	tv := arrangeTable(&v.env, "decks.builds", tableGap, v.buildCols(t), "", false)
 	rows := tv.sorted(d.rows)
 	v.foldTile(c, "decks.builds", foldHead{label: "Builds of " + v.snap.card(d.leader).Name}, func() {
 		ui.Text(c, "Click a row to see only its games. With about 30 games each, gaps under 10 points are likely luck.").

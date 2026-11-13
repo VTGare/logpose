@@ -71,11 +71,11 @@ func trend(c *ui.Context, d float64, text string) {
 
 // splitBar is the share won in the win color and the rest in the loss color.
 // It grows from the left when the page opens, and slides when a filter changes it.
-func (v *view) splitBar(c *ui.Context, won float64) {
+func (e *env) splitBar(c *ui.Context, won float64) {
 	won = min(max(won, 0), 1)
 	box := ui.Box(c).Height(6).Radius(3).Clip()
-	shown := v.grow(box, "won", float32(won), barTime)
-	full := v.grow(box, "full", 1, barTime)
+	shown := e.grow(box, "won", float32(won), barTime)
+	full := e.grow(box, "full", 1, barTime)
 	box.Draw(func(p *ui.Painter, r ui.Rect) {
 		w := r.W * shown
 		p.Fill(ui.Rect{X: r.X, Y: r.Y, W: w, H: r.H}, winColor(c.Theme()), 0)
@@ -86,7 +86,7 @@ func (v *view) splitBar(c *ui.Context, won float64) {
 // turnRows is a row for going first and one for going second, each with a filled or hollow mark,
 // the share won as a bar with 50% marked, the rate and the record. Turn order has no color of
 // its own, so the marks tell the rows apart.
-func (v *view) turnRows(c *ui.Context, o stats.TurnOrder, chosen stats.TurnOrderFilter, pick func(stats.TurnOrderFilter)) {
+func (e *env) turnRows(c *ui.Context, o stats.TurnOrder, chosen stats.TurnOrderFilter, pick func(stats.TurnOrderFilter)) {
 	t := c.Theme()
 	row := func(f stats.TurnOrderFilter, word, label string, r stats.Record, filled bool) {
 		el := ui.Row(c.Key(word)).Gap(10).AlignItems(ui.Center).Padding(5, 6).Margin(0, -6).Radius(6).
@@ -106,7 +106,7 @@ func (v *view) turnRows(c *ui.Context, o stats.TurnOrder, chosen stats.TurnOrder
 			}
 			ui.Text(c, label).FontWeight(600).Width(28)
 			track := ui.Box(c).Grow(1).Height(6).Radius(3).Background(t.Surface)
-			won := v.grow(track, "won", float32(r.Share()), barTime)
+			won := e.grow(track, "won", float32(r.Share()), barTime)
 			track.Draw(func(p *ui.Painter, rect ui.Rect) {
 				p.Fill(ui.Rect{X: rect.X, Y: rect.Y, W: rect.W * won, H: rect.H}, t.Text.Alpha(0.75), 3)
 				p.Fill(ui.Rect{X: rect.X + rect.W/2 - 0.5, Y: rect.Y - 3, W: 1, H: rect.H + 6}, t.TextMuted, 0)
@@ -172,15 +172,15 @@ func turnMark(c *ui.Context, m stats.Match) {
 }
 
 // gameLink makes el open the match on a click, with the game's menu on right-click.
-func (v *view) gameLink(el ui.Element, m stats.Match) ui.Element {
+func (e *env) gameLink(el ui.Element, m stats.Match) ui.Element {
 	if el.Clicked() {
-		v.openMatch(m)
+		e.nav.openMatch(m)
 	}
-	return el.Label("Open the match against " + m.Opp.Name).PopoverMenu(v.gameMenu(m))
+	return el.Label("Open the match against " + m.Opp.Name).PopoverMenu(e.nav.gameMenu(m))
 }
 
 // gameLine is a row for one game that opens the match, lit while the pointer is over it.
-func (v *view) gameLine(c *ui.Context, m stats.Match) ui.Element {
+func (e *env) gameLine(c *ui.Context, m stats.Match) ui.Element {
 	t := c.Theme()
 	row := ui.ButtonBase(c).Row().AlignItems(ui.Center).Radius(6).
 		Transition(ui.ElementTransition{Duration: hoverTime, Colors: true})
@@ -189,12 +189,12 @@ func (v *view) gameLine(c *ui.Context, m stats.Match) ui.Element {
 	} else {
 		row.Background(ui.Transparent)
 	}
-	return v.gameLink(row, m)
+	return e.gameLink(row, m)
 }
 
 // leaderChip is a small block in the leader's colors.
-func (v *view) leaderChip(c *ui.Context, code string, size float32) {
-	cols := colorsOf(v.snap.card(code))
+func (e *env) leaderChip(c *ui.Context, code string, size float32) {
+	cols := colorsOf(e.snap.card(code))
 	ui.Row(c).Size(size, size).Radius(size / 4).Clip().AlignItems(ui.Stretch).Children(func() {
 		for i, col := range cols {
 			ui.Box(c.Key(i)).Grow(1).Background(col.Card)
@@ -202,10 +202,10 @@ func (v *view) leaderChip(c *ui.Context, code string, size float32) {
 	})
 }
 
-func (v *view) leaderName(c *ui.Context, code string) {
+func (e *env) leaderName(c *ui.Context, code string) {
 	ui.Row(c).Gap(6).Children(func() {
-		v.leaderChip(c, code, 12)
-		ui.Text(c, v.snap.card(code).Name).SingleLine()
+		e.leaderChip(c, code, 12)
+		ui.Text(c, e.snap.card(code).Name).SingleLine()
 		ui.Text(c, cards.SetOf(code)).FontSize(11).TextColor(c.Theme().TextMuted)
 	})
 }
@@ -214,10 +214,10 @@ const bannerArtW = 300
 
 // banner is a leader's art on the left, fading into the panel, with the leader's colors glowing
 // faintly from two corners and body beside the art.
-func (v *view) banner(c *ui.Context, code string, height float32, body func()) ui.Element {
+func (e *env) banner(c *ui.Context, code string, height float32, body func()) ui.Element {
 	t := c.Theme()
-	cols := colorsOf(v.snap.card(code))
-	art := v.art.get(code, artPortrait)
+	cols := colorsOf(e.snap.card(code))
+	art := e.art.get(code, artPortrait)
 	strength := 0.5
 	if art != nil {
 		strength = 0.3

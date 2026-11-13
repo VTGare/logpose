@@ -180,7 +180,7 @@ var _ = Describe("Decks page", func() {
 	It("makes a suggestion a build with the name given, its searchers as the core", func() {
 		v, tt := tester(deckSnapshot())
 		f := &fakeActions{}
-		v.act = f
+		v.setActions(f)
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.Click("2 suggested")).To(Succeed())
 		tt.Frame()
@@ -194,7 +194,7 @@ var _ = Describe("Decks page", func() {
 	It("dismisses a suggestion", func() {
 		v, tt := tester(deckSnapshot())
 		f := &fakeActions{}
-		v.act = f
+		v.setActions(f)
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.Click("List")).To(Succeed())
 		tt.Frame()
@@ -385,7 +385,7 @@ var _ = Describe("Decks page", func() {
 	It("makes a new build from the cards clicked and the name typed", func() {
 		v, tt := tester(deckSnapshot())
 		f := &fakeActions{}
-		v.act = f
+		v.setActions(f)
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.Click("New build")).To(Succeed())
 		tt.Frame()
@@ -404,7 +404,7 @@ var _ = Describe("Decks page", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano", Core: []string{"OTA"}}
 		v, tt := tester(deckSnapshot(wano))
 		f := &fakeActions{}
-		v.act = f
+		v.setActions(f)
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.Click("New build")).To(Succeed())
 		tt.Frame()
@@ -420,7 +420,7 @@ var _ = Describe("Decks page", func() {
 	It("won't save a build without a name or a core card", func() {
 		v, tt := tester(deckSnapshot())
 		f := &fakeActions{}
-		v.act = f
+		v.setActions(f)
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.Click("New build")).To(Succeed())
 		tt.Frame()
@@ -440,7 +440,7 @@ var _ = Describe("Decks page", func() {
 		wano := store.Build{ID: 1, Leader: "OP13-001", Name: "Wano/Miracle", Core: []string{"OTA"}}
 		v, tt := tester(deckSnapshot(wano))
 		f := &fakeActions{}
-		v.act = f
+		v.setActions(f)
 		Expect(tt.Click("Decks")).To(Succeed())
 		Expect(tt.RightClick("Wano/Miracle")).To(Succeed())
 		Expect(tt.Click("Edit core")).To(Succeed())

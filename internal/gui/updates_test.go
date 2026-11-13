@@ -20,8 +20,8 @@ var _ = Describe("updates", func() {
 	sidebar := func(u updateState) (*view, *ui.Tester, *fakeActions) {
 		v, tt := tester(testSnapshot(4))
 		fa := &fakeActions{}
-		v.act = fa
-		v.setUpdate(u)
+		v.setActions(fa)
+		v.settings.setUpdate(u)
 		tt.Frame()
 		return v, tt, fa
 	}
@@ -88,7 +88,7 @@ var _ = Describe("updates", func() {
 
 	It("shows the version and checks from Settings, and stores the download choice", func() {
 		st := settingsTester()
-		st.v.setUpdate(updateState{can: true, current: "0.1.0", checked: now.Add(-25 * time.Hour)})
+		st.v.settings.setUpdate(updateState{can: true, current: "0.1.0", checked: now.Add(-25 * time.Hour)})
 		Expect(st.has("Version 0.1.0")).To(BeTrue())
 		Expect(st.has("Up to date · checked yesterday at 19:00")).To(BeTrue())
 		st.click("Check now")
@@ -99,7 +99,7 @@ var _ = Describe("updates", func() {
 
 	It("says when this copy can't update itself", func() {
 		st := settingsTester()
-		st.v.setUpdate(updateState{current: "0.1.0"})
+		st.v.settings.setUpdate(updateState{current: "0.1.0"})
 		Expect(st.has("Only logpose installed with its installer updates itself")).To(BeTrue())
 		Expect(st.has("Check now")).To(BeFalse())
 	})

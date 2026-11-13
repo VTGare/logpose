@@ -29,7 +29,7 @@ func (v *view) cardsTab(c *ui.Context, d *deckData) {
 			return
 		}
 		avg := d.stats.Record.Share()
-		tv := arrangeTable(v, "decks.cards", 12, v.cardCols(t, gs[0].Facts.List, len(gs), avg), "", false)
+		tv := arrangeTable(&v.env, "decks.cards", 12, v.cardCols(t, gs[0].Facts.List, len(gs), avg), "", false)
 		in := tv.sorted(slices.DeleteFunc(slices.Clone(d.cards), func(cs stats.CardStats) bool { return !cs.Latest }))
 		gone := tv.sorted(slices.DeleteFunc(slices.Clone(d.cards), func(cs stats.CardStats) bool { return cs.Latest }))
 		tv.header(c, 8)

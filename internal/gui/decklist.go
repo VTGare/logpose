@@ -58,7 +58,7 @@ func (v *view) scopeList(c *ui.Context, d *deckData) {
 				ui.Spacer(c)
 				on := v.prefs.deckChanges
 				if ui.Switch(c, &on).Label("Show changes").Changed() {
-					prefDeckChanges.set(v, on)
+					prefDeckChanges.set(&v.env, on)
 				}
 				ui.Text(c, "Show changes").FontSize(13).TextColor(t.TextMuted)
 			})

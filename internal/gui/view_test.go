@@ -112,7 +112,7 @@ var _ = Describe("view", func() {
 	It("names the days by the clock, and asks for a frame at midnight", func() {
 		v, tt := tester(testSnapshot(10))
 		f := &fakeActions{}
-		v.act = f
+		v.setActions(f)
 		tt.Frame()
 		Expect(tt.Texts()).To(ContainElement("Today"))
 		Expect(f.timers).To(HaveLen(1))
@@ -125,7 +125,7 @@ var _ = Describe("view", func() {
 	It("puts today's record in the tray tooltip by the clock, and updates it at midnight", func() {
 		v, tt := tester(testSnapshot(3))
 		f := &fakeActions{}
-		v.act = f
+		v.setActions(f)
 		tt.Frame()
 		Expect(v.trayTip()).To(Equal("logpose · today 2–1"))
 		v.clock = func() time.Time { return now.AddDate(0, 0, 1) }
@@ -312,7 +312,7 @@ var _ = Describe("sidebar", func() {
 	It("folds to the rail and opens again when its edge is dragged a few DIPs at a time", func() {
 		v, tt := tester(testSnapshot(4))
 		fa := &fakeActions{}
-		v.act = fa
+		v.setActions(fa)
 		tt.Frame()
 		stored := func() float32 {
 			GinkgoHelper()

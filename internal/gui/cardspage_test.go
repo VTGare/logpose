@@ -52,7 +52,7 @@ func cardsPage(pool map[string]cards.Card) (*view, *ui.Tester, *fakeActions) {
 	s.Cards = db
 	v, tt := tester(s)
 	fa := &fakeActions{}
-	v.act = fa
+	v.setActions(fa)
 	v.page = pageCards
 	// More filters reaches below a window of the usual height.
 	tt.SetSize(1180, 1000)

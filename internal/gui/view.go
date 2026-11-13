@@ -85,19 +85,21 @@ type page struct {
 // "decks/build" chooses the first build and "decks/edit" opens the core editor on it. "cards/"
 // and a card's code opens the art viewer on that card.
 var pages = []page{
-	{id: pageOverview, icon: iconOverview, label: "Overview", games: true, draw: (*view).overviewPage, head: (*view).debutBanner},
+	{id: pageOverview, icon: iconOverview, label: "Overview", games: true, draw: func(v *view, c *ui.Context) {
+		overviewPage(c, &v.env, func() { v.settings.shortcutCard(c, &v.env) })
+	}, head: func(v *view, c *ui.Context) { v.formats.debutBanner(c, &v.env) }},
 	{id: pageMatches, icon: iconMatches, label: "Matches", games: true, draw: (*view).matchesPage},
 	{
 		id: pageDecks, icon: iconLeaders, label: "Decks", games: true, draw: (*view).decksPage,
 		subs: deckPageSubs(), open: (*view).openDecks,
 	},
-	{id: pageMatchups, icon: iconMatchups, label: "Matchups", games: true, draw: (*view).matchupsPage},
+	{id: pageMatchups, icon: iconMatchups, label: "Matchups", games: true, draw: func(v *view, c *ui.Context) { v.matchups.draw(c, &v.env) }},
 	{
 		id: pageCards, icon: iconCards, label: "Cards", group: groupRef, draw: (*view).cardsPage,
 		any: "<code>", open: func(v *view, code string) { v.cardsUI.selected, v.cardsUI.viewer = code, true },
 	},
-	{id: pageFormats, icon: iconFormats, label: "Formats", group: groupSetup, draw: (*view).formatsPage},
-	{id: pageSettings, icon: iconSettings, label: "Settings", group: groupSetup, draw: (*view).settingsPage},
+	{id: pageFormats, icon: iconFormats, label: "Formats", group: groupSetup, draw: func(v *view, c *ui.Context) { v.formats.draw(c, &v.env) }},
+	{id: pageSettings, icon: iconSettings, label: "Settings", group: groupSetup, draw: func(v *view, c *ui.Context) { v.settings.draw(c, &v.env) }},
 }
 
 func deckPageSubs() []string {
@@ -247,23 +249,59 @@ type actions interface {
 	OpenURL(url string)
 }
 
-type view struct {
-	snap *snapshot
-	act  actions
-	// clock is the time now, and wake the next midnight a frame is asked for, so the day names
-	// change without a new snapshot.
+// envActions are the changes the env asks the app for.
+type envActions interface {
+	SetSetting(key, value string)
+	ApplyPrefs(p prefs)
+	After(d time.Duration, fn func())
+}
+
+// env is what the frame hands every page: the games, the prefs and the clock.
+type env struct {
+	snap  *snapshot
+	prefs prefs
+	act   envActions
 	clock func() time.Time
-	wake  time.Time
+	// pending counts the calls to later by key, so only the last one runs.
+	pending map[string]int
+	// entered is true in a page's first frame, when bars grow from zero and charts draw in.
+	entered bool
+	frame   int
+
+	art      *artCache
+	filter   filters
+	scope    scoped
+	periodUI periodState
+	// page is the id of the page shown.
+	page string
+	// listResult indexes resultLabels. It narrows the Matches list only, since on the other pages
+	// it would make every win rate 100% or 0%.
+	listResult int
+	nav        nav
+}
+
+// nav is how the shared widgets reach what one page owns.
+type nav interface {
+	openMatch(m stats.Match)
+	openInCards(code string)
+	viewArt(code string)
+	gameMenu(m stats.Match) func(*ui.Menu)
+	cardMenu(card cards.Card) func(*ui.Menu)
+}
+
+func (e *env) now() time.Time { return e.clock() }
+
+type view struct {
+	env
+	act actions
+	// wake is the next midnight a frame is asked for, so the day names change without a new
+	// snapshot.
+	wake time.Time
 	// toast is a message for the next frame to show.
-	toast *ui.Toast
-	upd   updateState
-	// updNotes shows the next version's release notes.
-	updNotes bool
-	formats  formatsState
+	toast   *ui.Toast
+	formats formatsPage
 	// live is the game in the sim right now, which the log follower updates on its own.
 	live live.State
-	art  *artCache
-	page string
 	// opening is the id open was given until the games are in.
 	opening string
 
@@ -271,33 +309,26 @@ type view struct {
 	// detail is the open match. Its fingerprint is empty on the match list.
 	detail detailState
 
-	filter filters
-	scope  scoped
-
 	leaderPoint chartPick
 	leaderStats leaderCache
 	decks       decksState
-	// shownPage is the page the last frame showed, and entered is true in a page's first frame,
-	// when bars grow from zero and charts draw in.
+	// shownPage is the page the last frame showed.
 	shownPage string
-	entered   bool
-	frame     int
 
-	matchups  matchupsState
-	settings  settingsState
-	prefs     prefs
-	periodUI  periodState
+	matchups  matchupsPage
+	settings  settingsPage
 	cardsUI   cardsState
 	cardSync  cardSync
 	artSync   artSync
 	sideDrag  paneDrag
 	panelDrag paneDrag
-	// pending counts the calls to later by key, so only the last one runs.
-	pending map[string]int
-	// system is what Windows says about logpose's startup and shortcuts.
-	system systemState
-	simArt simArtState
-	arts   artsState
+	simArt    simArtState
+	arts      artsState
+}
+
+// setActions gives the view, the env and each page the app's actions.
+func (v *view) setActions(a actions) {
+	v.act, v.env.act, v.formats.act, v.settings.act = a, a, a, a
 }
 
 func (v *view) do(fn func(actions)) {
@@ -315,22 +346,25 @@ func (v *view) setArtCache(a *artCache)         { v.art = a }
 func (v *view) setArtSync(s artSync)            { v.artSync = s }
 func (v *view) addCardSync(p cards.SetProgress) { v.cardSync.add(p) }
 func (v *view) endCardSync()                    { v.cardSync = cardSync{} }
-func (v *view) setSystem(s systemState)         { v.system = s }
-func (v *view) setOpenAtLogin(on bool)          { v.system.openAtLogin = on }
+func (v *view) setSystem(s systemState)         { v.settings.system = s }
+func (v *view) setOpenAtLogin(on bool)          { v.settings.system.openAtLogin = on }
 func (v *view) setArtUsage(u arts.Usage)        { v.settings.art = &u }
 func (v *view) queueToast(t ui.Toast)           { v.toast = &t }
 
-func (v *view) setShortcutMade(place shortcut.Place, on bool) { v.system.shortcuts[place] = on }
+func (v *view) setShortcutMade(place shortcut.Place, on bool) {
+	v.settings.system.shortcuts[place] = on
+}
 
 func (v *view) setSettingsInfo(info settingsInfo) { v.settings.info = &info }
 
-func (v *view) openLeader(code string) {
-	v.page = pageDecks
-	v.setDeck(code)
+func (e *env) openLeader(code string) {
+	e.page = pageDecks
+	e.setDeck(code)
 }
 
 func newView(art *artCache) *view {
-	v := &view{snap: &snapshot{}, art: art, clock: time.Now, page: pageOverview, formats: formatsState{day: -1}}
+	v := &view{env: env{snap: &snapshot{}, clock: time.Now, art: art, page: pageOverview}, formats: formatsPage{day: -1}}
+	v.nav = v
 	v.setPrefs(prefsFrom(nil))
 	return v
 }
@@ -404,8 +438,6 @@ func (v *view) build(c *ui.Context) {
 	}
 }
 
-func (v *view) now() time.Time { return v.clock() }
-
 func (v *view) wakeAtMidnight() {
 	now := v.now()
 	next := stats.DayStart(now).AddDate(0, 0, 1)
@@ -450,7 +482,7 @@ func (v *view) pageBody(c *ui.Context, open bool, shown string) {
 	case !p.games:
 		p.draw(v, c)
 	case len(v.snap.Matches) == 0 && !v.snap.SimFound:
-		v.setupPage(c)
+		v.settings.setupPage(c)
 	case len(v.snap.Matches) == 0:
 		v.message(c, "Play a game in the sim", "Every game you finish shows up here on its own.")
 	case open:
@@ -571,7 +603,7 @@ func (v *view) sidebar(c *ui.Context) {
 		}
 		group(groupRef)
 		ui.Spacer(c)
-		v.updateBox(c, wide)
+		v.settings.updateBox(c, wide)
 		group(groupSetup)
 	})
 }

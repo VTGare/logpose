@@ -102,10 +102,10 @@ func (e prefEntry[T]) prefKey() string              { return e.key }
 func (e prefEntry[T]) load(p *prefs, stored string) { *e.field(p) = e.read(stored) }
 func (e prefEntry[T]) text(p *prefs) string         { return e.write(*e.field(p)) }
 
-// set changes the pref in v.prefs and saves it.
-func (e prefEntry[T]) set(v *view, value T) {
-	*e.field(&v.prefs) = value
-	v.savePref(e)
+// set changes the pref and saves it.
+func (e prefEntry[T]) set(env *env, value T) {
+	*e.field(&env.prefs) = value
+	env.savePref(e)
 }
 
 func flagPref(key string, field func(*prefs) *bool) prefEntry[bool] {
@@ -146,33 +146,33 @@ func prefsFrom(set map[string]string) prefs {
 	return p
 }
 
-// savePref stores e as v.prefs has it, and gives the app the prefs, which acts on the ones that
-// changed.
-func (v *view) savePref(e pref) {
-	key, value := e.prefKey(), e.text(&v.prefs)
-	p := v.prefs
-	v.do(func(a actions) {
-		a.SetSetting(key, value)
-		a.ApplyPrefs(p)
-	})
+// savePref stores p as the prefs have it, and gives the app the prefs, which acts on the ones
+// that changed.
+func (e *env) savePref(p pref) {
+	if e.act == nil {
+		return
+	}
+	e.act.SetSetting(p.prefKey(), p.text(&e.prefs))
+	e.act.ApplyPrefs(e.prefs)
 }
 
 // saveDelay waits for changes that come every frame, such as a drag, to stop.
 const saveDelay = 400 * time.Millisecond
 
 // later runs fn once the calls under key stop for saveDelay.
-func (v *view) later(key string, fn func()) {
-	if v.pending == nil {
-		v.pending = make(map[string]int)
+func (e *env) later(key string, fn func()) {
+	if e.pending == nil {
+		e.pending = make(map[string]int)
 	}
-	v.pending[key]++
-	n := v.pending[key]
-	v.do(func(a actions) {
-		a.After(saveDelay, func() {
-			if v.pending[key] == n {
-				fn()
-			}
-		})
+	e.pending[key]++
+	n := e.pending[key]
+	if e.act == nil {
+		return
+	}
+	e.act.After(saveDelay, func() {
+		if e.pending[key] == n {
+			fn()
+		}
 	})
 }
 

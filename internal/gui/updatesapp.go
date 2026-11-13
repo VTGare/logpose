@@ -51,7 +51,7 @@ func (a *app) startUpdates(ctx context.Context, set map[string]string) {
 	if ms, err := strconv.ParseInt(set[keyUpdateChecked], 10, 64); err == nil {
 		u.state.checked = time.UnixMilli(ms)
 	}
-	a.view.setUpdate(u.state)
+	a.view.settings.setUpdate(u.state)
 	if last := set[keyLastVersion]; last != u.state.current && !a.opts.Dev {
 		if last != "" {
 			ver := u.state.current
@@ -89,7 +89,7 @@ func (a *app) setUpdate(change func(s *updateState)) {
 	change(&u.state)
 	s := u.state
 	u.mu.Unlock()
-	a.win.Update(func() { a.view.setUpdate(s) })
+	a.win.Update(func() { a.view.settings.setUpdate(s) })
 }
 
 // checkUpdate asks for a newer version and downloads it, unless the user downloads updates

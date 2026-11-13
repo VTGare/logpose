@@ -12,9 +12,9 @@ type foldHead struct {
 
 // foldTile is a tile whose title row collapses it to that row and its summary. It's kept
 // collapsed across restarts by id.
-func (v *view) foldTile(c *ui.Context, id string, h foldHead, body func()) ui.Element {
+func (e *env) foldTile(c *ui.Context, id string, h foldHead, body func()) ui.Element {
 	t := c.Theme()
-	folded := v.prefs.folded[id]
+	folded := e.prefs.folded[id]
 	verb, icon := "Collapse ", iconChevronUp
 	if folded {
 		verb, icon = "Expand ", iconChevron
@@ -27,7 +27,7 @@ func (v *view) foldTile(c *ui.Context, id string, h foldHead, body func()) ui.El
 			head.Background(t.Surface.Alpha(0.5))
 		}
 		if head.Clicked() {
-			v.setFolded(id, !folded)
+			e.setFolded(id, !folded)
 		}
 		head.Children(func() {
 			ui.Text(c, h.label).FontSize(13).FontWeight(600).SingleLine()
@@ -51,11 +51,11 @@ func (v *view) foldTile(c *ui.Context, id string, h foldHead, body func()) ui.El
 	})
 }
 
-func (v *view) setFolded(id string, folded bool) {
+func (e *env) setFolded(id string, folded bool) {
 	if folded {
-		v.prefs.folded[id] = true
+		e.prefs.folded[id] = true
 	} else {
-		delete(v.prefs.folded, id)
+		delete(e.prefs.folded, id)
 	}
-	v.savePref(prefFolded)
+	e.savePref(prefFolded)
 }

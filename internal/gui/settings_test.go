@@ -38,7 +38,7 @@ func testSettingsInfo() settingsInfo {
 func settingsView(info settingsInfo) (*view, *ui.Tester, *fakeActions) {
 	v, tt := tester(settingsSnapshot())
 	fa := &fakeActions{}
-	v.act = fa
+	v.setActions(fa)
 	v.page = pageSettings
 	v.setSettingsInfo(info)
 	return v, tt, fa
@@ -99,7 +99,7 @@ var _ = Describe("settings", func() {
 	It("reads what it shows when it opens and when games change", func() {
 		v, tt := tester(settingsSnapshot())
 		fa := &fakeActions{}
-		v.act = fa
+		v.setActions(fa)
 		v.page = pageSettings
 		tt.Frame()
 		Expect(fa.settingsLoads).To(Equal(1))
@@ -227,7 +227,7 @@ var _ = Describe("settings", func() {
 	It("asks for the sim's folder when there's no sim and no games", func() {
 		v, tt := tester(&snapshot{Loaded: true})
 		fa := &fakeActions{}
-		v.act = fa
+		v.setActions(fa)
 		tt.Frame()
 		Expect(tt.HasText("Where is OPTCGSim?")).To(BeTrue())
 		Expect(tt.HasText("Looking for a running sim")).To(BeTrue())
