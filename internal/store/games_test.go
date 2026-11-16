@@ -146,6 +146,9 @@ var _ = Describe("Store", func() {
 		Expect(st.SetGameNote(ctx, "stale", "kept 2 counters")).To(Succeed())
 		Expect(st.SetGameType(ctx, "stale", TypeRanked)).To(Succeed())
 		Expect(st.SetBookmark(ctx, "stale", true)).To(Succeed())
+		Expect(st.SetGameResult(ctx, "stale", g.Players[0].ID())).To(Succeed())
+		_, err = st.SaveDrop(ctx, "stale", g.Players[1].ID())
+		Expect(err).NotTo(HaveOccurred())
 		storedByOlderParser(ctx, st)
 
 		_, err = st.Reparse(ctx)
@@ -157,6 +160,8 @@ var _ = Describe("Store", func() {
 		Expect(list[0].Note).To(Equal("kept 2 counters"))
 		Expect(list[0].Type).To(Equal(TypeRanked))
 		Expect(list[0].Bookmarked).To(BeTrue())
+		Expect(list[0].SetLoser).To(Equal(g.Players[0].ID()))
+		Expect(list[0].Dropped).To(Equal(g.Players[1].ID()))
 		Expect(list[0].Players).To(HaveLen(2))
 	})
 

@@ -28,6 +28,9 @@ type detailState struct {
 	gameType int
 	// typeChoice is gameType's label for ui.Select.
 	typeChoice string
+	// result is a resultSet, kept like gameType, and resultChoice its label.
+	result       int
+	resultChoice string
 	// lifePoint is the turn under the pointer on the turn-by-turn chart, or -1, and flowTab the
 	// chart's tab: life, hand or board.
 	lifePoint, flowTab int
@@ -63,7 +66,7 @@ type MatchTimeline struct {
 func (pg *Page) OpenMatch(e *page.Env, m stats.Match) {
 	pg.saveNote()
 	pg.Detail = detailState{
-		Fingerprint: m.Fingerprint, From: e.Page, gameType: int(m.Type), lifePoint: -1,
+		Fingerprint: m.Fingerprint, From: e.Page, gameType: int(m.Type), result: int(setResult(m)), lifePoint: -1,
 		note: m.Note, savedNote: m.Note,
 	}
 	pg.do(func(a Actions) { a.LoadTimeline(m.Fingerprint, m.Me.ID, m.Opp.ID) })
@@ -127,18 +130,15 @@ func (pg *Page) MatchPage(c *ui.Context, e *page.Env) {
 				ui.Text(c, "/").TextColor(kit.FaintColor(t))
 				ui.Text(c, e.Weekday(m.PlayedAt)+", "+m.PlayedAt.Format("15:04")).Bold()
 				pg.bookmarkStar(c, m)
+				if !pg.noteShown() {
+					pg.noteButton(c)
+				}
 				ui.Spacer(c)
+				if resultOpen(m) {
+					pg.resultSelect(c, m)
+				}
 				if stats.CanBeRanked(m.Game) {
 					pg.typeSelect(c, m)
-				}
-				if !pg.noteShown() {
-					note := ui.Button(c, "").Label("Add note").Tooltip("Add note").Padding(t.Space(1.5)).Children(func() {
-						ui.Icon(c, kit.IconNote)
-					})
-					if note.Clicked() {
-						pg.Detail.noteOpen = true
-						pg.Detail.focusNote = true
-					}
 				}
 				pg.exportButton(c, e, m)
 				pg.replayButton(c, e, m)
@@ -194,7 +194,7 @@ func faceOff(c *ui.Context, e *page.Env, m stats.Match) {
 		column(m.Me, you)
 		ui.Column(c).Grow(1).Gap(2).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, page.ResultWord(m.Result)).FontSize(44).Bold().TextColor(kit.ResultColor(t, m.Result))
-			ui.Text(c, fmt.Sprintf("%s · %s · %s", kit.Turns(m.Turns), endWord(m.End.Kind), GameType(m))).FontSize(13)
+			ui.Text(c, fmt.Sprintf("%s · %s · %s", kit.Turns(m.Turns), endWord(m), GameType(m))).FontSize(13)
 		})
 		column(m.Opp, you.Other())
 	})
@@ -220,6 +220,72 @@ func (pg *Page) typeSelect(c *ui.Context, m stats.Match) ui.Element {
 		pg.do(func(a Actions) { a.SetGameType(m.Fingerprint, store.GameType(i)) })
 	}
 	return sel
+}
+
+// resultSet is the result the user set, in the order resultOptions labels them.
+type resultSet int
+
+const (
+	resultAuto resultSet = iota
+	resultWon
+	resultLost
+)
+
+func setResult(m stats.Match) resultSet {
+	switch m.SetLoser {
+	case "":
+		return resultAuto
+	case m.Me.ID:
+		return resultLost
+	default:
+		return resultWon
+	}
+}
+
+// resultOpen reports whether the user can set the match's result, which they can when the log
+// doesn't say who lost.
+func resultOpen(m stats.Match) bool { return m.ResultBy != store.ResultLog || m.End.Loser == "" }
+
+func (pg *Page) resultSelect(c *ui.Context, m stats.Match) ui.Element {
+	opts := resultOptions(m)
+	ui.Text(c, "Result").TextColor(c.Theme().TextMuted)
+	pg.Detail.resultChoice = opts[pg.Detail.result]
+	sel := ui.Select(c, &pg.Detail.resultChoice, opts).Label("Result").Tooltip(pg.resultNote(m))
+	if i := slices.Index(opts, pg.Detail.resultChoice); i >= 0 && i != pg.Detail.result {
+		pg.Detail.result = i
+		loser := map[resultSet]string{resultWon: m.Opp.ID, resultLost: m.Me.ID}[resultSet(i)]
+		pg.do(func(a Actions) { a.SetGameResult(m.Fingerprint, loser) })
+	}
+	return sel
+}
+
+// resultOptions labels the results in resultSet order, the first saying what logpose worked out.
+func resultOptions(m stats.Match) []string {
+	auto := "Auto: Unknown"
+	switch m.Dropped {
+	case "":
+	case m.Me.ID:
+		auto = "Auto: Lost"
+	default:
+		auto = "Auto: Won"
+	}
+	return []string{auto, "Won", "Lost"}
+}
+
+func (pg *Page) resultNote(m stats.Match) string {
+	switch resultSet(pg.Detail.result) {
+	case resultWon:
+		return "Counted as a win, as you set it."
+	case resultLost:
+		return "Counted as a loss, as you set it."
+	}
+	switch m.Dropped {
+	case "":
+		return "The log doesn't say who won."
+	case m.Me.ID:
+		return "Counted as a loss, since your connection dropped."
+	}
+	return fmt.Sprintf("Counted as a win, since %s's connection dropped.", m.Opp.Name)
 }
 
 // typeOptions labels the game types in store.GameType order, the first saying what the guess
@@ -281,6 +347,16 @@ func (pg *Page) replayButton(c *ui.Context, e *page.Env, m stats.Match) {
 		if b.Clicked() {
 			pg.openReplay(e, m, -1)
 		}
+	}
+}
+
+func (pg *Page) noteButton(c *ui.Context) {
+	b := ui.ButtonBase(c).Label("Add note").Tooltip("Add note").Padding(5).Radius(6).Children(func() {
+		ui.Icon(c, kit.IconNote).TextColor(c.Theme().TextMuted)
+	})
+	if b.Clicked() {
+		pg.Detail.noteOpen = true
+		pg.Detail.focusNote = true
 	}
 }
 

@@ -17,6 +17,7 @@ type fakeActions struct {
 	guitest.EnvActions
 	loaded    []string
 	types     []string
+	results   []string
 	notes     []string
 	bookmarks []string
 	replays   []string
@@ -25,6 +26,10 @@ type fakeActions struct {
 
 func (f *fakeActions) LoadTimeline(fingerprint, _, _ string) {
 	f.loaded = append(f.loaded, fingerprint)
+}
+
+func (f *fakeActions) SetGameResult(fingerprint, loser string) {
+	f.results = append(f.results, fingerprint+"="+loser)
 }
 
 func (f *fakeActions) SetGameType(fingerprint string, t store.GameType) {

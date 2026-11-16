@@ -228,10 +228,10 @@ func ParseOne(text string) (*Game, error) {
 	return &games[0], nil
 }
 
-// fingerprintMoves is how many RZ1 moves go into a fingerprint. The file saved at the end of a
+// FingerprintMoves is how many RZ1 moves go into a fingerprint. The file saved at the end of a
 // game and a later rematch file can differ after the game, such as in chat, but not in its first
 // moves.
-const fingerprintMoves = 60
+const FingerprintMoves = 60
 
 type builder struct {
 	game    Game
@@ -349,14 +349,18 @@ func setsOf(g *Game) []string {
 	return sets
 }
 
-func (b *builder) fingerprint() string {
+func (b *builder) fingerprint() string { return Fingerprint(b.game.Players, b.print) }
+
+// Fingerprint is a game's Fingerprint from its players and its RZ1 move lines. Only the first
+// FingerprintMoves lines count.
+func Fingerprint(players []Player, moves []string) string {
 	h := sha256.New()
-	ids := make([]string, 0, len(b.game.Players))
-	for _, p := range b.game.Players {
+	ids := make([]string, 0, len(players))
+	for _, p := range players {
 		ids = append(ids, p.ID()+"="+p.Leader)
 	}
 	slices.Sort(ids)
-	for _, s := range append(ids, b.print...) {
+	for _, s := range append(ids, moves[:min(len(moves), FingerprintMoves)]...) {
 		h.Write([]byte(s))
 		h.Write([]byte{'\n'})
 	}

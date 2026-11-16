@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/onsi/gomega/gstruct"
 
 	"github.com/VTGare/logpose/internal/live"
+	"github.com/VTGare/logpose/internal/simlog"
 )
 
 // replay feeds a fixture to a tracker and returns the state after each line.
@@ -162,6 +164,47 @@ var _ = Describe("Tracker", func() {
 		s := t.State()
 		Expect(s.First).To(BeEmpty())
 		Expect(s.Players).To(ConsistOf(gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{"ID": Equal("A#1"), "Life": Equal(0)})))
+	})
+})
+
+var _ = Describe("dropped connections", func() {
+	game := []string{
+		"[ReplaySync] RZ1|1|2|OP13-004|0|40|1|0|1|1|0|0|0",
+		"Joined relay QWERTY",
+		"[ReplaySync] RZ1|HDR|1.45a|2|RZ1",
+		"[ReplaySync] RZ1|PLY|1||",
+		"[ReplaySync] RZ1|PLY|2|B\u200b#2|OP13-004",
+		"[ReplaySync] RZ1|PLY|1|A\u200b#1|OP17-020",
+		"deck filled, do shuffle",
+		"shuffle deck for A\u200b#1",
+		"[ReplaySync] RZ1|1|1|OP17-020|0|40|1|0|1|1|0|0|0",
+		"[ReplaySync] RZ1|CHK|1|1|49|1|0|0|10|0|0|0|1|0",
+		"shuffle deck for B\u200b#2",
+		"[ReplaySync] RZ1|2|2|OP13-004|0|40|1|0|1|1|0|0|0",
+	}
+	rz := func(line string) string { return strings.TrimPrefix(line, "[ReplaySync] ") }
+	feed := func(lines ...string) []live.Drop {
+		var t live.Tracker
+		for _, l := range lines {
+			t.Line(l)
+		}
+		return t.TakeDrops()
+	}
+
+	It("names the opponent and the game by its fingerprint, from the lines since its header", func() {
+		drops := feed(append(game, "opponent connection lost", "Return to Main")...)
+		players := []simlog.Player{
+			{Name: "B", Tag: "2", Owner: 2, Leader: "OP13-004"},
+			{Name: "A", Tag: "1", Owner: 1, Leader: "OP17-020"},
+		}
+		Expect(drops).To(Equal([]live.Drop{{
+			Fingerprint: simlog.Fingerprint(players, []string{rz(game[8]), rz(game[11])}),
+			Player:      "B#2",
+		}}))
+	})
+
+	It("ignores a dropped connection outside a game", func() {
+		Expect(feed(append(game, "Return to Main", "opponent connection lost")...)).To(BeEmpty())
 	})
 })
 

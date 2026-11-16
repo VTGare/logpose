@@ -68,6 +68,10 @@ type Game struct {
 	// Note is what the user wrote about the game, or "".
 	Note       string
 	Bookmarked bool
+	// Dropped is the player whose connection dropped, from Player.log, or "". SetLoser is the
+	// loser the user set, or "". Either gives End.Loser only when the log doesn't say.
+	Dropped, SetLoser string
+	ResultBy          ResultBy
 }
 
 func (g Game) Player(id string) (GamePlayer, bool) {
@@ -126,6 +130,8 @@ var userTables = []struct{ name, columns, onConflict string }{
 	{"game_types", "ranked", "DO UPDATE SET ranked = excluded.ranked"},
 	{"game_notes", "note", "DO UPDATE SET note = note || char(10) || excluded.note WHERE note <> excluded.note"},
 	{"game_bookmarks", "created_at", "DO NOTHING"},
+	{"game_drops", "player", "DO NOTHING"},
+	{"game_results", "loser", "DO UPDATE SET loser = excluded.loser"},
 }
 
 // SaveGame stores a parsed game with its log text. A game already stored keeps its copy unless
@@ -362,11 +368,14 @@ func (s *Store) Games(ctx context.Context) ([]Game, error) {
 	byFP := make(map[string]int)
 	err := s.each(ctx, `
 		SELECT g.fingerprint, g.played_at, g.source_file, g.source_index, g.`+strings.Join(parsedColumns, ", g.")+`,
-			coalesce(f.sim_format, ''), t.ranked, coalesce(n.note, ''), b.fingerprint IS NOT NULL
+			coalesce(f.sim_format, ''), t.ranked, coalesce(n.note, ''), b.fingerprint IS NOT NULL,
+			coalesce(d.player, ''), coalesce(r.loser, '')
 		FROM games g LEFT JOIN log_formats f ON f.source_file = g.source_file
 		LEFT JOIN game_types t ON t.fingerprint = g.fingerprint
 		LEFT JOIN game_notes n ON n.fingerprint = g.fingerprint
 		LEFT JOIN game_bookmarks b ON b.fingerprint = g.fingerprint
+		LEFT JOIN game_drops d ON d.fingerprint = g.fingerprint
+		LEFT JOIN game_results r ON r.fingerprint = g.fingerprint
 		ORDER BY g.played_at DESC, g.source_index DESC`, nil,
 		func(rows *sql.Rows) error {
 			g, err := scanGame(rows)
@@ -386,9 +395,10 @@ func scanGame(rows *sql.Rows) (Game, error) {
 	var ranked sql.NullBool
 	parsed, fill := scanParsed(&g)
 	dest := append(append([]any{&g.Fingerprint, &played, &g.Source.File, &g.Source.Index}, parsed...),
-		&g.SimFormat, &ranked, &g.Note, &g.Bookmarked)
+		&g.SimFormat, &ranked, &g.Note, &g.Bookmarked, &g.Dropped, &g.SetLoser)
 	err := rows.Scan(dest...)
 	fill()
+	g.applyResult()
 	g.Type = gameType(ranked)
 	g.PlayedAt = time.UnixMilli(played)
 	g.Source.PlayedAt = g.PlayedAt

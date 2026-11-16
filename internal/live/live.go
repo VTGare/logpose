@@ -70,6 +70,55 @@ type Saved struct {
 	Format, SimVersion string
 }
 
+// Drop is a game the opponent's connection dropped out of. The sim then sends the local player
+// back to the menu and logs no result.
+type Drop struct {
+	// Fingerprint is the game's simlog.Fingerprint.
+	Fingerprint string
+	// Player is the ID of the player who dropped.
+	Player string
+}
+
+// gameLines are the RZ1 lines of the game since its header that its fingerprint is made from.
+type gameLines struct {
+	players []simlog.Player
+	moves   []string
+	lastSeq int
+}
+
+func (g *gameLines) add(line string) {
+	switch simlog.RZKind(line) {
+	case "HDR":
+		*g = gameLines{}
+	case "PLY":
+		pl, ok := simlog.ParsePlayer(line)
+		if !ok {
+			return
+		}
+		for i := range g.players {
+			if g.players[i].ID() == pl.ID() {
+				if g.players[i].Leader == "" {
+					g.players[i].Leader = pl.Leader
+				}
+				return
+			}
+		}
+		g.players = append(g.players, pl)
+	default:
+		m, ok := simlog.ParseMove(line)
+		if !ok {
+			return
+		}
+		if m.Seq < g.lastSeq {
+			g.moves = nil
+		}
+		g.lastSeq = m.Seq
+		if len(g.moves) < simlog.FingerprintMoves {
+			g.moves = append(g.moves, line)
+		}
+	}
+}
+
 // Tracker follows the sim's Player.log line by line.
 //
 // The sim logs a deck shuffle for each player when a game starts and after each mulligan. The
@@ -86,6 +135,15 @@ type Tracker struct {
 	// format and simVersion outlive games, since the sim logs them before it opens a lobby.
 	format, simVersion string
 	saved              []Saved
+	game               gameLines
+	drops              []Drop
+}
+
+// TakeDrops returns the drops seen since the last call.
+func (t *Tracker) TakeDrops() []Drop {
+	d := t.drops
+	t.drops = nil
+	return d
 }
 
 // TakeSaved returns the logs saved since the last call.
@@ -110,6 +168,8 @@ func (t *Tracker) Line(line string) {
 	switch {
 	case strings.HasPrefix(line, rzPrefix+"RZ1|"):
 		t.rz(line[len(rzPrefix):])
+	case line == "opponent connection lost":
+		t.dropped()
 	case strings.HasPrefix(line, "[CombatLog SaveMyLogLines] wrote OK"):
 		t.wrote(line)
 		t.reset()
@@ -138,7 +198,18 @@ func (t *Tracker) Line(line string) {
 }
 
 func (t *Tracker) reset() {
-	*t = Tracker{format: t.format, simVersion: t.simVersion, saved: t.saved}
+	*t = Tracker{format: t.format, simVersion: t.simVersion, saved: t.saved, game: t.game, drops: t.drops}
+}
+
+func (t *Tracker) dropped() {
+	opp, ok := t.state.Opponent()
+	if t.state.Phase != Playing || !ok || len(t.game.moves) == 0 {
+		return
+	}
+	if _, ok := t.state.Local(); !ok {
+		return
+	}
+	t.drops = append(t.drops, Drop{Fingerprint: simlog.Fingerprint(t.game.players, t.game.moves), Player: opp.ID})
 }
 
 // wrote records the log a "wrote OK" line names in its "file=" part, a path under the sim.
@@ -173,6 +244,7 @@ func (t *Tracker) shuffled(id string) {
 }
 
 func (t *Tracker) rz(line string) {
+	t.game.add(line)
 	if match, ok := simlog.ParseMeta(line); ok {
 		t.state.Match = match
 		return

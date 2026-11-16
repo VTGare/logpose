@@ -105,7 +105,7 @@ func (b *builder) addRZ(line string) {
 				b.ends.lifeTaken[m.Owner] = true
 			}
 			b.game.Moves = append(b.game.Moves, m)
-			if len(b.print) < fingerprintMoves {
+			if len(b.print) < FingerprintMoves {
 				b.print = append(b.print, line)
 			}
 		}

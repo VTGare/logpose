@@ -23,6 +23,9 @@ type Follower struct {
 	// OnSaved gets each combat log the sim saved, including those already in the log when the
 	// follower starts. It runs on the follower's goroutine.
 	OnSaved func(Saved)
+	// OnDrop gets each game the opponent dropped out of, including those already in the log when
+	// the follower starts. It runs on the follower's goroutine.
+	OnDrop func(Drop)
 
 	tracker Tracker
 	offset  int64
@@ -52,6 +55,11 @@ func (f *Follower) poll() {
 	for _, sv := range f.tracker.TakeSaved() {
 		if f.OnSaved != nil {
 			f.OnSaved(sv)
+		}
+	}
+	for _, d := range f.tracker.TakeDrops() {
+		if f.OnDrop != nil {
+			f.OnDrop(d)
 		}
 	}
 	s := f.tracker.State()

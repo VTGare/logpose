@@ -159,6 +159,67 @@ var _ = Describe("match detail", func() {
 		Expect(tt.HasText("Counted as a friendly, since its lobby has 2 games.")).To(BeTrue(), fmt.Sprint(tt.Texts()))
 	})
 
+	Describe("the result of a game the log doesn't settle", func() {
+		// settle gives match 0 the result applied on top of an unknown end, as the store does.
+		settle := func(s *page.Snapshot, dropped, set string) {
+			g := s.Matches[0].Game
+			g.End = simlog.End{}
+			g.Dropped, g.SetLoser = dropped, set
+			switch {
+			case set != "":
+				g.End.Loser, g.ResultBy = set, store.ResultUser
+			case dropped != "":
+				g.End.Loser, g.ResultBy = dropped, store.ResultDropped
+			}
+			s.Matches[0] = stats.Matches([]store.Game{g}, guitest.Me)[0]
+		}
+
+		It("lets the user set it", func() {
+			s := guitest.Snapshot(3)
+			settle(s, "", "")
+			v, tt := open(s)
+			v.OpenMatch(s.Matches[0])
+			tt.Frame()
+			Expect(tt.HasText("Unknown")).To(BeTrue())
+			Expect(guitest.Choose(tt, "Auto: Unknown", "Won")).To(Succeed())
+			Expect(fa.results).To(Equal([]string{"0=Opp#2"}))
+			Expect(guitest.Choose(tt, "Won", "Auto: Unknown")).To(Succeed())
+			Expect(fa.results).To(Equal([]string{"0=Opp#2", "0="}))
+		})
+
+		It("counts the player whose connection dropped as the loser", func() {
+			s := guitest.Snapshot(3)
+			settle(s, "Opp#2", "")
+			v, tt := open(s)
+			v.OpenMatch(s.Matches[0])
+			tt.Frame()
+			Expect(tt.HasText("Win")).To(BeTrue())
+			Expect(tt.HasText("12 turns · Disconnect · Ranked")).To(BeTrue(), fmt.Sprint(tt.Texts()))
+			guitest.Hover(tt, "Auto: Won")
+			Expect(tt.HasText("Counted as a win, since Opp's connection dropped.")).To(BeTrue(), fmt.Sprint(tt.Texts()))
+		})
+
+		It("shows the user's choice over a drop", func() {
+			s := guitest.Snapshot(3)
+			settle(s, "Opp#2", guitest.Me)
+			v, tt := open(s)
+			v.OpenMatch(s.Matches[0])
+			tt.Frame()
+			Expect(tt.HasText("Loss")).To(BeTrue())
+			Expect(tt.HasText("12 turns · Set by you · Ranked")).To(BeTrue(), fmt.Sprint(tt.Texts()))
+			Expect(tt.HasText("Lost")).To(BeTrue())
+		})
+
+		It("isn't offered when the log says who won", func() {
+			s := guitest.Snapshot(3)
+			v, tt := open(s)
+			v.OpenMatch(s.Matches[0])
+			tt.Frame()
+			Expect(tt.HasText("Auto: Unknown")).To(BeFalse())
+			Expect(guitest.Labelled(tt, "Result")).To(BeFalse())
+		})
+	})
+
 	It("offers no game type choice in a private lobby", func() {
 		s := guitest.Snapshot(3)
 		s.Matches[0].Lobby = simlog.Lobby{Code: "7KQ2MP"}

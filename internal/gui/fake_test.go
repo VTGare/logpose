@@ -19,6 +19,7 @@ type fakeActions struct {
 	dismissed []string
 	loaded    []string
 	types     []string
+	results   []string
 	notes     []string
 	bookmarks []string
 	replays   []string
@@ -92,6 +93,10 @@ func (f *fakeActions) LoadTimeline(fingerprint, _, _ string) {
 
 func (f *fakeActions) SetGameNote(fingerprint, note string) {
 	f.notes = append(f.notes, fingerprint+"="+note)
+}
+
+func (f *fakeActions) SetGameResult(fingerprint, loser string) {
+	f.results = append(f.results, fingerprint+"="+loser)
 }
 
 func (f *fakeActions) SetGameType(fingerprint string, t store.GameType) {

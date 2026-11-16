@@ -25,6 +25,9 @@ type Actions interface {
 	LoadTimeline(fingerprint, me, opp string)
 	SetGameType(fingerprint string, t store.GameType)
 	SetGameNote(fingerprint, note string)
+	// SetGameResult sets the loser of a game whose log doesn't say, or with "" takes the user's
+	// choice away.
+	SetGameResult(fingerprint, loser string)
 	SetBookmark(fingerprint string, on bool)
 	// OpenReplay builds a match's replay from its parsed game and shows it with view.setReplay.
 	OpenReplay(fingerprint string, g *simlog.Game)
@@ -132,7 +135,7 @@ func matchCols(e *page.Env, byDay bool) []kit.TableCol[stats.Match] {
 		},
 		{
 			Title: "Ended by", Width: 100,
-			Cell: func(c *ui.Context, m stats.Match) { ui.Text(c, endWord(m.End.Kind)).TextColor(c.Theme().TextMuted) },
+			Cell: func(c *ui.Context, m stats.Match) { ui.Text(c, endWord(m)).TextColor(c.Theme().TextMuted) },
 		},
 		{
 			Title: "Type", Width: 130,
@@ -304,8 +307,14 @@ func turnOrderWord(m stats.Match) string {
 	}
 }
 
-func endWord(k simlog.EndKind) string {
-	switch k {
+func endWord(m stats.Match) string {
+	switch m.ResultBy {
+	case store.ResultDropped:
+		return "Disconnect"
+	case store.ResultUser:
+		return "Set by you"
+	}
+	switch m.End.Kind {
 	case simlog.EndConcede:
 		return "Concession"
 	case simlog.EndDeckOut:

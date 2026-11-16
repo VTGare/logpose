@@ -280,6 +280,16 @@ func (a *app) follow(ctx context.Context) {
 			}
 			a.refresh(ctx)
 		},
+		OnDrop: func(d live.Drop) {
+			changed, err := a.opts.Store.SaveDrop(ctx, d.Fingerprint, d.Player)
+			if err != nil {
+				a.opts.Log.Warn("dropped game", "err", err)
+				return
+			}
+			if changed {
+				a.refresh(ctx)
+			}
+		},
 	}
 	_ = f.Run(ctx)
 }
@@ -591,6 +601,12 @@ func (x *appActions) SetGameType(fingerprint string, t store.GameType) {
 
 func (x *appActions) SetGameNote(fingerprint, note string) {
 	x.run("set game note", func(ctx context.Context, st *store.Store) error { return st.SetGameNote(ctx, fingerprint, note) })
+}
+
+func (x *appActions) SetGameResult(fingerprint, loser string) {
+	x.run("set game result", func(ctx context.Context, st *store.Store) error {
+		return st.SetGameResult(ctx, fingerprint, loser)
+	})
 }
 
 func (x *appActions) SetBookmark(fingerprint string, on bool) {
