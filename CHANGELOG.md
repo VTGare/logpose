@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1
+
+- A game your opponent dropped out of counts as your win. The sim logs no result when a
+  connection drops, so logpose reads it from the sim's Player.log, and "Ended by" says
+  Disconnect. Games from earlier sessions are found while the sim still keeps them in Player.log.
+- Set the result of a game the log doesn't settle with the Result menu on its match page. Auto
+  goes back to what logpose worked out.
+- Add note sits next to the bookmark star on a match's page.
+
 ## 0.5.0
 
 - Export a match to the sim. Export to sim on a match's page, or in any game's right-click menu,
