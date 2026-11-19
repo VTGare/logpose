@@ -139,7 +139,7 @@ func (pg *Page) dealtPanel(c *ui.Context, e *page.Env, cs []stats.DealtCard, avg
 	tv.Tie = func(a, b stats.DealtCard) int { return cmp.Compare(b.Dealt(), a.Dealt()) }
 	rows := tv.Sorted(cs)
 	e.FoldTile(c, "hands.dealt", kit.FoldHead{Label: "Cards in your first five"}, func() {
-		ui.Text(c, "Each row counts the games the card was in the five you were dealt. Click a row to see those hands.").
+		ui.Text(c, "Each row counts the games the card was in the five you were dealt.").
 			FontSize(12).TextColor(t.TextMuted).Wrap()
 		ui.Column(c).Children(func() {
 			tv.Header(c, 8)

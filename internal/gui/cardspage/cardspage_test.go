@@ -422,7 +422,7 @@ var _ = Describe("Cards page", func() {
 		Expect(shown()).To(Equal([]string{"OP14-018"}))
 		Expect(guitest.Labelled(tt, "Power: Any")).To(BeTrue())
 		guitest.Click(tt, "Power: Any")
-		Expect(guitest.Labelled(tt, "Drag either end to narrow the power.")).To(BeFalse())
+		Expect(guitest.Labelled(tt, "maximum")).To(BeFalse())
 	})
 
 	It("disables the shortcuts that repeat one or mean any power at the lowest power", func() {

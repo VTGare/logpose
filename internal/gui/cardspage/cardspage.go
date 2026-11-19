@@ -313,7 +313,6 @@ func (pg *Page) powerPopover(c *ui.Context) {
 			ui.Text(c, fmt.Sprint(all.Hi)).FontSize(11.5).TextColor(kit.FaintColor(t))
 		})
 		if s.power == all {
-			ui.Text(c, "Drag either end to narrow the power.").FontSize(12).TextColor(kit.FaintColor(t))
 			return
 		}
 		// The shortcuts work from the end that moved off the pool's end, the bottom if both did.
