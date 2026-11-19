@@ -238,8 +238,8 @@ func (b *builder) statusLine(step int, l simlog.Line) {
 }
 
 // statusTarget finds the copy an effect's status goes to. A power effect during an attack goes
-// to a card in it. "Can't attack" goes to a copy that doesn't have it yet, and an attack by
-// that copy later shows the guess was wrong.
+// to a card in it. "Can't attack" and "can't be rested" go to a copy that doesn't have them yet,
+// and an attack by that copy later shows the guess was wrong, since attacking rests it.
 func (b *builder) statusTarget(step int, e effect, sides []*Side) *Card {
 	switch e.kind {
 	case StatusPower:
@@ -250,6 +250,9 @@ func (b *builder) statusTarget(step int, e effect, sides []*Side) *Card {
 	case StatusNoAttack:
 		g := guess{kind: guessStatus, status: StatusNoAttack}
 		return b.choose(e.target, g, nil, func(c *Card) bool { return c.has(StatusNoAttack) }, sides...)
+	case StatusNoRest:
+		g := guess{kind: guessStatus, status: StatusNoRest}
+		return b.choose(e.target, g, nil, func(c *Card) bool { return c.has(StatusNoRest) }, sides...)
 	}
 	c := b.pick(e.target, false, sides...)
 	if c != nil && c.Rested && e.kind == StatusFrozen {

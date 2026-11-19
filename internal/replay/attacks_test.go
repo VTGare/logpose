@@ -77,4 +77,41 @@ var _ = Describe("Attacks", func() {
 		}
 		Expect(blocks).To(Equal([]int{2, 1}))
 	})
+
+	// no-rest-copy.log is a whole real game with player names and the room replaced. On turn 10
+	// Alice's Luffy says one of Bob's two Saint Shamrocks can't be rested, without saying which.
+	// On turn 11 the RZ1 stream rests one of them to attack.
+	It("moves can't be rested off the copy that attacks, since attacking rests it", func() {
+		text, err := os.ReadFile("testdata/no-rest-copy.log")
+		Expect(err).NotTo(HaveOccurred())
+		g := parseGame(string(text))
+		r, err := Build(g, nil)
+		Expect(err).NotTo(HaveOccurred())
+		for _, is := range r.Issues {
+			Expect(is.Kind).NotTo(Equal(IssueNoAttack), is.String())
+		}
+		var attack *Step
+		for i, s := range r.Steps {
+			if s.Turn == 11 && s.Kind == KindAttack && s.Battle.Attacker == "OP18-119" {
+				attack = &r.Steps[i]
+				break
+			}
+		}
+		Expect(attack).NotTo(BeNil())
+		bob := attack.Board.Side(attack.Battle.AttackerOwner)
+		locked := 0
+		for _, c := range bob.Characters {
+			if c.Code != "OP18-119" {
+				continue
+			}
+			if c.ID == attack.Battle.AttackerID {
+				Expect(c.Rested).To(BeTrue())
+				Expect(c.has(StatusNoRest)).To(BeFalse())
+				continue
+			}
+			Expect(c.has(StatusNoRest)).To(BeTrue())
+			locked++
+		}
+		Expect(locked).To(Equal(1))
+	})
 })

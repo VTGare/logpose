@@ -671,6 +671,8 @@ func (b *builder) attack(l simlog.Line, turn int, mine, theirs *Side, issue func
 			issue(IssueRest, "attacker "+c.Code+" is already rested")
 		case c.has(StatusNoAttack) && !b.blameStatus(c.Code, mine.Owner, StatusNoAttack):
 			issue(IssueNoAttack, "attacker "+c.Code+" can't attack")
+		case c.has(StatusNoRest) && !b.blameStatus(c.Code, mine.Owner, StatusNoRest):
+			issue(IssueNoAttack, "attacker "+c.Code+" can't be rested")
 		}
 		if c.attacked == turn {
 			issue(IssueTwice, "attacker "+c.Code+" attacked twice this turn")
@@ -696,9 +698,9 @@ func (b *builder) chooseAttacker(code string, turn int, s *Side) *Card {
 		return c
 	}
 	active := func(c *Card) bool { return !c.Rested || b.rested[c.ID] }
-	c := b.choose(code, guess{}, func(c *Card) bool { return active(c) && !c.has(StatusNoAttack) },
+	c := b.choose(code, guess{}, func(c *Card) bool { return active(c) && !c.has(StatusNoAttack) && !c.has(StatusNoRest) },
 		func(c *Card) bool { return c.played == turn && !c.has(StatusRush) }, s)
-	if c != nil && (!active(c) || c.has(StatusNoAttack)) {
+	if c != nil && (!active(c) || c.has(StatusNoAttack) || c.has(StatusNoRest)) {
 		if a := s.find(code, false); a != nil {
 			return a
 		}
