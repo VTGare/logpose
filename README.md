@@ -4,7 +4,9 @@ A stat tracker for [OPTCG Simulator](https://www.patreon.com/Batsu). It runs nex
 the sim and records your games from its combat logs. It needs no account and works offline.
 
 - Win rates by deck, matchup, turn order, format and build, with sample sizes.
-- Every match with its opening hands, a turn by turn chart, key moments and a replay.
+- Every match with its opening hands, a turn by turn chart, key moments and a replay, and a way
+  to export it to the sim as a save state.
+- Set the result of a game the log doesn't settle, such as a disconnect.
 - Card stats for your decks: how cards do in the opening hand, when drawn and when played, and
   how kept hands and mulligans do.
 - A live strip during a game with your record against the opponent's leader.
