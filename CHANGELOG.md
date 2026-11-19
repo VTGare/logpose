@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.0
+
+- Replays move more smoothly. Cards turn as they rest and stand up, DON!! slide in from the
+  DON!! deck and out from under the card they're given to, drawn cards fly from the deck, and
+  cards stay in sight between the mat and the hands. 4× moves cards too.
+- The attack arrow reaches out from the attacker as a comet, and a hit that takes life or KOs a
+  character rings the card it hit.
+- A turn where the defender spends 3 counter cards is a key moment, Hand drain.
+- Under a key moment: locks, cards that came back, and characters that were defended and lost
+  anyway.
+- The lethal moment lists every attack of the turn, with the DON open, the answers and the
+  result.
+- A removal whose card came back in the same turn doesn't count toward the removal moment.
+- Replays rest the right copy when one of several copies blocks or attacks, and keep "can't be
+  rested" on the copy that didn't attack. Your games are read again on the first start.
+
 ## 0.5.1
 
 - A game your opponent dropped out of counts as your win. The sim logs no result when a
