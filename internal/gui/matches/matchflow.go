@@ -72,7 +72,7 @@ func turnLines(e *page.Env, m stats.Match, l *MatchTimeline, turn int) (moment, 
 	named := false
 	for _, mo := range l.Moments {
 		if mo.Turn == turn {
-			moment = momentLines(e, m, mo)
+			moment = momentLines(e, m, mo, l)
 			named = len(mo.Removed) > 0
 		}
 	}

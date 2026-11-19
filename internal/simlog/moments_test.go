@@ -130,6 +130,53 @@ var _ = Describe("Moments", func() {
 		))).To(BeTrue())
 	})
 
+	It("reads counters, blocks, locks and characters defended or brought back, and flags a hand drain", func() {
+		sleeptids, killingham := card("Sleeptids", "OP18-093"), card("Saint Killingham", "OP18-064")
+		lines := append(lobby("XNJ8M66"),
+			by(alice, "Draw 1 Don"),
+			by(alice, "End Turn"),
+			by(bob, "Draw 1 Card"),
+			by(bob, "Board: [OP18-064,OP18-093,OP18-065]"),
+			by(bob, "End Turn"),
+			by(alice, "Draw 1 Card"),
+			by(alice, card("Monkey D. Luffy", "OP18-118")+": "+sleeptids+" can't be rested until next turn ends"),
+			by(alice, card("Monkey D. Luffy", "OP18-118")+": "+card("Sanji", "OP13-027")+" can't attack next turn"),
+			by(alice, luffy+" attacking "+kid),
+			by(bob, "Discard "+sleeptids+" for Counter 2000"),
+			by(bob, card("Mamaragan", "OP15-078")+": Activate Counter"),
+			"Attack Fails",
+			by(alice, card("Roronoa Zoro", "EB04-007")+" attacking "+killingham),
+			by(bob, "Discard "+card("Cerberus", "OP18-085")+" for Counter 2000"),
+			by(bob, "Discard "+card("Saint Killingham", "OP18-083")+" for Counter 1000"),
+			by(bob, killingham+" Destroyed"),
+			move(2, "OP18-064", ZoneCharacter, ZoneTrash),
+			move(2, "OP18-064", ZoneTrash, ZoneCharacter),
+			move(2, "OP18-065", ZoneCharacter, ZoneTrash),
+			by(alice, card("Sanji", "OP13-027")+" attacking "+kid),
+			by(bob, sleeptids+" Blocks"),
+			by(alice, "End Turn"),
+			by(bob, "Draw 1 Card"),
+			by(bob, kid+" attacking "+luffy),
+			by(alice, "Discard "+card("Nami", "EB02-017")+" for Counter 1000"),
+			by(alice, "Discard "+card("Nami", "EB02-017")+" for Counter 1000"),
+			by(alice, "Discard "+card("Nami", "EB02-017")+" for Counter 1000"),
+			by(alice, "Concedes!"),
+		)
+		g := parse(logOf(lines...))[0]
+		ms := g.Moments(func(code string) int { return map[string]int{"OP18-064": 6000, "OP18-065": 11000}[code] })
+		Expect(ms).To(HaveLen(2))
+		m := ms[0]
+		Expect(m.Turn).To(Equal(3))
+		Expect(m.Reasons).To(Equal([]Reason{{Kind: ReasonHandDrain, Player: bobID, N: 4}}))
+		Expect(m.Countered).To(Equal([]string{"OP18-093", "OP15-078", "OP18-085", "OP18-083"}))
+		Expect(m.Blocked).To(Equal([]string{"OP18-093"}))
+		Expect(m.Defended).To(Equal([]Defense{{Card: "OP18-064", Cards: 2}}))
+		Expect(m.CameBack).To(Equal([]string{"OP18-064"}))
+		Expect(m.Locks).To(Equal([]Lock{{Source: "OP18-118", Cards: []string{"OP18-093"}, Rested: true}}))
+		Expect(ms[1].Turn).To(Equal(4))
+		Expect(ms[1].Reasons).To(Equal([]Reason{{Kind: ReasonFinish, Player: aliceID}}))
+	})
+
 	It("marks each removal and Trigger with its owner and turn, but not a player trashing their own", func() {
 		g := game(move(1, "OP06-033", ZoneCharacter, ZoneTrash))
 		marks := g.Marks()

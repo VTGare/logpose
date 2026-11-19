@@ -29,6 +29,8 @@ func Games(n int) string { return count(n, "game", "games") }
 
 func Turns(n int) string { return count(n, "turn", "turns") }
 
+func Cards(n int) string { return count(n, "card", "cards") }
+
 // DateText is "Oct 25", with the year when it isn't now's.
 func DateText(now, t time.Time) string {
 	if t.Year() != now.Year() {

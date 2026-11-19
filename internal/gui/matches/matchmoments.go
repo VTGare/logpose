@@ -27,12 +27,12 @@ func (pg *Page) momentsTile(c *ui.Context, e *page.Env, m stats.Match) ui.Elemen
 			return
 		}
 		for i, mo := range l.Moments {
-			pg.momentRow(c.Key(i), e, m, i, mo, i == len(l.Moments)-1)
+			pg.momentRow(c.Key(i), e, m, l, i, mo, i == len(l.Moments)-1)
 		}
 	})
 }
 
-func (pg *Page) momentRow(c *ui.Context, e *page.Env, m stats.Match, i int, mo simlog.Moment, last bool) {
+func (pg *Page) momentRow(c *ui.Context, e *page.Env, m stats.Match, l *MatchTimeline, i int, mo simlog.Moment, last bool) {
 	t := c.Theme()
 	s := page.SideOf(m, mo.Player)
 	row := ui.Row(c).Gap(12).AlignItems(ui.Stretch).Cursor(ui.CursorPointer).Tooltip("Watch from here")
@@ -48,19 +48,31 @@ func (pg *Page) momentRow(c *ui.Context, e *page.Env, m stats.Match, i int, mo s
 				ui.Box(c).Width(2).Grow(1).MinHeight(12).Background(t.Border)
 			}
 		})
-		ui.Row(c).Grow(1).Gap(20).AlignItems(ui.Start).Padding(0, 0, 16, 0).Children(func() {
-			ui.Column(c).Grow(2).Basis(0).MinWidth(200).Gap(3).Children(func() {
-				ui.Row(c).Gap(6).Children(func() {
-					ui.Text(c, fmt.Sprintf("Turn %d", mo.Turn)).Bold()
-					if mo.Player != "" {
-						ui.Text(c, s.Name()).FontSize(12).TextColor(s.Color())
+		ui.Column(c).Grow(1).Gap(12).Padding(0, 0, 16, 0).Children(func() {
+			ui.Row(c).Gap(20).AlignItems(ui.Start).Children(func() {
+				ui.Column(c).Grow(2).Basis(0).MinWidth(200).Gap(3).Children(func() {
+					ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+						ui.Text(c, fmt.Sprintf("Turn %d", mo.Turn)).Bold()
+						if mo.Player != "" {
+							ui.Text(c, s.Name()).FontSize(12).TextColor(s.Color())
+						}
+						for j, k := range momentKinds(m, mo) {
+							ui.Text(c.Key(j), k).FontSize(11).FontWeight(600).TextColor(t.TextMuted).Padding(1, 8).Radius(9).
+								Border(1, t.Border)
+						}
+					})
+					for j, line := range momentLines(e, m, mo, l) {
+						ui.Text(c.Key(j), line).Wrap()
+					}
+					for j, line := range momentNotes(e, m, mo, l) {
+						ui.Text(c.Key(fmt.Sprintf("note%d", j)), line).FontSize(13).TextColor(t.TextMuted).Wrap()
 					}
 				})
-				for j, line := range momentLines(e, m, mo) {
-					ui.Text(c.Key(j), line).Wrap()
-				}
+				ui.Column(c).Grow(3).Basis(0).Children(func() { momentStrip(c, e, m, mo) })
 			})
-			ui.Column(c).Grow(3).Basis(0).Children(func() { momentStrip(c, e, m, mo) })
+			if finished(mo) && len(l.Finish) > 0 {
+				lethalTurn(c, e, m, mo.Player, l.Finish)
+			}
 		})
 	})
 }
@@ -82,6 +94,7 @@ func momentStrip(c *ui.Context, e *page.Env, m stats.Match, mo simlog.Moment) {
 	type card struct {
 		code      string
 		dim, ring bool
+		ringColor ui.Color
 	}
 	group := func(key, label string, cards []card) {
 		if len(cards) == 0 {
@@ -95,7 +108,7 @@ func momentStrip(c *ui.Context, e *page.Env, m stats.Match, mo simlog.Moment) {
 						kit.Lift(e.Card(c, cd.code, momentCardWidth), 5)
 					})
 					if cd.ring {
-						box.Border(2, s.Color())
+						box.Border(2, cd.ringColor)
 					} else {
 						box.Border(2, ui.Color{})
 					}
@@ -113,13 +126,36 @@ func momentStrip(c *ui.Context, e *page.Env, m stats.Match, mo simlog.Moment) {
 		}
 		return out
 	}
-	removed := func() { group("removed", "Removed from "+s.Other().Object(), plain(mo.Removed, true)) }
+	ringed := func(codes []string, color ui.Color) []card {
+		out := make([]card, len(codes))
+		for k, code := range codes {
+			out[k] = card{code: code, ring: true, ringColor: color}
+		}
+		return out
+	}
+	removed := func() {
+		group("removed", "Removed from "+s.Other().Object(), plain(mo.Removed, true))
+		group("back", "Came back", ringed(mo.CameBack, s.Other().Color()))
+	}
+	battles := func() {
+		if is(simlog.ReasonHandDrain) {
+			group("countered", s.Other().Name()+" countered with", plain(mo.Countered, false))
+			group("blocked", s.Other().Name()+" blocked with", plain(mo.Blocked, true))
+		}
+		for k, lk := range mo.Locks {
+			label := "Can't attack"
+			if lk.Rested {
+				label = "Can't attack or block"
+			}
+			group(fmt.Sprintf("lock%d", k), label, ringed(lk.Cards, s.Color()))
+		}
+	}
 	ui.Row(c).Gap(18).Wrap().Children(func() {
 		switch {
 		case is(simlog.ReasonBoard):
 			board := make([]card, len(mo.Board))
 			for k, code := range mo.Board {
-				board[k] = card{code: code, ring: k >= len(mo.Board)-mo.New}
+				board[k] = card{code: code, ring: k >= len(mo.Board)-mo.New, ringColor: s.Color()}
 			}
 			group("board", s.Possessive()+" board after the turn", board)
 			group("gone", "Also played", plain(mo.Gone, false))
@@ -128,6 +164,7 @@ func momentStrip(c *ui.Context, e *page.Env, m stats.Match, mo simlog.Moment) {
 			group("played", s.Name()+" played", plain(mo.Played, false))
 			removed()
 		}
+		battles()
 	})
 }
 
@@ -142,7 +179,7 @@ func (pg *Page) momentPin(c *ui.Context, e *page.Env, m stats.Match, i int, mo s
 
 // momentLines words a moment's reasons as table talk, as in "emog removed Garp, Oden and Law"
 // or "emog took 2 life · You're at 1". Life lost and life left share a line.
-func momentLines(e *page.Env, m stats.Match, mo simlog.Moment) []string {
+func momentLines(e *page.Env, m stats.Match, mo simlog.Moment, l *MatchTimeline) []string {
 	name := func(id string) string { return page.SideOf(m, id).Name() }
 	at := func(id string, n int) string {
 		if s := page.SideOf(m, id); !s.Mine {
@@ -175,6 +212,8 @@ func momentLines(e *page.Env, m stats.Match, mo simlog.Moment) []string {
 		case simlog.ReasonFinish:
 			loser := page.SideOf(m, r.Player)
 			finish = finishText(m, loser.Name(), loser.Other().Name())
+		case simlog.ReasonHandDrain:
+			lines = append(lines, drainText(m, mo, r, l))
 		}
 	}
 	for _, id := range lifeOrder {
@@ -228,4 +267,97 @@ func finishText(m stats.Match, loser, winner string) string {
 		return loser + " decked out"
 	}
 	return "The game ended"
+}
+
+func finished(mo simlog.Moment) bool {
+	for _, r := range mo.Reasons {
+		if r.Kind == simlog.ReasonFinish {
+			return true
+		}
+	}
+	return false
+}
+
+// momentKinds labels what kind of moment a turn is, for the moments the reasons' words don't
+// name.
+func momentKinds(m stats.Match, mo simlog.Moment) []string {
+	var out []string
+	for _, r := range mo.Reasons {
+		if r.Kind == simlog.ReasonHandDrain {
+			out = append(out, "Hand drain")
+		}
+	}
+	if len(mo.Locks) > 0 {
+		out = append(out, "Lock")
+	}
+	if len(mo.CameBack) > 0 {
+		out = append(out, "Came back")
+	}
+	if len(mo.Defended) > 0 {
+		out = append(out, "Defended and lost")
+	}
+	if finished(mo) && m.End.Kind == simlog.EndLethal {
+		out = append(out, "Lethal")
+	}
+	return out
+}
+
+// drainText words a hand drain, as "Zeta spent 4 cards to stay at 4 life".
+func drainText(m stats.Match, mo simlog.Moment, r simlog.Reason, l *MatchTimeline) string {
+	d := page.SideOf(m, r.Player)
+	life := l.Opp
+	if d.Mine {
+		life = l.Me
+	}
+	text := fmt.Sprintf("%s spent %s", d.Name(), kit.Cards(r.N))
+	if t := mo.Turn; t < len(life) && life[t] == life[t-1] {
+		text += fmt.Sprintf(" to stay at %d life", life[t])
+	}
+	return text
+}
+
+// handsText is who holds what after a hand drain, as "Zeta holds 3 cards, you hold 5".
+func handsText(m stats.Match, mo simlog.Moment, r simlog.Reason, l *MatchTimeline) string {
+	d := page.SideOf(m, r.Player)
+	hand, other := l.OppHand, l.MeHand
+	if d.Mine {
+		hand, other = l.MeHand, l.OppHand
+	}
+	t := mo.Turn
+	if t >= len(hand) || t >= len(other) {
+		return ""
+	}
+	first, second := "holds", "hold"
+	if d.Mine {
+		first, second = "hold", "holds"
+	}
+	return fmt.Sprintf("%s %s %s, %s %s %d", d.Name(), first, kit.Cards(hand[t]), d.Other().Object(), second, other[t])
+}
+
+// momentNotes are the smaller things a moment's turn did: locks, cards that came back and
+// characters defended and lost anyway.
+func momentNotes(e *page.Env, m stats.Match, mo simlog.Moment, l *MatchTimeline) []string {
+	var out []string
+	for _, r := range mo.Reasons {
+		if r.Kind == simlog.ReasonHandDrain {
+			if h := handsText(m, mo, r, l); h != "" {
+				out = append(out, h)
+			}
+		}
+	}
+	for _, lk := range mo.Locks {
+		what := "attacking next turn"
+		if lk.Rested {
+			what = "blocking this turn and attacking next turn"
+		}
+		out = append(out, fmt.Sprintf("%s stops %s %s", e.Snap.Card(lk.Source).Name, cardList(e, lk.Cards), what))
+	}
+	if len(mo.CameBack) > 0 {
+		out = append(out, cardList(e, mo.CameBack)+" came back from the trash")
+	}
+	for _, d := range mo.Defended {
+		owner := page.SideOf(m, mo.Player).Other()
+		out = append(out, fmt.Sprintf("%s spent %s on %s and lost it", owner.Name(), kit.Cards(d.Cards), e.Snap.Card(d.Card).Name))
+	}
+	return out
 }

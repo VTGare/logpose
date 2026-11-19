@@ -631,7 +631,11 @@ func (b *builder) line(step, li int, l simlog.Line) {
 	case l.Kind == simlog.LineAttack && len(l.Cards) >= 2:
 		b.attack(l, l.Turn, mine, theirs, issue)
 	case l.Kind == simlog.LineBlock && len(l.Cards) == 1:
-		if c := b.choose(l.Cards[0], guess{}, func(c *Card) bool { return !c.Rested || b.rested[c.ID] }, nil, mine); c != nil {
+		c := b.streamRested(l.Cards[0], mine)
+		if c == nil {
+			c = b.choose(l.Cards[0], guess{}, func(c *Card) bool { return !c.Rested || b.rested[c.ID] }, nil, mine)
+		}
+		if c != nil {
 			c.Rested = true
 			delete(b.rested, c.ID)
 			b.defenderID = c.ID
@@ -688,6 +692,9 @@ func (b *builder) attack(l simlog.Line, turn int, mine, theirs *Side, issue func
 // played this turn comes last unless it has Rush, since the log doesn't name keyword Rush.
 // With no such copy it takes an active one, which the caller reports.
 func (b *builder) chooseAttacker(code string, turn int, s *Side) *Card {
+	if c := b.streamRested(code, s); c != nil && c.attacked != turn && !c.has(StatusNoAttack) {
+		return c
+	}
 	active := func(c *Card) bool { return !c.Rested || b.rested[c.ID] }
 	c := b.choose(code, guess{}, func(c *Card) bool { return active(c) && !c.has(StatusNoAttack) },
 		func(c *Card) bool { return c.played == turn && !c.has(StatusRush) }, s)
@@ -697,6 +704,22 @@ func (b *builder) chooseAttacker(code string, turn int, s *Side) *Card {
 		}
 	}
 	return c
+}
+
+// streamRested is the one copy of code that the RZ1 stream rested in place before a line named
+// it, or nil when there is none or more than one. The stream knows the copy by its slot, so it
+// wins over guessing by name.
+func (b *builder) streamRested(code string, s *Side) *Card {
+	var found *Card
+	for _, c := range s.all(code) {
+		if b.rested[c.ID] {
+			if found != nil {
+				return nil
+			}
+			found = c
+		}
+	}
+	return found
 }
 
 // effect applies a "Card: Rest X" or "Card: Set X to Active" line. Rests mostly hit the
@@ -712,6 +735,7 @@ func (b *builder) effect(l simlog.Line, mine, theirs *Side) {
 	case strings.HasPrefix(rest, "Set ") && strings.HasSuffix(rest, " to Active"):
 		if c := b.pick(target, true, mine, theirs); c != nil {
 			c.Rested, c.attacked = false, 0
+			delete(b.rested, c.ID)
 		}
 	}
 }

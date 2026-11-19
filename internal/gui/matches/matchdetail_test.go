@@ -9,6 +9,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"github.com/VTGare/logpose/internal/replay"
 	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
@@ -283,6 +284,57 @@ var _ = Describe("match detail", func() {
 			"Turn 3", "You played Monkey D. Luffy and Kaido ×2", "Your board after the turn", "Also played",
 			"Opp removed Kaido ×2", "Removed from you",
 			"You hit Opp for 2 · Opp is at 0", "You dealt lethal",
+		} {
+			Expect(tt.HasText(text)).To(BeTrue(), text)
+		}
+	})
+
+	It("words hand drains, locks and cards that came back, and breaks the lethal turn into its attacks", func() {
+		s := guitest.Snapshot(3)
+		s.Matches[0].End = simlog.End{Kind: simlog.EndLethal, Loser: "Opp#2"}
+		v, tt := open(s)
+		v.OpenMatch(s.Matches[0])
+		v.matches.SetTimeline(MatchTimeline{
+			Fingerprint: "0",
+			Me:          []int{4, 4, 4, 4, 4}, Opp: []int{4, 4, 4, 4, 0},
+			MeHand: []int{5, 5, 5, 5, 5}, OppHand: []int{5, 5, 5, 3, 1},
+			Moments: []simlog.Moment{
+				{
+					Turn: 3, Player: guitest.Me,
+					Reasons:   []simlog.Reason{{Kind: simlog.ReasonHandDrain, Player: "Opp#2", N: 4}},
+					Countered: []string{"OP17-058", "OP17-058"},
+					Removed:   []string{"OP17-058"},
+					CameBack:  []string{"OP17-058"},
+					Locks:     []simlog.Lock{{Source: "OP13-001", Cards: []string{"OP17-058"}, Rested: true}},
+				},
+				{
+					Turn: 4, Player: "Opp#2",
+					Reasons:  []simlog.Reason{{Kind: simlog.ReasonLifeLost, Player: guitest.Me, N: 2}},
+					Defended: []simlog.Defense{{Card: "OP13-001", Cards: 2}},
+				},
+				{Turn: 5, Player: guitest.Me, Reasons: []simlog.Reason{{Kind: simlog.ReasonFinish, Player: "Opp#2"}}},
+			},
+			Finish: []replay.TurnAttack{
+				{
+					Attacker: "OP13-001", Target: "OP17-058", Power: 7000, Defense: 8000, DonActive: 10,
+					Answers: []replay.Answer{{Kind: replay.AnswerCounter, Card: "OP17-058", Power: 3000}},
+					Outcome: replay.OutcomeFailed,
+				},
+				{
+					Attacker: "OP13-001", Target: "OP17-058", Power: 9000, DonActive: 4, Lethal: true,
+					Before: []replay.Action{{Card: "OP13-001", Played: true, Effects: []string{"Rest Kaido [OP17-058]"}}},
+				},
+			},
+		})
+		tt.Frame()
+		for _, text := range []string{
+			"Hand drain", "Lock", "Came back", "Defended and lost", "Lethal",
+			"Opp spent 4 cards to stay at 4 life", "Opp holds 3 cards, you hold 5",
+			"Monkey D. Luffy stops Kaido blocking this turn and attacking next turn",
+			"Kaido came back from the trash", "Opp countered with", "Can't attack or block",
+			"You spent 2 cards on Monkey D. Luffy and lost it",
+			"Attack 1", "10 DON open", "7k", "Countered +3k", "Stopped",
+			"Played", "Rest Kaido", "Attack 2", "9k", "No answer",
 		} {
 			Expect(tt.HasText(text)).To(BeTrue(), text)
 		}

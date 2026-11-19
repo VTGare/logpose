@@ -643,8 +643,14 @@ func (x *appActions) LoadTimeline(fingerprint, me, opp string) {
 			l.MeHand, l.OppHand = g.HandByTurn(me), g.HandByTurn(opp)
 			l.MeBoard, l.OppBoard = g.CharactersByTurn(me), g.CharactersByTurn(opp)
 			db := x.a.cardDB().DB
-			l.Moments = g.Moments(func(code string) int { return db.Card(code).Power })
+			power := func(code string) int { return db.Card(code).Power }
+			l.Moments = g.Moments(power)
 			l.Marks = g.Marks()
+			if g.End.Kind == simlog.EndLethal && len(l.Moments) > 0 {
+				if r, err := replay.Build(g, power); err == nil {
+					l.Finish = r.Attacks(g, l.Moments[len(l.Moments)-1].Turn)
+				}
+			}
 			l.Replayable = g.HasRZ()
 		}
 		x.a.win.Update(func() { x.a.view.matches.SetTimeline(l) })

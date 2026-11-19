@@ -1,6 +1,9 @@
 package simlog
 
-import "slices"
+import (
+	"slices"
+	"strings"
+)
 
 type ReasonKind int
 
@@ -15,6 +18,8 @@ const (
 	ReasonBoard
 	// ReasonFinish is the turn the game ended in. Player is the loser.
 	ReasonFinish
+	// ReasonHandDrain is Player spending N cards on counters in the other player's turn.
+	ReasonHandDrain
 )
 
 type Reason struct {
@@ -43,6 +48,30 @@ type Moment struct {
 	New   int
 	// Gone is the cards in Played that weren't on the board at the turn's end.
 	Gone []string
+	// Countered is the cards the other player countered with, counter events among them, and
+	// Blocked the cards they blocked with, in order.
+	Countered []string
+	Blocked   []string
+	// CameBack is the cards in Removed that came back onto the board in the turn.
+	CameBack []string
+	// Defended is the other player's characters that drew counter cards and were K.O.'d anyway.
+	Defended []Defense
+	// Locks is what the turn's player's effects stopped the other player's characters doing.
+	Locks []Lock
+}
+
+// Defense is a character K.O.'d after its owner spent Cards counter cards on it.
+type Defense struct {
+	Card  string
+	Cards int
+}
+
+// Lock is Source's effect on the other player's Cards. Rested means they can't be rested, so
+// they can't block in the turn or attack in the next. Otherwise they can't attack next turn.
+type Lock struct {
+	Source string
+	Cards  []string
+	Rested bool
 }
 
 // Removing characters is a moment at bigRemovals of bigPower or more, or at anyRemovals of
@@ -53,6 +82,12 @@ const (
 	anyRemovals = 3
 	lifeLost    = 2
 	boardGain   = 3
+	// handDrain counter cards in one turn point at the loser about as often as losing 2 life
+	// does, over the games this was checked on. 2 doesn't, and spending them over two turns adds
+	// nothing.
+	handDrain = 3
+	// defendedCards counter cards on a character make losing it anyway worth a line.
+	defendedCards = 2
 )
 
 // Moments picks the turns that mattered, in order. power gives a card's printed power, or 0
@@ -72,6 +107,7 @@ func (g *Game) Moments(power func(code string) int) []Moment {
 		ms[t].Player = g.TurnPlayer(t)
 	}
 	g.addCards(ms)
+	g.addBattles(ms)
 	addRemovals(ms, power)
 	for _, p := range g.Players {
 		g.addLife(ms, p.ID())
@@ -115,6 +151,9 @@ func (g *Game) addCards(ms []Moment) {
 			if leaves {
 				m.Removed = append(m.Removed, mv.Card)
 			}
+			if enters && slices.Contains(m.Removed, mv.Card) && !slices.Contains(m.CameBack, mv.Card) {
+				m.CameBack = append(m.CameBack, mv.Card)
+			}
 			continue
 		}
 		m.Board, m.New = m.Board[:0], 0
@@ -155,16 +194,124 @@ func gone(played, stayed []string) []string {
 func addRemovals(ms []Moment, power func(code string) int) {
 	for t := range ms {
 		m := &ms[t]
-		big := 0
+		big, n := 0, 0
 		for _, c := range m.Removed {
+			if slices.Contains(m.CameBack, c) {
+				continue
+			}
+			n++
 			if power(c) >= bigPower {
 				big++
 			}
 		}
-		if big >= bigRemovals || len(m.Removed) >= anyRemovals {
+		if big >= bigRemovals || n >= anyRemovals {
 			m.Reasons = append(m.Reasons, Reason{Kind: ReasonRemoved, Player: m.Player, N: len(m.Removed)})
 		}
 	}
+}
+
+// addBattles reads each turn's attacks from the lines: the other player's counters and blocks,
+// the characters they defended and lost, and the turn player's locks.
+func (g *Game) addBattles(ms []Moment) {
+	br := battleReader{other: make(map[string]string), leaders: make(map[string]string), boards: make(map[string][]string), turn: -1}
+	for _, p := range g.Players {
+		br.leaders[p.ID()] = p.Leader
+		for _, q := range g.Players {
+			if p.ID() != q.ID() {
+				br.other[p.ID()] = q.ID()
+			}
+		}
+	}
+	for _, l := range g.Lines {
+		br.line(&ms[l.Turn], l)
+	}
+	for t := 1; t < len(ms)-1; t++ {
+		if n := len(ms[t].Countered); n >= handDrain && ms[t].Player != "" {
+			ms[t].Reasons = append(ms[t].Reasons, Reason{Kind: ReasonHandDrain, Player: br.other[ms[t].Player], N: n})
+		}
+	}
+}
+
+type battleReader struct {
+	other, leaders map[string]string
+	// boards is each player's last printed board.
+	boards map[string][]string
+	turn   int
+	// target is the character the attack in progress is on, or "" for a leader or a block.
+	target string
+	// spent counts the counter cards spent on each target this turn.
+	spent map[string]int
+}
+
+func (br *battleReader) line(m *Moment, l Line) {
+	if l.Printout == "Board" && l.Player != "" {
+		br.boards[l.Player] = l.Shown
+	}
+	if l.Turn != br.turn {
+		br.turn, br.target, br.spent = l.Turn, "", make(map[string]int)
+	}
+	if l.Turn == 0 || m.Player == "" {
+		return
+	}
+	def := br.other[m.Player]
+	switch l.Player {
+	case m.Player:
+		br.attacker(m, l, def)
+	case def:
+		br.defender(m, l)
+	}
+}
+
+func (br *battleReader) attacker(m *Moment, l Line, def string) {
+	switch {
+	case l.Kind == LineAttack && len(l.Cards) >= 2:
+		br.target = l.Cards[len(l.Cards)-1]
+		if br.target == br.leaders[def] {
+			br.target = ""
+		}
+	case l.Kind == LineEffect && len(l.Cards) == 2:
+		m.lock(l, br.boards[def])
+	}
+}
+
+func (br *battleReader) defender(m *Moment, l Line) {
+	switch {
+	case l.Kind == LineCounterDiscard && len(l.Cards) == 1:
+		m.Countered = append(m.Countered, l.Cards[0])
+		br.spent[br.target]++
+	case l.Kind == LineCounter:
+		m.Countered = append(m.Countered, l.Source)
+		br.spent[br.target]++
+	case l.Kind == LineBlock && len(l.Cards) == 1:
+		m.Blocked = append(m.Blocked, l.Cards[0])
+		br.target = ""
+	case l.Kind == LineKO && len(l.Cards) == 1:
+		if c := l.Cards[0]; br.spent[c] >= defendedCards {
+			m.Defended = append(m.Defended, Defense{Card: c, Cards: br.spent[c]})
+			delete(br.spent, c)
+		}
+	}
+}
+
+// lock adds an effect line like "Card [CODE]: Target [CODE] can't attack next turn" when the
+// target is on the other player's last printed board.
+func (m *Moment) lock(l Line, board []string) {
+	rest := l.EffectText()
+	rested := strings.HasSuffix(rest, "can't be rested until next turn ends")
+	if !rested && !strings.HasSuffix(rest, "can't attack next turn") {
+		return
+	}
+	card := l.Cards[1]
+	if !slices.Contains(board, card) {
+		return
+	}
+	for i := range m.Locks {
+		if k := &m.Locks[i]; k.Source == l.Source && k.Rested == rested {
+			k.Cards = append(k.Cards, card)
+			return
+		}
+	}
+	m.Locks = append(m.Locks, Lock{Source: l.Source, Cards: []string{card}, Rested: rested})
 }
 
 func (g *Game) addLife(ms []Moment, id string) {

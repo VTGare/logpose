@@ -12,6 +12,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/cards"
+	"github.com/VTGare/logpose/internal/replay"
 	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
@@ -55,6 +56,8 @@ type MatchTimeline struct {
 	MeBoard, OppBoard []int
 	Moments           []simlog.Moment
 	Marks             []simlog.Mark
+	// Finish is the attacks of the turn a game ended in lethal, or nil.
+	Finish []replay.TurnAttack
 	// Replayable is false for logs from sim versions without the RZ1 move stream.
 	Replayable bool
 	// Game is the parsed log, which the replay is built from, or nil when Err says why it
