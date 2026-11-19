@@ -143,6 +143,7 @@ var _ = Describe("match detail", func() {
 		Expect(tt.Click("Auto: Ranked")).To(Succeed())
 		Expect(tt.Click("Friendly")).To(Succeed())
 		Expect(fa.types).To(Equal([]string{"0=2"}))
+		guitest.Hover(tt, "Bookmark")
 		guitest.Hover(tt, "Friendly")
 		Expect(tt.HasText("Counted as a friendly, as you set it.")).To(BeTrue(), fmt.Sprint(tt.Texts()))
 	})

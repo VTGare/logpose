@@ -698,9 +698,10 @@ var _ = Describe("Cards page", func() {
 			Expect(tt.RightClick("Urouge OP14-002")).To(Succeed())
 			tt.Frame()
 			Expect(guitest.Choose(tt, "Art in the sim", "Regional · 6 versions", "Online finalist")).NotTo(Succeed())
-			tt.Key(0, ui.KeyEscape)
-			tt.Key(0, ui.KeyEscape)
-			tt.Frame()
+			for range 3 {
+				tt.Key(0, ui.KeyEscape)
+				tt.Frame()
+			}
 			Expect(tt.RightClick("Urouge OP14-002")).To(Succeed())
 			tt.Frame()
 			Expect(guitest.Choose(tt, "Art in the sim", "Regional · 6 versions", "Online Regional Finalist Card Set 25-26 Season 1")).
