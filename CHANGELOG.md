@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.1
+
+- Replays put each action in its own step. An attacker rests in its attack step, not the step
+  before, and a character trashed by an effect or to make room leaves in that effect's step.
+- A leader's start of game effect, such as Imu's The Empty Throne, gets its own setup step, and
+  that player's opening hand, mulligan and life are no longer folded into turn 1. Your games are
+  read again on the first start.
+- Today's results on the overview sit under the record in up to two rows, so a long day no
+  longer runs past the banner.
+- The replay controls are round, with larger step buttons, a Play button that fades into Pause
+  and a round speed switch.
+- Page switches fade in without sliding, matchup rows close faster than they open, icon buttons
+  shrink a little when pressed, and card art has a faint edge.
+
 ## 0.6.0
 
 - Replays move more smoothly. Cards turn as they rest and stand up, DON!! slide in from the
