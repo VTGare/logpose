@@ -275,7 +275,7 @@ var _ = Describe("replay", func() {
 	})
 
 	// The specs' tester turns animations off, so this reads how long the mat glides cards for.
-	It("glides cards on a single step only, and not at the fastest speed", func() {
+	It("glides cards on a single step only, and faster at higher speeds", func() {
 		watch()
 		rs := v.matches.Detail.Replay
 		Expect(tt.Click("Next step")).To(Succeed())
@@ -290,11 +290,12 @@ var _ = Describe("replay", func() {
 		Expect(tt.Click("Play")).To(Succeed())
 		fa.Fire()
 		Expect(at(1)).To(BeTrue())
-		Expect(rs.Glide).To(SatisfyAll(BeNumerically(">", 0), BeNumerically("<", byHand)))
+		twice := rs.Glide
+		Expect(twice).To(SatisfyAll(BeNumerically(">", 0), BeNumerically("<", byHand)))
 		Expect(tt.Click("4×")).To(Succeed())
 		fa.Fire()
 		Expect(at(2)).To(BeTrue())
-		Expect(rs.Glide).To(BeZero())
+		Expect(rs.Glide).To(SatisfyAll(BeNumerically(">", 0), BeNumerically("<", twice)))
 	})
 
 	It("plays a step per tick until paused", func() {

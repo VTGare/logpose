@@ -17,14 +17,6 @@ import (
 // glides from where it was.
 type cardMatch int
 
-// Glide moves a card from where the frame before showed it, when the step just moved by one.
-func (sv *stepView) Glide(el ui.Element, id int) ui.Element {
-	if sv.glideFor == 0 || id == 0 {
-		return el
-	}
-	return el.Transition(ui.ElementTransition{Duration: sv.glideFor, Position: true, Match: cardMatch(id)})
-}
-
 func signed(n int) string {
 	if n < 0 {
 		return fmt.Sprintf("−%d", -n)

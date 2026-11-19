@@ -21,6 +21,9 @@ type replayState struct {
 	// asked is set once the app was asked to build the replay.
 	asked bool
 	step  int
+	// from is the step shown before this one, and shownAt when this one first showed.
+	from    int
+	shownAt time.Time
 	// atLine is the log line the replay opens at once built, or -1 for its start.
 	atLine  int
 	playing bool
@@ -35,8 +38,10 @@ type replayState struct {
 	// Glide is how long cards take to move to the current step, which is 0 after a jump of
 	// more than one step.
 	Glide time.Duration
-	// pageBox and matBox are the page's and the mat area's bounds in the frame before.
+	// pageBox and matBox are the page's and the mat area's bounds in the frame before, and
+	// deckAt the opponent's deck pile and the user's.
 	pageBox, matBox ui.Rect
+	deckAt          [2]ui.Rect
 	// selected is the card clicked on the mat, which the inspector shows, or 0 for the step's
 	// own cards. tab is 0 for the action list and 1 for the game log.
 	selected int
@@ -68,14 +73,15 @@ type LoadedReplay struct {
 }
 
 // replaySpeeds are how long each step shows while the replay plays, how long cards take to move
-// on a step, and the speed's name. Cards don't move at the fastest speed.
+// on a step, and the speed's name. The glide stays well under the tick, so cards settle before
+// the next step.
 var replaySpeeds = []struct {
 	tick, glide time.Duration
 	label       string
 }{
-	{1200 * time.Millisecond, 250 * time.Millisecond, "1×"},
-	{600 * time.Millisecond, 150 * time.Millisecond, "2×"},
-	{300 * time.Millisecond, 0, "4×"},
+	{1200 * time.Millisecond, 320 * time.Millisecond, "1×"},
+	{600 * time.Millisecond, 200 * time.Millisecond, "2×"},
+	{300 * time.Millisecond, 110 * time.Millisecond, "4×"},
 }
 
 func speedLabels() []string {
@@ -144,7 +150,7 @@ func (rs *replayState) jump(step int) {
 	if step == rs.step+1 || step == rs.step-1 {
 		rs.Glide = glideTime(rs.playing, rs.speed)
 	}
-	rs.step, rs.moved = step, true
+	rs.from, rs.step, rs.moved = rs.step, step, true
 }
 
 func (rs *replayState) cur() replay.Step { return rs.r.Steps[rs.step] }

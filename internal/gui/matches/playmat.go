@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"time"
 
 	"github.com/VTGare/logpose/internal/gui/page"
 
@@ -108,6 +109,17 @@ type Placed struct {
 	Mine bool
 }
 
+// donSlot keys a side's i-th DON!! in the cost area.
+type donSlot struct {
+	mine bool
+	i    int
+}
+
+type arrowKey struct{ attacker, target int }
+
+// powerKey keys the power pill over a card in a battle.
+type powerKey int
+
 // goneCard keys the faded copy of a removed defender apart from the card itself, now in the
 // trash.
 type goneCard int
@@ -163,11 +175,12 @@ func playmat(c *ui.Context, e *page.Env, m mat, sv *stepView) ui.Element {
 		a, t = BattlePair(cards, bt, attacker.Mine)
 	}
 	themCols, meCols := kit.ColorsOf(e.Snap.Card(sv.them.Leader.Code)), kit.ColorsOf(e.Snap.Card(sv.me.Leader.Code))
-	return ui.Box(c).Size(m.W, m.H).Radius(12).Background(kit.PanelColor(c.Theme())).Border(1, zoneLine).Clip().
+	// No Clip, so cards on their way between the mat and a hand show the whole way.
+	return ui.Box(c).Size(m.W, m.H).Radius(12).Background(kit.PanelColor(c.Theme())).Border(1, zoneLine).
 		Draw(func(p *ui.Painter, r ui.Rect) {
 			// Each half is lit faintly from its own edge in its leader's colors.
-			p.FillRadialGradient(r, page.Light(themCols[0].Glow, ui.Point{X: 0.5, Y: -0.15}, r.W*0.55, 0.2), 0)
-			p.FillRadialGradient(r, page.Light(meCols[0].Glow, ui.Point{X: 0.5, Y: 1.15}, r.W*0.55, 0.2), 0)
+			p.FillRadialGradient(r, page.Light(themCols[0].Glow, ui.Point{X: 0.5, Y: -0.15}, r.W*0.55, 0.2), 12)
+			p.FillRadialGradient(r, page.Light(meCols[0].Glow, ui.Point{X: 0.5, Y: 1.15}, r.W*0.55, 0.2), 12)
 		}).Children(func() {
 		zones(c, k, m, sv)
 		piles(c, e, k, m, sv)
@@ -203,10 +216,13 @@ func playmat(c *ui.Context, e *page.Env, m mat, sv *stepView) ui.Element {
 			} else {
 				sv.Glide(box, pl.Card.ID)
 			}
-			box.Children(func() { boardCard(c, e, pl.Card, m.w, selected, sv.seat(pl.Mine).Color(), notes...) })
+			box.Children(func() { boardCard(c, e, sv, pl.Card, m.w, selected, sv.seat(pl.Mine).Color(), notes...) })
 		}
 		if a >= 0 && t >= 0 {
-			attackArrow(c, e, k, m, cards[a], cards[t], bt, attacker)
+			attackArrow(c, e, sv, m, cards[a], cards[t], bt, attacker)
+			if sv.hit() {
+				impact(c, sv, m, cards[t], attacker.Color())
+			}
 		}
 	})
 }
@@ -249,7 +265,7 @@ func piles(c *ui.Context, e *page.Env, k func() *ui.Context, m mat, sv *stepView
 		dd := m.donDeckSlot(mine)
 		donDeck(c, e, k, m, s, dd.X, dd.Y)
 		cz := m.costZone(mine)
-		donRow(c, e, k, m, s, cz, mine)
+		donRow(c, e, k, m, sv, s, cz, mine)
 	}
 }
 
@@ -307,8 +323,19 @@ func lifeStack(c *ui.Context, k func() *ui.Context, m mat, sv *stepView, s *repl
 	return ui.Rect{X: x, Y: top, W: cw, H: h}
 }
 
+// deckPile is keyed as its top card, so a card drawn flies from it.
 func deckPile(c *ui.Context, k func() *ui.Context, m mat, sv *stepView, s *replay.Side, x, y float32) {
-	box := ui.Box(k()).Absolute().Left(x).Top(y).Size(m.w, m.h)
+	key, top := k(), 0
+	if d := s.Deck(); len(d) > 0 {
+		top = d[len(d)-1].ID
+		key = c.Key(cardMatch(top))
+	}
+	box := ui.Box(key).Absolute().Left(x).Top(y).Size(m.w, m.h)
+	sv.Glide(box, top)
+	// A draw keys the pile anew, and a new element has no bounds yet.
+	if b := box.Bounds(); b.W > 0 {
+		sv.rs.deckAt[deckSide(sv, s)] = b
+	}
 	pileButton(box, sv, pileRef{kind: pileDeck, Mine: s == sv.me})
 	box.Children(func() {
 		cardBack(c, m.w, m.h)
@@ -337,7 +364,7 @@ func selectRing(el ui.Element, col ui.Color) {
 	el.Border(2, col).Shadow(0, 0, 0, 2, ui.RGBA(0, 0, 0, 0.6))
 }
 
-func donRow(c *ui.Context, e *page.Env, k func() *ui.Context, m mat, s *replay.Side, z ui.Rect, mine bool) {
+func donRow(c *ui.Context, e *page.Env, k func() *ui.Context, m mat, sv *stepView, s *replay.Side, z ui.Rect, mine bool) {
 	n := len(s.Don)
 	if n == 0 {
 		return
@@ -354,17 +381,28 @@ func donRow(c *ui.Context, e *page.Env, k func() *ui.Context, m mat, s *replay.S
 	gap := min(float32(4), (room-width)/float32(max(n-1, 1)))
 	x := z.X + (z.W-width-gap*float32(n-1))/2
 	y := z.Y + (z.H-m.dh)/2
-	for _, rested := range s.Don {
-		box := ui.Box(k()).Absolute().Left(x).Top(y)
+	dd := m.donDeckSlot(mine)
+	for i, rested := range s.Don {
+		w := m.dw
 		if rested {
-			box.Size(m.dh, m.dh).Center().Children(func() {
-				donCard(c, e, m.dw, m.dh).Rotate(90).Opacity(0.45)
-			})
-			x += m.dh + gap
-			continue
+			w = m.dh
 		}
-		box.Children(func() { donCard(c, e, m.dw, m.dh) })
-		x += m.dw + gap
+		box := ui.Box(c.Key(donSlot{mine, i})).Absolute().Left(x).Top(y).Height(m.dh).Center()
+		// New DON!! come off the DON!! deck.
+		box.Transition(sv.glide(nil, &ui.Motion{X: dd.X - x, Y: dd.Y - y, Opacity: 1}))
+		rest := float32(0)
+		if rested {
+			rest = 1
+		}
+		rest = sv.ease(box, "rest", rest)
+		box.Width(lerp(m.dw, m.dh, rest))
+		box.Children(func() {
+			don := donCard(c, e, m.dw, m.dh).Opacity(1 - 0.55*rest)
+			if rest != 0 {
+				don.Rotate(90 * rest)
+			}
+		})
+		x += w + gap
 	}
 	ly := z.Y + z.H - 16
 	if !mine {
@@ -399,22 +437,28 @@ func donCard(c *ui.Context, e *page.Env, w, h float32) ui.Element {
 
 var donPink = ui.Hex("#E8457E")
 
-func boardCard(c *ui.Context, e *page.Env, card replay.Card, w float32, selected bool, col ui.Color, notes ...string) {
+func boardCard(c *ui.Context, e *page.Env, sv *stepView, card replay.Card, w float32, selected bool, col ui.Color, notes ...string) {
 	h := page.CardHeight(w)
-	bw, bh := w, h
+	outer := ui.Box(c)
+	rest := float32(0)
 	if card.Rested {
-		bw, bh = h, w
+		rest = 1
 	}
-	ui.Box(c).Size(bw, bh).Children(func() {
-		inner := ui.Box(c).Size(w, h)
-		if card.Rested {
-			inner.Absolute().Top((w - h) / 2).Left((h - w) / 2).Rotate(90)
+	// The card turns on its center while its box swaps width and height with it.
+	rest = sv.ease(outer, "rest", rest)
+	bw, bh := lerp(w, h, rest), lerp(h, w, rest)
+	outer.Size(bw, bh).Children(func() {
+		inner := ui.Box(c).Size(w, h).Absolute().Top((bh - h) / 2).Left((bw - w) / 2)
+		if rest != 0 {
+			inner.Rotate(90 * rest)
 		}
 		inner.Children(func() {
 			shown := min(card.Don, 3)
 			for i := shown; i >= 1; i-- {
 				off := float32(i)
-				donCard(c.Key(i), e, w, h).Absolute().Left(-w * 0.07 * off).Top(h * 0.1 * off)
+				don := donCard(c.Key(i), e, w, h).Absolute().Left(-w * 0.07 * off).Top(h * 0.1 * off)
+				// A DON!! given to the card slides out from under it.
+				don.Transition(sv.glide(nil, &ui.Motion{X: w * 0.07 * off, Y: -h * 0.1 * off}))
 			}
 			// Absolute elements draw over the rest, so the card is one too, to sit over its DON.
 			art := e.Card(c, card.Code, w, notes...).Absolute().Top(0).Left(0)
@@ -445,37 +489,80 @@ func BattlePair(cards []Placed, bt *replay.Battle, mineAttacks bool) (a, t int) 
 	return find(bt.AttackerID, mineAttacks), find(bt.DefenderID, !mineAttacks)
 }
 
-func attackArrow(c *ui.Context, e *page.Env, k func() *ui.Context, m mat, a, t Placed, bt *replay.Battle, attacker page.Side) {
+func attackArrow(c *ui.Context, e *page.Env, sv *stepView, m mat, a, t Placed, bt *replay.Battle, attacker page.Side) {
 	col := attacker.Color()
 	ax, ay := m.center(a)
 	tx, ty := m.center(t)
 	// The arrow covers the whole mat, so clicks have to pass through it to the cards.
-	ui.Box(k()).Absolute().Left(0).Top(0).Size(m.W, m.H).PassThrough().Draw(func(p *ui.Painter, r ui.Rect) {
-		dx, dy := tx-ax, ty-ay
-		l := float32(math.Hypot(float64(dx), float64(dy)))
-		if l == 0 {
-			return
-		}
-		ux, uy := dx/l, dy/l
-		sx, sy := r.X+ax+ux*m.h*0.3, r.Y+ay+uy*m.h*0.3
-		ex, ey := r.X+tx-ux*m.h*0.38, r.Y+ty-uy*m.h*0.38
-		head := m.w * 0.32
-		bx, by := ex-ux*head, ey-uy*head
-		p.StrokePolyline([][2]float32{{sx, sy}, {bx, by}}, m.w*0.12, col)
-		var path ui.Path
-		path.MoveTo(ex, ey).LineTo(bx-uy*head*0.7, by+ux*head*0.7).LineTo(bx+uy*head*0.7, by-ux*head*0.7).Close()
-		p.FillPath(&path, col)
-	})
+	arrow := ui.Box(c.Key(arrowKey{a.Card.ID, t.Card.ID})).Absolute().Left(0).Top(0).Size(m.W, m.H).PassThrough()
+	// A new attack's arrow reaches out from the attacker to its target.
+	if sv.moved && !sv.sameBattleBefore() {
+		arrow.Jump("reach", 0)
+	}
+	reach := sv.ease(arrow, "reach", 1)
+	arrow.Draw(func(p *ui.Painter, r ui.Rect) { cometArrow(p, m, r.X+ax, r.Y+ay, r.X+tx, r.Y+ty, reach, col) })
 	power := func(pl Placed, pw replay.Power, col ui.Color) {
 		if len(pw.Parts) == 0 {
 			return
 		}
 		x, _ := m.center(pl)
-		ui.Row(k()).Absolute().Left(x - m.h/2).Top(pl.y - 10).Width(m.h).Justify(ui.Center).Children(func() {
+		ui.Row(c.Key(powerKey(pl.Card.ID))).Transition(sv.glide(nil, &ui.Motion{Y: 6, Scale: 0.85})).Absolute().Left(x - m.h/2).Top(pl.y - 10).Width(m.h).Justify(ui.Center).Children(func() {
 			ui.Text(c, powerText(pw)).FontSize(max(m.w*0.17, 12)).Bold().TextColor(badgeInk).Padding(1, 9).Radius(10).
 				Background(col).Shadow(0, 2, 8, 0, kit.PanelShade).Tooltip(powerSum(e, pw))
 		})
 	}
 	power(a, bt.Attack, col)
 	power(t, bt.Defense, attacker.Other().Color())
+}
+
+// impact rings the card an attack hit once, in the attacker's color.
+func impact(c *ui.Context, sv *stepView, m mat, t Placed, col ui.Color) {
+	p := sv.pulse(c, 420*time.Millisecond)
+	if p >= 1 {
+		return
+	}
+	k := 1 - (1-p)*(1-p)
+	grow := m.h * 0.18 * k
+	x, y := m.center(t)
+	r := ui.Rect{X: x - m.w/2 - grow, Y: y - m.h/2 - grow, W: m.w + 2*grow, H: m.h + 2*grow}
+	if t.Card.Rested {
+		r = ui.Rect{X: x - m.h/2 - grow, Y: y - m.w/2 - grow, W: m.h + 2*grow, H: m.w + 2*grow}
+	}
+	ui.Box(c.Key(impactKey(t.Card.ID))).Absolute().Left(0).Top(0).Size(m.W, m.H).PassThrough().Draw(func(pt *ui.Painter, b ui.Rect) {
+		rr := ui.Rect{X: b.X + r.X, Y: b.Y + r.Y, W: r.W, H: r.H}
+		a := 1 - p
+		pt.Shadow(rr, 8, 0, 0, 18*k, 0, col.Alpha(0.55*a))
+		pt.Stroke(rr, col.Alpha(0.95*a), 8, 3*(1-k)+1.5)
+	})
+}
+
+type impactKey int
+
+// cometArrow runs from the attacker toward its target, of the way reach, fading in from the
+// attacker and glowing toward its head.
+func cometArrow(p *ui.Painter, m mat, ax, ay, tx, ty, reach float32, col ui.Color) {
+	dx, dy := tx-ax, ty-ay
+	l := float32(math.Hypot(float64(dx), float64(dy)))
+	if l == 0 {
+		return
+	}
+	ux, uy := dx/l, dy/l
+	sx, sy := ax+ux*m.h*0.3, ay+uy*m.h*0.3
+	ex, ey := tx-ux*m.h*0.38, ty-uy*m.h*0.38
+	ex, ey = sx+(ex-sx)*reach, sy+(ey-sy)*reach
+	size := m.w * 0.3
+	if float32(math.Hypot(float64(ex-sx), float64(ey-sy))) < size {
+		return
+	}
+	bx, by := ex-ux*size*0.8, ey-uy*size*0.8
+	// A gradient's angle is in degrees clockwise from up.
+	angle := float32(math.Atan2(float64(ux), float64(-uy)) * 180 / math.Pi)
+	var path ui.Path
+	path.MoveTo(sx, sy).LineTo(bx, by)
+	p.StrokePathGradient(&path, m.w*0.32, ui.LinearGradient{From: col.Alpha(0), To: col.Alpha(0.28), Angle: angle})
+	p.StrokePathGradient(&path, m.w*0.11, ui.LinearGradient{From: col.Alpha(0.05), To: col, Angle: angle})
+	hx, hy := ex-ux*size, ey-uy*size
+	var head ui.Path
+	head.MoveTo(ex, ey).LineTo(hx-uy*size*0.7, hy+ux*size*0.7).LineTo(hx+uy*size*0.7, hy-ux*size*0.7).Close()
+	p.FillPath(&head, col)
 }

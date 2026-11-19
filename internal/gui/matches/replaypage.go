@@ -28,6 +28,8 @@ type stepView struct {
 	// glideFor is how long cards that moved take to get to their new place, or 0 when they
 	// jump there.
 	glideFor time.Duration
+	// moved is set in the first frame of a step.
+	moved bool
 }
 
 func newStepView(m stats.Match, rs *replayState) *stepView {
@@ -44,6 +46,16 @@ func (sv *stepView) side(id string) page.Side { return page.SideOf(sv.m, id) }
 
 func (sv *stepView) seat(mine bool) page.Side { return page.Side{Mine: mine, Opp: sv.m.Opp.Name} }
 
+// sameBattleBefore reports whether the step before showed this step's attack, as a counter
+// step does after the attack.
+func (sv *stepView) sameBattleBefore() bool {
+	if sv.index == 0 {
+		return false
+	}
+	a, b := sv.r.Steps[sv.index-1].Battle, sv.step.Battle
+	return a != nil && b != nil && a.AttackerID == b.AttackerID && a.DefenderID == b.DefenderID
+}
+
 // attacker is the page.Side of the step's attack. The step has to have a battle.
 func (sv *stepView) attacker() page.Side { return sv.seat(sv.me.Owner == sv.step.Battle.AttackerOwner) }
 
@@ -55,22 +67,42 @@ func (pg *Page) replayPage(c *ui.Context, e *page.Env, m stats.Match) {
 	}
 	sv := newStepView(m, rs)
 	moved := rs.moved
+	sv.moved = moved
 	rs.moved = false
+	if moved {
+		rs.shownAt = c.Now()
+	}
 	page := ui.Row(c).Fill().Padding(14).Gap(14).AlignItems(ui.Stretch)
 	side := min(max(rs.pageBox.W*0.2, 250), 340)
 	page.Children(func() {
-		pg.replayLeft(c, e, sv, side)
+		hands := pg.replayLeft(c, e, sv, side)
 		var center ui.Element
 		ui.Column(c).Grow(1).Basis(0).MinWidth(0).MinHeight(0).Gap(12).AlignItems(ui.Center).Children(func() {
-			center = ui.Column(c).Grow(1).Basis(0).MinHeight(0).AlignSelf(ui.Stretch).Clip().AlignItems(ui.Center).Justify(ui.Center)
+			center = ui.Column(c).Grow(1).Basis(0).MinHeight(0).AlignSelf(ui.Stretch).AlignItems(ui.Center).Justify(ui.Center)
 			center.Children(func() { playmat(c, e, fitMat(rs.matBox), sv) })
 			// The bar is as wide as the mat, so it stays under it as the window changes.
 			ui.Box(c).Width(fitMat(rs.matBox).W).Children(func() { pg.controls(c, e, sv) })
 		})
 		replayRight(c, e, sv, side, moved)
-		rs.measure(c, page.Bounds(), center.Bounds())
+		// The hands are built after the mat, so cards on their way from the mat to a hand pass
+		// over it. Each takes the place its stand-in had in the frame before.
+		pb := page.Bounds()
+		for i, s := range []*replay.Side{sv.them, sv.me} {
+			b := hands[i].Bounds()
+			if b.W == 0 {
+				continue
+			}
+			ui.Box(c.Key(handKey(i))).Absolute().Left(b.X - pb.X).Top(b.Y - pb.Y).Children(func() {
+				fan(c, e, sv, s.Hand, b, fanWidth(side), i == 0)
+			})
+		}
+		rs.measure(c, pb, center.Bounds())
 	})
 }
+
+type handKey int
+
+func fanWidth(side float32) float32 { return side * 0.19 }
 
 func (rs *replayState) measure(c *ui.Context, page, mat ui.Rect) {
 	if page.W == rs.pageBox.W && page.H == rs.pageBox.H && mat.W == rs.matBox.W && mat.H == rs.matBox.H {
@@ -99,9 +131,14 @@ func (pg *Page) replayWaiting(c *ui.Context, rs *replayState) {
 
 const noMovesText = "This game's log comes from a sim version without the move stream, so it can't be replayed."
 
-func (pg *Page) replayLeft(c *ui.Context, e *page.Env, sv *stepView, side float32) {
+// replayLeft returns the stand-ins for the opponent's hand and the user's, which take the room
+// the fans need.
+func (pg *Page) replayLeft(c *ui.Context, e *page.Env, sv *stepView, side float32) (hands [2]ui.Element) {
 	t := c.Theme()
-	fw := side * 0.19
+	fw := fanWidth(side)
+	stand := func(s *replay.Side) ui.Element {
+		return ui.Box(c).Size(side, shapeFan(len(s.Hand), side, fw).h)
+	}
 	ui.Column(c).Width(side).Gap(8).Children(func() {
 		back := ui.Row(c).Gap(6).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("Back to match")
 		if back.Clicked() {
@@ -112,11 +149,12 @@ func (pg *Page) replayLeft(c *ui.Context, e *page.Env, sv *stepView, side float3
 			ui.Text(c, "Back to match").TextColor(t.TextMuted)
 		})
 		replaySideName(c, e, sv, sv.them)
-		fan(c, e, sv, sv.them.Hand, side, fw, true)
+		hands[0] = stand(sv.them)
 		kit.Panel(c).Grow(1).Basis(0).Padding(12).Clip().Children(func() { inspector(c, e, sv, side-24) })
-		fan(c, e, sv, sv.me.Hand, side, fw, false)
+		hands[1] = stand(sv.me)
 		replaySideName(c, e, sv, sv.me)
 	})
+	return hands
 }
 
 func replaySideName(c *ui.Context, e *page.Env, sv *stepView, s *replay.Side) {
@@ -128,11 +166,41 @@ func replaySideName(c *ui.Context, e *page.Env, sv *stepView, s *replay.Side) {
 	})
 }
 
-// fan is a hand as overlapping cards turned a little apart. Cards drawn from the deck fade in
-// from the mat's side.
-func fan(c *ui.Context, e *page.Env, sv *stepView, hand []replay.Card, width, fw float32, top bool) ui.Element {
+// deckBefore is the cards under the top of the deck in the step shown before, the opponent's
+// or the user's. The top card shows on the mat already, and its Match brings it.
+func (sv *stepView) deckBefore(theirs bool) map[int]bool {
+	if sv.glideFor == 0 {
+		return nil
+	}
+	b := &sv.r.Steps[sv.rs.from].Board
+	s := b.Side(sv.me.Owner)
+	if theirs {
+		s = b.Side(sv.them.Owner)
+	}
+	d := s.Deck()
+	in := make(map[int]bool, len(d))
+	for _, c := range d[:max(len(d)-1, 0)] {
+		in[c.ID] = true
+	}
+	return in
+}
+
+// deckSide indexes replayState.deckAt.
+func deckSide(sv *stepView, s *replay.Side) int {
+	if s == sv.me {
+		return 1
+	}
+	return 0
+}
+
+// fanShape is how a hand of n cards fans out in width: how far apart the cards sit, how much
+// each turns and drops, and the room the fan takes.
+type fanShape struct {
+	stepX, turn, drop, curve, reach, h float32
+}
+
+func shapeFan(n int, width, fw float32) fanShape {
 	fh := page.CardHeight(fw)
-	n := len(hand)
 	stepX := fw * 0.62
 	if n > 1 {
 		stepX = min(stepX, (width-fw-8)/float32(n-1))
@@ -146,26 +214,38 @@ func fan(c *ui.Context, e *page.Env, sv *stepView, hand []replay.Card, width, fw
 	reach := fw/2*float32(math.Sin(maxTurn)) + fh/2*(float32(math.Cos(maxTurn))-1)
 	reach = max(reach, 0) + 2
 	curve := drop * half * half
-	return ui.Box(c).Size(width, fh+curve+2*reach).Children(func() {
-		toMat := float32(-fh)
-		top0 := reach
+	return fanShape{stepX: stepX, turn: turn, drop: drop, curve: curve, reach: reach, h: fh + curve + 2*reach}
+}
+
+// fan is a hand as overlapping cards turned a little apart, at at in the window. A card that
+// comes from elsewhere on the mat flies from there, and any other new card from the deck.
+func fan(c *ui.Context, e *page.Env, sv *stepView, hand []replay.Card, at ui.Rect, fw float32, top bool) ui.Element {
+	n := len(hand)
+	sh := shapeFan(n, at.W, fw)
+	deck := sv.rs.deckAt[1]
+	if top {
+		deck = sv.rs.deckAt[0]
+	}
+	fromDeck := sv.deckBefore(top)
+	return ui.Box(c).Size(at.W, sh.h).Children(func() {
+		top0 := sh.reach
 		if top {
-			toMat = fh
-			top0 += curve
+			top0 += sh.curve
 		}
 		for i, card := range hand {
 			off := float32(i) - float32(n-1)/2
-			angle, dy := off*turn, off*off*drop
+			angle, dy := off*sh.turn, off*off*sh.drop
 			if top {
 				angle, dy = -angle, -dy
 			}
-			box := ui.Box(c.Key(cardMatch(card.ID))).Absolute().Left(4 + float32(i)*stepX).Top(top0 + dy).Rotate(angle)
-			if sv.glideFor > 0 {
-				box.Transition(ui.ElementTransition{
-					Duration: sv.glideFor, Position: true, Match: cardMatch(card.ID),
-					Enter: &ui.Motion{Y: toMat},
-				})
+			x, y := 4+float32(i)*sh.stepX, top0+dy
+			box := ui.Box(c.Key(cardMatch(card.ID))).Absolute().Left(x).Top(y)
+			var enter *ui.Motion
+			if fromDeck[card.ID] {
+				enter = &ui.Motion{X: deck.X - at.X - x, Y: deck.Y - at.Y - y, Opacity: 1}
 			}
+			box.Transition(sv.glide(cardMatch(card.ID), enter))
+			box.Rotate(sv.ease(box, "turn", angle))
 			box.Children(func() { e.Card(c, card.Code, fw) })
 		}
 	})
