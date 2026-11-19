@@ -289,8 +289,8 @@ func (pg *Page) powerPill(c *ui.Context) {
 		if !set {
 			return
 		}
-		x := ui.ButtonBase(c.Key("power clear")).Label("Clear the power range").Size(22, 22).Margin(0, 6, 0, 0).
-			Radius(11).Center().Background(ui.Transparent)
+		x := ui.ButtonBase(c.Key("power clear")).Label("Clear the power range").Size(28, 28).Margin(0, 3, 0, 0).
+			Radius(14).Center().Background(ui.Transparent)
 		if x.Hovered() {
 			x.Background(t.SurfaceHover)
 		}

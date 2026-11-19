@@ -325,21 +325,32 @@ func (pg *Page) controls(c *ui.Context, e *page.Env, sv *stepView) {
 	t := c.Theme()
 	s := sv.step
 	round := func(icon *ui.SVG, label, tip string, size float32, primary, off bool) ui.Element {
-		b := ui.ButtonBase(c.Key(label)).Size(size, size).Radius(size / 2).Center().Label(label).Tooltip(tip).Disabled(off)
+		key := label
+		if primary {
+			key = "play"
+		}
+		b := ui.ButtonBase(c.Key(key)).Size(size, size).Radius(size / 2).Center().Label(label).Tooltip(tip).Disabled(off)
 		col := t.Text
 		if primary {
 			b.Background(t.Accent)
 			col = t.AccentText
 		}
-		b.Children(func() { ui.Icon(c, icon).Size(size*0.45, size*0.45).TextColor(col) })
-		return b
+		is := size * 0.45
+		b.Children(func() {
+			ui.Box(c).Size(is, is).Children(func() {
+				ui.Box(c.Key(label)).Absolute().Fill().Center().Transition(kit.IconCross).Children(func() {
+					ui.Icon(c, icon).Size(is, is).TextColor(col)
+				})
+			})
+		})
+		return kit.PressScale(b)
 	}
-	ui.Row(c).Gap(16).AlignItems(ui.Center).Padding(8, 14).Radius(12).Background(t.Surface).Children(func() {
+	ui.Row(c).Gap(16).AlignItems(ui.Center).Padding(8, 14).Radius(29).Background(t.Surface).Children(func() {
 		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
-			if round(kit.IconPrevTurn, "Previous turn", "Previous turn (Page Up)", 32, false, s.Turn == 0).Clicked() {
+			if round(kit.IconPrevTurn, "Previous turn", "Previous turn (Page Up)", 36, false, s.Turn == 0).Clicked() {
 				rs.prevTurn()
 			}
-			if round(kit.IconPrevStep, "Previous step", "Previous step (Left)", 32, false, rs.step == 0).Clicked() {
+			if round(kit.IconPrevStep, "Previous step", "Previous step (Left)", 36, false, rs.step == 0).Clicked() {
 				rs.jump(rs.step - 1)
 			}
 			icon, label := kit.IconPlay, "Play"
@@ -349,10 +360,10 @@ func (pg *Page) controls(c *ui.Context, e *page.Env, sv *stepView) {
 			if round(icon, label, "Space", 42, true, false).Clicked() {
 				pg.togglePlay(e)
 			}
-			if round(kit.IconNextStep, "Next step", "Next step (Right)", 32, false, rs.step == len(rs.r.Steps)-1).Clicked() {
+			if round(kit.IconNextStep, "Next step", "Next step (Right)", 36, false, rs.step == len(rs.r.Steps)-1).Clicked() {
 				rs.jump(rs.step + 1)
 			}
-			if round(kit.IconNextTurn, "Next turn", "Next turn (Page Down)", 32, false, s.Turn == rs.lastTurn()).Clicked() {
+			if round(kit.IconNextTurn, "Next turn", "Next turn (Page Down)", 36, false, s.Turn == rs.lastTurn()).Clicked() {
 				rs.nextTurn()
 			}
 		})
@@ -368,9 +379,28 @@ func (pg *Page) controls(c *ui.Context, e *page.Env, sv *stepView) {
 			rs.restartTurn()
 		}
 		speed := rs.speed
-		ui.Segmented(c, &rs.speed, speedLabels()...)
+		speedPills(c, &rs.speed, speedLabels())
 		if rs.speed != speed {
 			pg.schedule(e)
+		}
+	})
+}
+
+// speedPills is a segmented control drawn as pills, so it sits inside the round controls bar.
+func speedPills(c *ui.Context, selected *int, labels []string) {
+	t := c.Theme()
+	p := ui.SegmentedBase(c, selected, len(labels))
+	p.Track.Label("Speed").Padding(2).Gap(2).Radius(99).Background(t.Surface).Border(1, t.Border)
+	p.Track.Children(func() {
+		for i, label := range labels {
+			s := p.Segment(i).Padding(4, 12).Radius(99).Background(ui.Transparent)
+			switch {
+			case i == *selected:
+				s.Background(t.SurfacePressed).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.12))
+			case s.Hovered():
+				s.Background(t.SurfaceHover)
+			}
+			s.Children(func() { ui.Text(c, label).SingleLine() })
 		}
 	})
 }

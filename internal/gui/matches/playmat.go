@@ -418,7 +418,7 @@ func donDeck(c *ui.Context, e *page.Env, k func() *ui.Context, m mat, s *replay.
 	}
 	ui.Box(k()).Absolute().Left(x).Top(y).Size(m.dw, m.dh).Label("DON!! deck").Children(func() {
 		if art := e.Art.Get(page.DonBackCode, page.ArtCard); art != nil {
-			ui.Image(c, art).Size(m.dw, m.dh).Fit(ui.Cover).Radius(3)
+			ui.Image(c, art).Size(m.dw, m.dh).Fit(ui.Cover).Radius(3).Border(1, kit.ImageEdge)
 		} else {
 			ui.Box(c).Size(m.dw, m.dh).Radius(3).Background(donGold)
 		}
@@ -428,7 +428,7 @@ func donDeck(c *ui.Context, e *page.Env, k func() *ui.Context, m mat, s *replay.
 
 func donCard(c *ui.Context, e *page.Env, w, h float32) ui.Element {
 	if art := e.Art.Get(page.DonCode, page.ArtCard); art != nil {
-		return ui.Image(c, art).Size(w, h).Fit(ui.Cover).Radius(3)
+		return ui.Image(c, art).Size(w, h).Fit(ui.Cover).Radius(3).Border(1, kit.ImageEdge)
 	}
 	return ui.Box(c).Size(w, h).Radius(3).Background(donGold).Center().Children(func() {
 		ui.Text(c, "DON!!").FontSize(max(w*0.2, 8)).Bold().TextColor(donInk)

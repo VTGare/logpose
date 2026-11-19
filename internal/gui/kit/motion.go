@@ -8,7 +8,7 @@ import (
 
 // The app's motion. mygo skips all of it when Windows asks for less motion.
 const (
-	pageEnterTime = 180 * time.Millisecond
+	pageEnterTime = 140 * time.Millisecond
 	tileEnterTime = 240 * time.Millisecond
 	tileStagger   = 30 * time.Millisecond
 	// staggerMost caps the delays, so long lists don't drag.
@@ -18,10 +18,13 @@ const (
 	HoverTime   = 120 * time.Millisecond
 	slideTime   = 200 * time.Millisecond
 	openTime    = 220 * time.Millisecond
+	closeTime   = 150 * time.Millisecond
+	swapTime    = 300 * time.Millisecond
+	pressTime   = 100 * time.Millisecond
 )
 
-// PageEnter fades a page in and lifts it 8 DIPs as it opens.
-var PageEnter = ui.ElementTransition{Duration: pageEnterTime, Colors: true, Enter: &ui.Motion{Y: 8}}
+// PageEnter fades a page in.
+var PageEnter = ui.ElementTransition{Duration: pageEnterTime, Colors: true, Enter: &ui.Motion{}}
 
 // TileEnter brings the i-th of a list's tiles in a little after the one before it.
 func TileEnter(i int) ui.ElementTransition {
@@ -36,8 +39,25 @@ var Slide = ui.ElementTransition{Duration: slideTime, Position: true}
 
 // Unfold opens and closes a part of a list in place, as a matchup's row.
 var Unfold = ui.ElementTransition{
-	Duration: openTime, Colors: true,
+	Duration: openTime, ExitDuration: closeTime, Colors: true,
 	Enter: &ui.Motion{Collapse: true}, Exit: &ui.Motion{Collapse: true},
+}
+
+// IconCross crosses one icon over into another, as Play into Pause.
+var IconCross = ui.ElementTransition{
+	Duration: swapTime, Ease: ui.CubicBezier(0.2, 0, 0, 1),
+	Enter: &ui.Motion{Scale: 0.25, Blur: 4}, Exit: &ui.Motion{Scale: 0.25, Blur: 4},
+}
+
+// PressScale shrinks a button a little while it's pressed.
+func PressScale(b ui.Element) ui.Element {
+	down := float32(0)
+	if b.Pressed() {
+		down = 1
+	}
+	at := b.AnimateTo("press", down, ui.Animation{Duration: pressTime})
+	s := 1 - 0.04*at
+	return b.Scale(s, s)
 }
 
 // Lift raises el 2 DIPs with a deeper shadow while the pointer is over it, to show it opens

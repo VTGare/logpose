@@ -161,3 +161,6 @@ func ResultLetter(r stats.Result) string {
 var OnAccent = ui.RGB(8, 17, 28)
 
 var CardGold = ui.Hex("#F0C05A")
+
+// ImageEdge is the hairline around card art, so dark art keeps its edge on a dark panel.
+var ImageEdge = ui.RGBA(255, 255, 255, 0.1)

@@ -54,7 +54,7 @@ func (pg *Page) Draw(c *ui.Context, e *page.Env) {
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
 			ui.Text(c, "Formats").FontSize(20).FontWeight(600)
-			ui.Text(c, "A format runs from the day it starts until the next one starts, and holds the ranked games in it. Casual lobbies can be any format, so they only show under All formats. The sim's logs don't say which format a game was played in, so you set where each one begins.").TextColor(t.TextMuted).Wrap().MaxWidth(820)
+			ui.Text(c, "A format runs from the day it starts until the next one starts, and holds the ranked games in it. Casual lobbies can be any format, so they only show under All formats. The sim's logs don't say which format a game was played in, so you set where each one begins.").TextColor(t.TextMuted).Wrap().Pretty().MaxWidth(820)
 			pg.debutTiles(c, e)
 			pg.formatTimeline(c, e)
 			pg.formatList(c, e)

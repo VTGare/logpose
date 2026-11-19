@@ -2,6 +2,7 @@ package overview
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/VTGare/logpose/internal/gui/page"
@@ -104,15 +105,41 @@ func headline(c *ui.Context, e *page.Env, o stats.Overview) {
 					muted("None yet")
 					return
 				}
-				// The squares wrap before the record does. Two rows of them fit beside the record.
-				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, kit.Record(o.TodayRecord)).FontSize(28).Bold().TextColor(t.Text).SingleLine().Shrink(0)
-					ui.Column(c).Grow(1).Basis(0).MinWidth(0).Children(func() { page.ResultSquares(c, o.Today, 12) })
-				})
-				muted(fmt.Sprintf("%s · %s", kit.Games(len(o.Today)), kit.Duration(o.TodayTime)))
+				todayBlock(c, o)
 			})
 		})
 	})
+}
+
+// todayBlock is the day's record over a square per game. The squares take the block's width in
+// at most two rows, so a long day doesn't push them past the banner.
+func todayBlock(c *ui.Context, o stats.Overview) {
+	t := c.Theme()
+	ui.Text(c, kit.Record(o.TodayRecord)).FontSize(28).Bold().TextColor(t.Text).SingleLine()
+	n := len(o.Today)
+	// Drawn rather than laid out, so the squares size to the width this frame has.
+	ui.Box(c).FillWidth().Height(2*todaySquareMax + todaySquareMax/4).Draw(func(p *ui.Painter, r ui.Rect) {
+		size := squareFit(n, r.W, 2)
+		gap := float32(math.Round(float64(size) / 4))
+		cols := max(1, int((r.W+gap)/(size+gap)))
+		for i, res := range o.Today {
+			x := r.X + float32(i%cols)*(size+gap)
+			y := r.Y + float32(i/cols)*(size+gap)
+			p.Fill(ui.Rect{X: x, Y: y, W: size, H: size}, kit.ResultColor(t, res), gap)
+		}
+	})
+}
+
+const todaySquareMax = 12
+
+// squareFit is the largest square, up to todaySquareMax, that lays n squares in rows rows
+// across w.
+func squareFit(n int, w float32, rows int) float32 {
+	if w <= 0 || n == 0 {
+		return todaySquareMax
+	}
+	cols := (n + rows - 1) / rows
+	return max(4, min(todaySquareMax, float32(math.Floor(float64(w/(float32(cols)*1.25))))))
 }
 
 func streakText(o stats.Overview) string {

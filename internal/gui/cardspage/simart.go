@@ -408,6 +408,7 @@ func smallButton(c *ui.Context, label string, icon *ui.SVG, text bool) ui.Elemen
 		b.Background(t.SurfaceHover)
 	}
 	b.Tooltip(label)
+	kit.PressScale(b)
 	b.Children(func() {
 		ui.Icon(c, icon).Size(14, 14)
 		if text {

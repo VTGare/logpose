@@ -45,7 +45,7 @@ func (e *Env) CardImage(c *ui.Context, ref string, w float32) ui.Element {
 	if art == nil {
 		return e.CardPlaceholder(c, ParseArtRef(ref).Card(), w, CardHeight(w))
 	}
-	return ui.Image(c, art).Size(w, CardHeight(w)).Fit(ui.Cover).Radius(4)
+	return ui.Image(c, art).Size(w, CardHeight(w)).Fit(ui.Cover).Radius(4).Border(1, kit.ImageEdge)
 }
 
 // CardPlaceholder is a block in the card's colors, in the game's order.
@@ -82,7 +82,7 @@ func (e *Env) CardPreview(c *ui.Context, anchor ui.Element, ref string, notes ..
 				if art == nil {
 					ui.Text(c, e.Snap.Card(ParseArtRef(ref).Card()).Name).FontSize(13).TextColor(PillText).Padding(6, 10)
 				} else {
-					ui.Image(c, art).Size(pw, CardHeight(pw)).Fit(ui.Cover).Radius(10)
+					ui.Image(c, art).Size(pw, CardHeight(pw)).Fit(ui.Cover).Radius(10).Border(1, kit.ImageEdge)
 				}
 				for i, n := range notes {
 					ui.Text(c.Key(i), n).FontSize(12).TextColor(PillText).Padding(0, 10, 4, 10).Wrap()
@@ -105,7 +105,7 @@ func NeedsPreview(c *ui.Context, w float32) bool { return w < previewWidth(c)*0.
 
 func (e *Env) ArtStrip(c *ui.Context, code string, w, h float32) {
 	if art := e.Art.Get(code, artCrop); art != nil {
-		ui.Image(c, art).Size(w, h).Fit(ui.Cover).Radius(4)
+		ui.Image(c, art).Size(w, h).Fit(ui.Cover).Radius(4).Border(1, kit.ImageEdge)
 		return
 	}
 	e.CardPlaceholder(c, code, w, h)

@@ -50,7 +50,7 @@ func Panel(c *ui.Context) ui.Element {
 }
 
 func IconButton(c *ui.Context, icon *ui.SVG, text string) ui.Element {
-	return ui.Button(c, "").Children(func() {
+	return PressScale(ui.Button(c, "")).Children(func() {
 		ui.Icon(c, icon)
 		ui.Text(c, text).SingleLine()
 	})
