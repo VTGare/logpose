@@ -60,6 +60,18 @@ var _ = Describe("opening hands", func() {
 		Expect(g.Mulligans[bobID].Before).To(HaveLen(5))
 	})
 
+	It("keeps a leader's start of game effect and the opening hands out of turn 1", func() {
+		lines := []string{by(bob, card("Imu", "OP13-079")+": Deploy "+card("The Empty Throne", "OP13-099"))}
+		lines = append(lines, drew(bob, "OP14-096", "OP13-084", "OP13-098", "OP13-089", "OP13-096")...)
+		g := game(append(lines, by(bob, "Mulligan"))...)
+		for _, l := range g.Lines {
+			if strings.Contains(l.Text, "Empty Throne") || l.Text == "Mulligan" {
+				Expect(l.Turn).To(BeZero(), l.Text)
+			}
+		}
+		Expect(g.Mulligans[bobID].Mulliganed).To(BeTrue())
+	})
+
 	It("keeps the hand the log states over the draws", func() {
 		lines := drew(alice, "OP12-023", "EB05-001", "EB05-001", "OP07-022", "ST32-002")
 		lines = append(lines, by(alice, "Hand before Mulligan: [OP12-023,EB05-001,EB05-001,OP07-022,ST32-002]"))

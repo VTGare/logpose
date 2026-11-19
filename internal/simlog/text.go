@@ -196,7 +196,8 @@ func (b *builder) addText(raw string) {
 	b.learnNames(raw)
 	l := parseLine(raw)
 	header := b.headerLine(l)
-	if !b.begun && !header && !isPregame(l.Text) {
+	// A leader's [Start of Game] effect, such as Imu's, is logged before the opening hands.
+	if !b.begun && !header && !isPregame(l.Text) && l.Source == "" {
 		b.begun = true
 	}
 	if b.begun {

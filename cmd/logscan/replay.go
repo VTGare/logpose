@@ -81,7 +81,7 @@ var kindNames = map[replay.Kind]string{
 	replay.KindLife: "life", replay.KindTurnStart: "turn", replay.KindPlay: "play", replay.KindAttach: "attach",
 	replay.KindAttack: "attack", replay.KindBlock: "block", replay.KindCounter: "counter",
 	replay.KindDamage: "damage", replay.KindBattleEffect: "battle effect", replay.KindEffect: "effect",
-	replay.KindConcede: "concede", replay.KindDeckOut: "deck out",
+	replay.KindConcede: "concede", replay.KindDeckOut: "deck out", replay.KindStartOfGame: "start of game",
 }
 
 // showSteps prints every step of the games in one log, with each side's counts after it.

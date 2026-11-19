@@ -45,7 +45,7 @@ var kindWords = map[Kind]string{
 	KindLobby: "lobby", KindOpeningHand: "opening", KindMulligan: "mulligan", KindLife: "life",
 	KindTurnStart: "turn", KindPlay: "play", KindAttach: "attach", KindAttack: "attack", KindBlock: "block",
 	KindCounter: "counter", KindDamage: "damage", KindBattleEffect: "battle effect", KindEffect: "effect",
-	KindConcede: "concede", KindDeckOut: "deck out",
+	KindConcede: "concede", KindDeckOut: "deck out", KindStartOfGame: "start of game",
 }
 
 // summary is a step as "T3 Bob: attack OP17-039 OP13-001", with what else the step holds.
@@ -286,6 +286,36 @@ var _ = Describe("Build", func() {
 		Expect(err).To(MatchError(ErrNoMoves))
 	})
 
+	It("gives a leader's start of game effect its own step before that player's opening hand", func() {
+		lines := append(header[:len(header):len(header)],
+			"RZ1|1|1|ST32-001|0|49|1|0|1|1|0|0|0",
+			"RZ1|CHK|1|1|49|1|0|0|10|0|0|0|1|0",
+			"RZ1|2|2|OP13-099|0|49|7|0|1|1|0|0|0",
+			"RZ1|CHK|2|2|49|0|0|0|10|0|0|1|1|0",
+			by(bob, link("Imu", "OP13-079")+": Deploy "+link("The Empty Throne", "OP13-099")),
+			"RZ1|3|2|OP13-084|0|48|1|0|1|1|0|0|0",
+			"RZ1|CHK|3|2|48|1|0|0|10|0|0|1|1|0",
+			by(bob, "Chose to go Second"),
+			"RZ1|4|1|Don|4|9|5|0|1|1|0|0|0",
+			"RZ1|CHK|4|1|49|1|0|0|9|1|0|0|1|0",
+			by(alice, "Draw 1 Don"),
+			by(bob, "Concedes!"),
+		)
+		r := build(logOf(lines...))
+		Expect(r.Issues).To(BeEmpty())
+		var got []string
+		for _, s := range r.Steps {
+			got = append(got, summary(s))
+		}
+		Expect(got).To(Equal([]string{
+			"T0 Alice: opening",
+			"T0 Bob: start of game OP13-099",
+			"T0 Bob: opening",
+			"T1 Alice: turn don 1",
+			"T1 Bob: concede",
+		}))
+	})
+
 	It("skips the end of the game before a rematch", func() {
 		lines := append(header[:len(header):len(header)],
 			"RZ1|1|2|Don|9|9900|5|0|1|1|1|0|0",
@@ -381,6 +411,30 @@ var _ = Describe("Build", func() {
 			}
 		}
 		Expect(looks(attack.Board.Side(1).Characters)).To(Equal([]string{"ST32-001(R)+1"}))
+	})
+
+	It("rests the attacker in its attack step, not in the step before", func() {
+		lines := append(header[:len(header):len(header)],
+			"RZ1|1|1|ST32-001|0|49|1|0|1|1|0|0|0",
+			"RZ1|CHK|1|1|49|1|0|0|10|0|0|0|1|0",
+			by(bob, "Chose to go Second"),
+			"RZ1|2|1|Don|4|9|5|0|1|1|0|0|0",
+			by(alice, "Draw 1 Don"),
+			"RZ1|3|1|ST32-001|1|0|2|0|1|1|0|0|0",
+			by(alice, "Deploy "+kinemon),
+			"RZ1|4|1|ST32-001|2|0|2|0|1|1|1|0|0",
+			"RZ1|CHK|4|1|49|0|1|0|9|1|0|0|1|0",
+			by(alice, kinemon+" attacking "+link("Monkey D. Luffy", "OP13-001")),
+			by(bob, "Concedes!"),
+		)
+		r := build(logOf(lines...))
+		Expect(r.Issues).To(BeEmpty())
+		boards := make(map[Kind][]string)
+		for _, s := range r.Steps {
+			boards[s.Kind] = looks(s.Board.Side(1).Characters)
+		}
+		Expect(boards[KindPlay]).To(Equal([]string{"ST32-001"}))
+		Expect(boards[KindAttack]).To(Equal([]string{"ST32-001(R)"}))
 	})
 
 	It("marks the replay unverified from the first count the log disagrees with", func() {

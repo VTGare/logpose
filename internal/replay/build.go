@@ -232,6 +232,8 @@ func (b *builder) setupStep(p int, m simlog.Move, st *cutState) (draft, bool) {
 	}
 	d := draft{start: p, player: b.player[o], starter: -1}
 	switch {
+	case m.From == simlog.ZoneDeck && (m.To == simlog.ZoneStage || m.To == simlog.ZoneCharacter):
+		d.kind, d.cards = KindStartOfGame, []string{m.Card}
 	case !st.opened[o]:
 		st.opened[o] = true
 		d.kind = KindOpeningHand
@@ -330,6 +332,7 @@ func (b *builder) battleStep(d *draft, l simlog.Line, floor int, st *cutState) b
 	case l.Kind == simlog.LineBlock && len(l.Cards) == 1:
 		st.attack.Blocker = l.Cards[0]
 		d.kind, d.cards = KindBlock, l.Cards
+		d.start = b.back(d.start, floor, owner, nil)
 	case l.Kind == simlog.LineCounterDiscard && len(l.Cards) == 1:
 		d.kind, d.cards = KindCounter, l.Cards
 		d.start = b.backCounter(d.start, floor, owner, l.Cards[0])
@@ -370,8 +373,8 @@ func (b *builder) setupEnd() int {
 }
 
 // back finds where a step that starts on the line at p begins. When key matches a move of the
-// owner since the step before began, the step begins at that move. It then takes in the DON the
-// owner rested just before, which paid for it.
+// owner since the step before began, the step begins at that move. It then takes in the owner's
+// moves just before: the DON rested to pay for it and the moves its lines explain.
 func (b *builder) back(p, floor, owner int, key func(simlog.Move) bool) int {
 	q := p
 	if key != nil {
@@ -384,11 +387,16 @@ func (b *builder) back(p, floor, owner int, key func(simlog.Move) bool) int {
 			}
 		}
 	}
+	starter := -1
+	if e := b.events[p]; e.line >= 0 {
+		starter = e.line
+	}
 	for q-1 > floor {
 		e := b.events[q-1]
 		if e.move >= 0 {
 			m := b.g.Moves[e.move]
-			if m.Owner != owner || m.From != simlog.ZoneDonField || m.To != simlog.ZoneDonField || !m.Rested {
+			paid := m.From == simlog.ZoneDonField && m.To == simlog.ZoneDonField && m.Rested
+			if m.Owner != owner || (!paid && !b.told(m, starter)) {
 				break
 			}
 		} else if !quiet(b.g.Lines[e.line]) {
@@ -397,6 +405,17 @@ func (b *builder) back(p, floor, owner int, key func(simlog.Move) bool) int {
 		q--
 	}
 	return q
+}
+
+// told reports whether the line that says why m happened is at or before the step's starting
+// line and names m's card. The sim moves the local player's cards before that line, such as an
+// attacker resting or a character trashed to make room.
+func (b *builder) told(m simlog.Move, starter int) bool {
+	why := m.Line
+	for why >= 0 && why < starter && quiet(b.g.Lines[why]) {
+		why++
+	}
+	return why >= 0 && why <= starter && slices.Contains(b.g.Lines[why].Cards, m.Card)
 }
 
 // namedBefore reports whether an effect line between the events at i and p names the card. A
@@ -460,7 +479,9 @@ func (b *builder) backDamage(p, floor, owner int) int {
 		if e.move >= 0 {
 			m := b.g.Moves[e.move]
 			from := m.From
-			if m.Owner != owner || (from != simlog.ZoneLife && from != simlog.ZoneCharacter && from != simlog.ZoneDonAttached) {
+			// The attacker's side can rest a card in place between them, which changes nothing.
+			inPlace := m.From == m.To && m.FromSlot == m.ToSlot && m.From != simlog.ZoneDeck
+			if !inPlace && (m.Owner != owner || (from != simlog.ZoneLife && from != simlog.ZoneCharacter && from != simlog.ZoneDonAttached)) {
 				break
 			}
 		} else if !quiet(b.g.Lines[e.line]) {

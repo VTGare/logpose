@@ -65,6 +65,10 @@ var stepKinds = [...]stepKind{
 	replay.KindEffect:       {"Main", effectTitle},
 	replay.KindConcede:      {"Conceded", fixedTitle("Conceded")},
 	replay.KindDeckOut:      {"Out of cards", fixedTitle("Ran out of cards")},
+	replay.KindStartOfGame: {"Setup", func(w *words, s *replay.Step) {
+		w.text("Played ")
+		w.Card(s.Cards[0])
+	}},
 }
 
 // stepTitle says what a replay step did, as "Monkey D. Luffy attacked Rocks D. Xebec".

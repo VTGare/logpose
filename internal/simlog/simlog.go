@@ -171,7 +171,7 @@ type Game struct {
 
 // Version is the parser's version. It goes up whenever parsing the same text gives different
 // results, so stored games know to be parsed again.
-const Version = 9
+const Version = 10
 
 func (g *Game) Player(id string) (Player, bool) {
 	for _, p := range g.Players {

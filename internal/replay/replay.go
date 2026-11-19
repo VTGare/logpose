@@ -37,6 +37,9 @@ const (
 	KindEffect
 	KindConcede
 	KindDeckOut
+	// KindStartOfGame is a card a leader's [Start of Game] effect plays before the opening hands,
+	// such as Imu's stage.
+	KindStartOfGame
 )
 
 // Step is one action, with the board after it.
@@ -114,7 +117,7 @@ type Replay struct {
 
 // Version goes up whenever Build gives different steps or boards for the same game, so facts
 // read from them are read again.
-const Version = 5
+const Version = 7
 
 var ErrNoMoves = errors.New("replay: the game has no RZ1 moves")
 
