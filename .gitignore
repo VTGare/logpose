@@ -20,8 +20,9 @@ CLAUDE.local.md
 # Task checksums
 /.task/
 
-# Local Claude settings and worktrees
+# Local agent settings, skills and worktrees
 /.claude/
+/.agents/
 
 # The prototype the GUI decision was based on
 /prototypes/

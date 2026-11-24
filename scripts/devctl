@@ -1,0 +1,319 @@
+#!/usr/bin/env python3
+# Runs and drives the Windows dev build of logpose from WSL through mygo's automation plugin.
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEV_EXE = os.path.join(REPO, "out", "bin", "logpose-dev.exe")
+AUTO_EXE = os.path.join(REPO, "out", "tools", "mygo-automation.exe")
+STATE_DIR = os.path.join(REPO, "out", "dev")
+DEFAULT_DB = os.path.join(STATE_DIR, "dev.db")
+
+
+def winpath(p):
+    if len(p) >= 2 and p[1] == ":":
+        return p
+    if p.startswith("\\\\"):
+        return p
+    p = os.path.abspath(p)
+    parent = os.path.dirname(p)
+    if not os.path.exists(p) and os.path.isdir(parent):
+        return winpath(parent) + "\\" + os.path.basename(p)
+    return subprocess.run(
+        ["wslpath", "-w", p], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def win_temp():
+    r = subprocess.run(
+        ["cmd.exe", "/c", "echo %LOCALAPPDATA%\\Temp"],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd="/mnt/c",
+    )
+    return r.stdout.strip()
+
+
+def wslpath(win_p):
+    return subprocess.run(
+        ["wslpath", "-u", win_p], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def stage_exe(temp_win):
+    # Windows shows a security prompt when ShellExecute runs an exe from \\wsl.localhost.
+    # Staging into %LOCALAPPDATA%\Temp keeps it local and leaves out/bin/ unlocked for rebuilds.
+    stage_dir = os.path.join(wslpath(temp_win), "logpose-dev")
+    os.makedirs(stage_dir, exist_ok=True)
+    dst = os.path.join(stage_dir, "logpose-dev.exe")
+    src_st = os.stat(DEV_EXE)
+    if not os.path.isfile(dst) or os.stat(dst).st_size != src_st.st_size or int(os.stat(dst).st_mtime) != int(src_st.st_mtime):
+        for attempt in range(10):
+            try:
+                shutil.copy2(DEV_EXE, dst)
+                break
+            except OSError:
+                if attempt == 9:
+                    raise
+                time.sleep(0.1)
+    return f"{temp_win}\\logpose-dev\\logpose-dev.exe"
+
+
+def state_path(session):
+    return os.path.join(STATE_DIR, f"{session}.json")
+
+
+def load_state(session):
+    p = state_path(session)
+    if not os.path.isfile(p):
+        return None
+    with open(p, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_state(session, data):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(state_path(session), "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+def run_task(name):
+    env = os.environ.copy()
+    go_bin = os.path.expanduser("~/go/bin")
+    if go_bin not in env.get("PATH", "").split(":"):
+        env["PATH"] = go_bin + ":" + env.get("PATH", "")
+    subprocess.run(["task", name], cwd=REPO, env=env, check=True)
+
+
+def ensure_tools(rebuild=False):
+    if rebuild or not os.path.isfile(DEV_EXE):
+        run_task("build:dev")
+    if not os.path.isfile(AUTO_EXE):
+        run_task("tools:automation")
+
+
+def run_auto(session, args, check=False, capture=False):
+    cmd = [AUTO_EXE, args[0], "--session", session, *args[1:]]
+    r = subprocess.run(cmd, capture_output=capture, text=True)
+    if capture:
+        r.stdout = r.stdout.replace("\r\n", "\n")
+        r.stderr = r.stderr.replace("\r\n", "\n")
+    if check and r.returncode != 0:
+        if capture and r.stderr:
+            sys.stderr.write(r.stderr)
+        sys.exit(r.returncode)
+    return r
+
+
+def stop_pid(pid):
+    if not pid:
+        return
+    subprocess.run(
+        ["taskkill.exe", "/F", "/PID", str(pid)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        cwd="/mnt/c",
+    )
+
+
+def pid_alive(pid):
+    if not pid:
+        return False
+    r = subprocess.run(
+        ["tasklist.exe", "/FI", f"PID eq {pid}", "/NH"],
+        capture_output=True,
+        text=True,
+        cwd="/mnt/c",
+    )
+    return str(pid) in r.stdout
+
+
+def cmd_stop(session):
+    st = load_state(session)
+    if os.path.isfile(AUTO_EXE):
+        run_auto(session, ["close"], capture=True)
+    if st:
+        stop_pid(st.get("pid"))
+        try:
+            os.remove(state_path(session))
+        except FileNotFoundError:
+            pass
+    print(f"stopped session {session}")
+
+
+def cmd_start(args):
+    session = args.session
+    ensure_tools(rebuild=args.build)
+
+    # Stop any previous instance owned by this session so it releases the lock and socket.
+    prev = load_state(session)
+    if prev:
+        run_auto(session, ["close"], capture=True)
+        stop_pid(prev.get("pid"))
+        time.sleep(0.2)
+
+    db = args.db or os.environ.get("LOGPOSE_DEV_DB") or DEFAULT_DB
+    if not (len(db) >= 2 and db[1] == ":") and not db.startswith("\\\\"):
+        os.makedirs(os.path.dirname(os.path.abspath(db)), exist_ok=True)
+    win_db = winpath(db)
+
+    temp_win = win_temp()
+    sock = f"{temp_win}\\logpose-dev-{session}.sock"
+    app_args = ["-dev", "-db", win_db]
+    if not args.visible:
+        app_args.append("-offscreen")
+    if not args.online:
+        app_args.append("-offline")
+    if args.size:
+        app_args.extend(["-size", args.size])
+    if args.page:
+        app_args.extend(["-page", args.page])
+    if args.sim:
+        app_args.extend(["-sim", winpath(args.sim)])
+
+    # Start-Process launches the staged local exe detached and returns its Windows PID immediately.
+    win_exe = stage_exe(temp_win).replace("'", "''")
+    ps_args = ", ".join("'" + a.replace("'", "''") + "'" for a in app_args)
+    ps_lines = [f"$env:MYGO_AUTOMATION = '{sock}'"]
+    if not args.visible:
+        ps_lines.append("$env:MYGO_DEV_BACKGROUND = '1'")
+    ps_lines.extend([
+        f"$p = Start-Process -FilePath '{win_exe}' -ArgumentList @({ps_args}) -PassThru",
+        "$p.Id",
+    ])
+    ps = "; ".join(ps_lines)
+
+    t0 = time.monotonic()
+    r = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-Command", ps],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd="/mnt/c",
+    )
+    pid = int(r.stdout.strip().splitlines()[-1])
+    save_state(session, {"pid": pid, "socket": sock, "db": win_db})
+
+    deadline = time.monotonic() + args.timeout
+    opened = None
+    while time.monotonic() < deadline:
+        res = run_auto(session, ["open", "--socket", sock], capture=True)
+        if res.returncode == 0:
+            opened = res.stdout.strip()
+            break
+        if not pid_alive(pid):
+            sys.stderr.write(
+                "devctl: logpose-dev.exe exited before opening its automation socket "
+                "(another dev instance may hold the lock)\n"
+            )
+            sys.exit(1)
+        time.sleep(0.1)
+
+    if opened is None:
+        stop_pid(pid)
+        sys.stderr.write(f"devctl: timed out waiting for automation socket {sock}\n")
+        sys.exit(1)
+
+    run_auto(
+        session,
+        ["wait", "--gone", "--text", "Loading your games", "--settle", "--timeout", "10s"],
+        capture=True,
+    )
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    print(f"{opened} (pid {pid}, ready in {elapsed_ms}ms)")
+
+
+def cmd_passthrough(session, rest):
+    ensure_tools()
+    if not rest:
+        sys.stderr.write("devctl: missing command (try: start, stop, snapshot, press, wheel, screenshot, skills)\n")
+        sys.exit(2)
+
+    # Convert WSL output paths to Windows paths for screenshot.
+    if rest[0] == "screenshot":
+        rewritten = ["screenshot"]
+        converted = False
+        i = 1
+        while i < len(rest):
+            a = rest[i]
+            if a in ("--window", "--timeout") and i + 1 < len(rest):
+                rewritten.extend([a, rest[i + 1]])
+                i += 2
+                continue
+            if not converted and not a.startswith("-"):
+                if not (len(a) >= 2 and a[1] == ":") and not a.startswith("\\\\"):
+                    os.makedirs(os.path.dirname(os.path.abspath(a)), exist_ok=True)
+                rewritten.append(winpath(a))
+                converted = True
+            else:
+                rewritten.append(a)
+            i += 1
+        rest = rewritten
+
+    # skills, version and help do not take --session.
+    if rest[0] in ("skills", "version", "help"):
+        cmd = [AUTO_EXE, *rest]
+    else:
+        cmd = [AUTO_EXE, rest[0], "--session", session, *rest[1:]]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.stdout:
+        sys.stdout.write(r.stdout.replace("\r\n", "\n"))
+    if r.stderr:
+        sys.stderr.write(r.stderr.replace("\r\n", "\n"))
+    sys.exit(r.returncode)
+
+
+def main():
+    p = argparse.ArgumentParser(
+        prog="devctl",
+        description="Start, stop, and drive the Windows dev build of logpose from WSL.",
+        add_help=False,
+    )
+    p.add_argument("--session", default=os.environ.get("LOGPOSE_DEV_SESSION", "dev"))
+    known, rest = p.parse_known_args()
+
+    if not rest or rest[0] in ("-h", "--help", "help"):
+        print(
+            "usage: scripts/devctl [--session NAME] start [--build] [--db PATH] [--size WxH] [--page ID] [--sim DIR] [--visible] [--online]\n"
+            "       scripts/devctl [--session NAME] stop\n"
+            "       scripts/devctl [--session NAME] <mygo-automation command> [args...]\n\n"
+            "examples:\n"
+            "  scripts/devctl start --build --db path/to/dev.db\n"
+            "  scripts/devctl snapshot -i\n"
+            "  scripts/devctl press key=decks --settle\n"
+            "  scripts/devctl wheel 600 400 0 500 --settle\n"
+            "  scripts/devctl screenshot shot.png\n"
+            "  scripts/devctl stop\n"
+            "  scripts/devctl skills   # full mygo-automation command guide"
+        )
+        sys.exit(0)
+
+    cmd = rest[0]
+    if cmd == "start":
+        sp = argparse.ArgumentParser(prog="devctl start")
+        sp.add_argument("--session", default=known.session)
+        sp.add_argument("--build", action="store_true", help="rebuild logpose-dev.exe first")
+        sp.add_argument("--db", default="", help="database path (default: $LOGPOSE_DEV_DB or out/dev/dev.db)")
+        sp.add_argument("--sim", default="", help="OPTCGSim folder")
+        sp.add_argument("--size", default="", help="window size in DIPs as WxH, e.g. 1440x900")
+        sp.add_argument("--page", default="", help="initial page id")
+        sp.add_argument("--visible", action="store_true", help="show the window on the desktop")
+        sp.add_argument("--online", action="store_true", help="allow startup card and Bandai fetches")
+        sp.add_argument("--timeout", type=float, default=15.0, help="seconds to wait for startup")
+        cmd_start(sp.parse_args(rest[1:]))
+    elif cmd == "stop":
+        sp = argparse.ArgumentParser(prog="devctl stop")
+        sp.add_argument("--session", default=known.session)
+        cmd_stop(sp.parse_args(rest[1:]).session)
+    else:
+        cmd_passthrough(known.session, rest)
+
+
+if __name__ == "__main__":
+    main()

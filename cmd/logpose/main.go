@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -85,9 +86,16 @@ func runApp(ctx context.Context, args []string) (err error) {
 	simDir := fs.String("sim", "", "OPTCGSim's folder, the one with OPTCGSim.exe (default: found from the running sim)")
 	dev := fs.Bool("dev", false, "run as a test copy next to the real logpose, with -db pointing at a scratch database")
 	page := fs.String("page", "", "the page to open on, for screenshots of a test copy: "+strings.Join(gui.Pages(), ", "))
+	size := fs.String("size", "", "initial window size in DIPs as WxH, e.g. 1440x900")
+	offscreen := fs.Bool("offscreen", false, "keep the window off the desktop and out of the taskbar and tray")
+	offline := fs.Bool("offline", false, "skip startup card and Bandai list fetches over the network")
 	_ = fs.Parse(args)
 	if *page != "" && !gui.IsPage(*page) {
 		return fmt.Errorf("-page: no page %q", *page)
+	}
+	w, h, err := parseSize(*size)
+	if err != nil {
+		return err
 	}
 	if !gui.Claim(*dev) {
 		return nil
@@ -105,6 +113,7 @@ func runApp(ctx context.Context, args []string) (err error) {
 	dir := filepath.Dir(path)
 	opts := gui.Options{
 		Store: st, Log: logger(dir), Dev: *dev, Page: *page,
+		Width: w, Height: h, Offscreen: *offscreen, Offline: *offline,
 		DBPath:      path,
 		CatalogPath: filepath.Join(dir, "cards.json"),
 		LibraryPath: filepath.Join(dir, "library.json"),
@@ -119,6 +128,26 @@ func runApp(ctx context.Context, args []string) (err error) {
 		opts.Log.Warn("sim not found", "err", err)
 	}
 	return gui.Run(ctx, opts)
+}
+
+// parseSize reads a WxH string in DIPs. Empty leaves the default size.
+func parseSize(s string) (w, h int, err error) {
+	if s == "" {
+		return 0, 0, nil
+	}
+	ws, hs, ok := strings.Cut(strings.ToLower(s), "x")
+	if !ok {
+		return 0, 0, fmt.Errorf("-size: want WxH, got %q", s)
+	}
+	w, err = strconv.Atoi(ws)
+	if err != nil || w <= 0 {
+		return 0, 0, fmt.Errorf("-size: bad width in %q", s)
+	}
+	h, err = strconv.Atoi(hs)
+	if err != nil || h <= 0 {
+		return 0, 0, fmt.Errorf("-size: bad height in %q", s)
+	}
+	return w, h, nil
 }
 
 // logger writes to logpose.log in dir, since the Windows build has no console.

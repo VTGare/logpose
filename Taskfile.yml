@@ -22,6 +22,22 @@ tasks:
       - go tool mygo build -platform windows/amd64 -skip-installer
       - cp out/dist/windows-amd64/{{.BINARY_NAME}}.exe out/bin/{{.BINARY_NAME}}.exe
 
+  build:dev:
+    desc: Build the Windows dev binary with mygo's inspector and automation plugin into out/bin/
+    cmds:
+      - mkdir -p out/bin
+      - GOOS=windows GOARCH=amd64 go build -tags dev -ldflags "-H=windowsgui" -o out/bin/{{.BINARY_NAME}}-dev.exe ./cmd/logpose
+
+  tools:automation:
+    desc: Build the Windows mygo-automation CLI matching go.mod into out/tools/
+    sources:
+      - go.mod
+    generates:
+      - out/tools/mygo-automation.exe
+    cmds:
+      - mkdir -p out/tools
+      - GOOS=windows GOARCH=amd64 go build -o out/tools/mygo-automation.exe github.com/egoist/mygo/plugins/automation/cmd/mygo-automation
+
   release:
     desc: Build the installer and the signed update files into out/dist/ (needs the update key)
     cmds:

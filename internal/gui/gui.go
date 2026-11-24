@@ -59,6 +59,12 @@ type Options struct {
 	// Page is the page to open on instead of the Overview, one of Pages. It lets screenshots of a
 	// test copy show a page other than the first.
 	Page string
+	// Width and Height override the initial window size in DIPs when both are positive.
+	Width, Height int
+	// Offscreen keeps a test window off the desktop and out of the taskbar and tray.
+	Offscreen bool
+	// Offline skips startup card and Bandai list fetches over the network.
+	Offline bool
 }
 
 //go:embed assets/tray.png
@@ -161,15 +167,25 @@ func (a *app) ready(ctx context.Context) {
 	if a.opts.Dev {
 		title = "logpose (dev)"
 	}
-	a.win = mygo.NewWindow(mygo.WindowOptions{
+	w, h := 1180, 780
+	if a.opts.Width > 0 && a.opts.Height > 0 {
+		w, h = a.opts.Width, a.opts.Height
+	}
+	winOpts := mygo.WindowOptions{
 		Title:     title,
-		Width:     1180,
-		Height:    780,
+		Width:     w,
+		Height:    h,
 		MinWidth:  900,
 		MinHeight: 600,
 		Hidden:    a.view.Prefs.StartHidden && mygo.App.WasOpenedAtLogin(),
 		Content:   ui.View(a.view.build),
-	})
+	}
+	if a.opts.Offscreen {
+		winOpts.X, winOpts.Y = -20000, -20000
+		winOpts.SkipTaskbar = true
+		winOpts.Hidden = false
+	}
+	a.win = mygo.NewWindow(winOpts)
 	a.resetArtCache()
 	a.applyPrefs(ctx, a.view.Prefs)
 	a.win.OnClose(func(e *mygo.CloseEvent) {
@@ -184,7 +200,9 @@ func (a *app) ready(ctx context.Context) {
 		e.PreventDefault()
 		a.win.Hide()
 	})
-	a.setUpTray()
+	if !a.opts.Offscreen {
+		a.setUpTray()
+	}
 	mygo.App.OnSecondInstance(func([]string, string) { a.show() })
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -196,7 +214,9 @@ func (a *app) ready(ctx context.Context) {
 	})
 	a.startUpdates(ctx, set)
 	go a.start(ctx)
-	go func() { _ = a.refreshCatalog(ctx, false) }()
+	if !a.opts.Offline {
+		go func() { _ = a.refreshCatalog(ctx, false) }()
+	}
 	go a.follow(ctx)
 	go a.seek(ctx)
 }
@@ -669,7 +689,9 @@ func (x *appActions) LoadTimeline(fingerprint, me, opp string) {
 
 // OpenReplay maximizes the window, since the board needs the room, and builds the replay.
 func (x *appActions) OpenReplay(fingerprint string, g *simlog.Game) {
-	x.a.win.Maximize()
+	if !x.a.opts.Offscreen {
+		x.a.win.Maximize()
+	}
 	go func() {
 		l := matches.LoadedReplay{Fingerprint: fingerprint, Game: g}
 		db := x.a.cardDB().DB
