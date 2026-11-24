@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.0
+
+- Mirror the alt art you picked for OPTCGSim across logpose's banners, decklists, matches,
+  matchups and replays, including your own override files. Turn it off in Settings › Card art;
+  the Cards page always shows each card's own printing.
+- Customize a whole deck's art in one place. Customize art on Decks › List, or in any version's
+  right-click menu, lays out the deck's cards with their available printings side by side, opens
+  the full-size viewer on a click and puts your pick straight into the sim with Undo.
+- See both players' decklists on a match's page, with the opponent's list shown first, a
+  switcher for yours, cost curve, counters, types and traits, and a note when the log didn't name
+  all 50 cards.
+- Copy any decklist in OPTCGSim's clipboard format with Copy for sim on Decks › List, any
+  version's right-click menu, or a match's Decks tile.
+
 ## 0.6.1
 
 - Replays put each action in its own step. An attacker rests in its attack step, not the step
