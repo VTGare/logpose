@@ -192,6 +192,24 @@ func (s *Store) MostCopies(ctx context.Context, player, leader string) (map[stri
 	return out, err
 }
 
+// DeckList is the copies of each card named for player in one game.
+func (s *Store) DeckList(ctx context.Context, fingerprint, player string) (map[string]int, error) {
+	out := make(map[string]int)
+	err := s.each(ctx, `
+		SELECT card, copies FROM game_deck_cards WHERE fingerprint = ? AND player = ?`,
+		[]any{fingerprint, player},
+		func(rows *sql.Rows) error {
+			var card string
+			var n int
+			if err := rows.Scan(&card, &n); err != nil {
+				return err
+			}
+			out[card] = n
+			return nil
+		})
+	return out, err
+}
+
 func (s *Store) each(ctx context.Context, query string, args []any, scan func(*sql.Rows) error) error {
 	rows, err := s.read.QueryContext(ctx, query, args...)
 	if err != nil {

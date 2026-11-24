@@ -1,33 +1,17 @@
 package decks
 
 import (
-	"cmp"
 	"fmt"
-	"maps"
-	"slices"
 	"strings"
-
-	"github.com/VTGare/logpose/internal/gui/matches"
-
-	"github.com/VTGare/logpose/internal/gui/page"
-
-	"github.com/VTGare/logpose/internal/gui/kit"
 
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/cards"
+	"github.com/VTGare/logpose/internal/deck"
+	"github.com/VTGare/logpose/internal/gui/kit"
+	"github.com/VTGare/logpose/internal/gui/page"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
-)
-
-// The list's stacks fan each card's copies down and to the right.
-const (
-	stackW      = 60
-	stackStepX  = 4
-	stackStepY  = 6
-	shownTraits = 6
-	// statColumnW fits the cost curve's 11 bars, and a trait name on one line.
-	statColumnW = 200
 )
 
 // listTab is the lists of the chosen build, or of every game under Overall. The games in no
@@ -52,7 +36,7 @@ func (pg *Page) scopeList(c *ui.Context, e *page.Env, d *deckData) {
 	ch := changes[i]
 	list := ch.Games[0].Facts.List
 	ui.Row(c).Gap(16).AlignItems(ui.Start).Children(func() {
-		pg.versionRail(c, e, changes, i)
+		pg.versionRail(c, e, d.leader, changes, i)
 		kit.Panel(c).Grow(1).Basis(0).MinWidth(0).Gap(14).Padding(16).Children(func() {
 			ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
 				title := "List from " + e.Date(ch.At) + ", " + ch.At.Format("15:04")
@@ -62,167 +46,26 @@ func (pg *Page) scopeList(c *ui.Context, e *page.Env, d *deckData) {
 				ui.Text(c, title).FontWeight(600)
 				ui.Text(c, kit.Games(len(ch.Games))+" · "+kit.Record(stats.RecordOf(ch.Games))).FontSize(13).TextColor(t.TextMuted)
 				ui.Spacer(c)
+				if kit.IconButton(c, kit.IconCopy, "Copy for sim").Clicked() {
+					page.CopyDeckForSim(e, d.leader, e.Snap.Card(d.leader).Name, list)
+				}
 				on := e.Prefs.DeckChanges
 				if ui.Switch(c, &on).Label("Show changes").Changed() {
 					page.PrefDeckChanges.Set(e, on)
 				}
 				ui.Text(c, "Show changes").FontSize(13).TextColor(t.TextMuted)
 			})
+			if note := page.DeckPartialNote(deck.Count(list)); note != "" {
+				page.DeckPartialBanner(c, note)
+			}
 			var marks map[string]int
 			if e.Prefs.DeckChanges && i > 0 {
 				marks = ch.Swaps
 			}
-			stacks(c, e, d.leader, list, marks)
+			page.DeckStacks(c, e, d.leader, list, marks)
 			ui.Box(c).Height(1).Background(t.Border.Alpha(0.6))
-			listStats(c, d.lists[i])
+			page.DeckListStatsGrid(c, d.lists[i])
 		})
-	})
-}
-
-// listOrder is the cards as a decklist orders them: by type, then cost, then name.
-func listOrder(e *page.Env, list map[string]int) []string {
-	codes := slices.Collect(func(yield func(string) bool) {
-		for code := range list {
-			if !yield(code) {
-				return
-			}
-		}
-	})
-	slices.SortFunc(codes, func(a, b string) int {
-		ca, cb := e.Snap.Card(a), e.Snap.Card(b)
-		return cmp.Or(
-			cmp.Compare(kit.TypeRank(ca.Type), kit.TypeRank(cb.Type)),
-			cmp.Compare(ca.Cost, cb.Cost),
-			cmp.Compare(ca.Name, cb.Name),
-			cmp.Compare(a, b),
-		)
-	})
-	return codes
-}
-
-// stacks draws the leader and each card as its copies fanned out, with the count on top. With
-// marks, each copy swapped in gets a ring and the stack +N, and cards taken out show as faded
-// stacks of the copies removed at the end.
-func stacks(c *ui.Context, e *page.Env, leader string, list, marks map[string]int) {
-	ui.Row(c).Gap(10).Wrap().AlignItems(ui.Start).Children(func() {
-		e.Card(c.Key("leader"), leader, stackW).Shadow(0, 2, 6, 0, ui.RGBA(0, 0, 0, 0.45))
-		for _, code := range listOrder(e, list) {
-			stack(c.Key(code), e, code, list[code], marks[code], false)
-		}
-		for _, code := range swapOrder(marks) {
-			if marks[code] < 0 && list[code] == 0 {
-				stack(c.Key("out"+code), e, code, -marks[code], marks[code], true)
-			}
-		}
-	})
-}
-
-func stack(c *ui.Context, e *page.Env, code string, n, swapped int, gone bool) {
-	h := page.CardHeight(stackW)
-	box := ui.Box(c).Size(stackW+float32(n-1)*stackStepX, h+float32(n-1)*stackStepY)
-	box.Children(func() {
-		for i := range n {
-			card := e.Card(c.Key(i), code, stackW).Absolute().
-				Left(float32(i)*stackStepX).Top(float32(i)*stackStepY).Shadow(0, 2, 6, 0, ui.RGBA(0, 0, 0, 0.45))
-			if swapped > 0 && i >= n-swapped {
-				card.Border(2, kit.WinColor(c.Theme()))
-			}
-			if gone {
-				card.Opacity(0.35)
-			}
-		}
-		if !gone {
-			matches.Pill(c, fmt.Sprintf("×%d", n), 11).Absolute().Right(4).Bottom(4)
-		}
-		switch {
-		case swapped > 0:
-			ui.Text(c, fmt.Sprintf("+%d", swapped)).FontSize(11).Bold().TextColor(kit.WinColor(c.Theme())).Padding(0, 6).Radius(8).
-				Background(kit.PanelDark).Border(1, kit.WinColor(c.Theme())).Absolute().Right(-4).Top(-8)
-		case swapped < 0:
-			ui.Text(c, fmt.Sprintf("−%d", -swapped)).FontSize(11).Bold().TextColor(kit.LossColor(c.Theme())).Padding(0, 6).Radius(8).
-				Background(kit.PanelDark).Border(1, kit.LossColor(c.Theme())).Absolute().Right(-4).Top(-8)
-		}
-	})
-}
-
-// listStats is the curve with the counters, then the types and colors with the traits, two to a row so
-// they fit beside the versions rail.
-func listStats(c *ui.Context, st stats.ListStats) {
-	pair := func(key string, left, right func()) {
-		ui.Row(c.Key(key)).Gap(32).AlignItems(ui.Start).Children(func() {
-			left()
-			right()
-		})
-	}
-	ui.Column(c).Gap(20).Children(func() {
-		pair("curve", func() {
-			statColumn(c, "Cost curve", func() { curveBars(c, st.Curve) })
-		}, func() {
-			statColumn(c, "Counters", func() {
-				total := 0
-				for _, cv := range []int{0, 1000, 2000} {
-					statLine(c, kit.CounterText(cv, false, "No counter"), fmt.Sprint(st.Counters[cv]))
-					total += cv * st.Counters[cv]
-				}
-				statLine(c, "Total", fmt.Sprintf("%dk", total/1000))
-			})
-		})
-		pair("types", func() {
-			statColumn(c, "Types", func() {
-				for _, ty := range []string{cards.Character, cards.Event, cards.Stage} {
-					if n := st.Types[ty]; n > 0 {
-						statLine(c, ty+"s", fmt.Sprint(n))
-					}
-				}
-				if len(st.Colors) > 0 {
-					ui.Text(c, "Colors").FontSize(13).FontWeight(600).Margin(14, 0, 4, 0)
-				}
-				for _, col := range slices.Sorted(maps.Keys(st.Colors)) {
-					statLine(c.Key(string(col)), string(col), fmt.Sprint(st.Colors[col]))
-				}
-			})
-		}, func() {
-			statColumn(c, "Traits", func() {
-				for _, tr := range st.Traits[:min(len(st.Traits), shownTraits)] {
-					statLine(c.Key(tr.Trait), tr.Trait, fmt.Sprint(tr.Copies))
-				}
-				if more := len(st.Traits) - shownTraits; more > 0 {
-					ui.Text(c, fmt.Sprintf("%d more", more)).FontSize(12).TextColor(kit.FaintColor(c.Theme()))
-				}
-			})
-		})
-	})
-}
-
-func statColumn(c *ui.Context, title string, body func()) {
-	ui.Column(c).Gap(4).Grow(1).Basis(statColumnW).MinWidth(statColumnW).Children(func() {
-		ui.Text(c, title).FontSize(13).FontWeight(600).Margin(0, 0, 4, 0)
-		body()
-	})
-}
-
-func statLine(c *ui.Context, label, value string) {
-	ui.Row(c).Gap(24).Children(func() {
-		ui.Text(c, label).FontSize(13).TextColor(c.Theme().TextMuted)
-		ui.Spacer(c)
-		ui.Text(c, value).FontSize(13).FontWeight(600)
-	})
-}
-
-// curveBars is a bar per cost from 0 to 10, the copies over each.
-func curveBars(c *ui.Context, curve [11]int) {
-	t := c.Theme()
-	most := max(slices.Max(curve[:]), 1)
-	ui.Row(c).Gap(2).AlignItems(ui.End).Height(96).Children(func() {
-		for cost, n := range curve {
-			ui.Column(c.Key(cost)).Width(14).AlignItems(ui.Center).Gap(2).Children(func() {
-				if n > 0 {
-					ui.Text(c, fmt.Sprint(n)).FontSize(11).TextColor(t.TextMuted)
-				}
-				ui.Box(c).Width(10).Height(float32(n) / float32(most) * 56).Radius(3).Background(t.Accent)
-				ui.Text(c, fmt.Sprint(cost)).FontSize(11).TextColor(kit.FaintColor(t))
-			})
-		}
 	})
 }
 

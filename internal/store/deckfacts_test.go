@@ -84,6 +84,22 @@ var _ = Describe("Deck facts", func() {
 		Expect(got[g.Fingerprint].List).NotTo(Equal(want.List))
 	})
 
+	It("reads one player's decklist for a single game", func() {
+		save(&g)
+		alice, err := st.DeckList(ctx, g.Fingerprint, "Alice#1111")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(alice).To(Equal(want.List))
+
+		bob, err := st.DeckList(ctx, g.Fingerprint, "Bob#2222")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(bob).NotTo(BeEmpty())
+		Expect(bob).NotTo(Equal(want.List))
+
+		none, err := st.DeckList(ctx, g.Fingerprint, "Nobody#0000")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(none).To(BeEmpty())
+	})
+
 	It("fills them for a game stored by a parser that read no deck facts", func() {
 		misread := g
 		misread.Moves = nil

@@ -43,6 +43,10 @@ type detailState struct {
 	// focusNote puts the keyboard in the note box once, when the row menu opens the match to
 	// write one.
 	focusNote bool
+	// decksSide picks which player's list the Decks tile shows: 0 for the opponent, 1 for you.
+	decksSide  int
+	decksWidth float32
+	deckStats  [2]deckStatsCache
 	// Replay is the match's open Replay, or nil on the match page.
 	Replay *replayState
 }
@@ -58,6 +62,8 @@ type MatchTimeline struct {
 	Marks             []simlog.Mark
 	// Finish is the attacks of the turn a game ended in lethal, or nil.
 	Finish []replay.TurnAttack
+	// OppList and MyList are the main-deck cards named in the log for each player.
+	OppList, MyList map[string]int
 	// Replayable is false for logs from sim versions without the RZ1 move stream.
 	Replayable bool
 	// Game is the parsed log, which the replay is built from, or nil when Err says why it
@@ -93,6 +99,7 @@ func (pg *Page) saveNote() {
 func (pg *Page) SetTimeline(l MatchTimeline) {
 	if pg.Detail.Fingerprint == l.Fingerprint {
 		pg.Detail.timeline = &l
+		pg.Detail.deckStats = [2]deckStatsCache{}
 		pg.buildReplay()
 	}
 }
@@ -153,6 +160,7 @@ func (pg *Page) MatchPage(c *ui.Context, e *page.Env) {
 			}
 			pg.flowTile(c, e, m)
 			pg.momentsTile(c, e, m)
+			pg.decksTile(c, e, m)
 		})
 	})
 }

@@ -109,3 +109,17 @@ var _ = Describe("Read", func() {
 		Expect(facts).To(BeEmpty())
 	})
 })
+
+var _ = Describe("FormatSim", func() {
+	It("writes the leader first and follows the given order on CRLF lines", func() {
+		list := map[string]int{"OP01-016": 4, "OP13-027": 2, "OP05-038": 0}
+		got := FormatSim("OP13-001", []string{"OP13-027", "OP01-016", "OP05-038"}, list)
+		Expect(got).To(Equal("1xOP13-001\r\n2xOP13-027\r\n4xOP01-016\r\n"))
+		Expect(Count(list)).To(Equal(6))
+	})
+
+	It("sorts by code when no order is given", func() {
+		list := map[string]int{"ST31-005": 4, "EB04-002": 2}
+		Expect(FormatSim("OP13-001", nil, list)).To(Equal("1xOP13-001\r\n2xEB04-002\r\n4xST31-005\r\n"))
+	})
+})

@@ -18,6 +18,8 @@ type EnvActions interface {
 	ApplyPrefs(p Prefs)
 	// After runs fn on the main thread once d has passed.
 	After(d time.Duration, fn func())
+	// CopyText writes text to the clipboard and shows toast on success.
+	CopyText(text string, toast ui.Toast)
 }
 
 // Env is what the frame hands every page: the games, the prefs and the clock.

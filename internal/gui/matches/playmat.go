@@ -21,7 +21,6 @@ var (
 	backEdge = ui.RGBA(191, 227, 240, 0.22)
 	donGold  = ui.Hex("#C9A44C")
 	donInk   = ui.Hex("#1A1408")
-	pillBack = ui.RGBA(0, 0, 0, 0.72)
 )
 
 // mat is the playmat's geometry, laid out as the sim's playmat: the characters toward the
@@ -269,10 +268,6 @@ func piles(c *ui.Context, e *page.Env, k func() *ui.Context, m mat, sv *stepView
 	}
 }
 
-func Pill(c *ui.Context, text string, size float32) ui.Element {
-	return ui.Text(c, text).FontSize(size).Bold().TextColor(page.PillText).Padding(1, 6).Radius(8).Background(pillBack)
-}
-
 func trash(c *ui.Context, e *page.Env, m mat, sv *stepView, s *replay.Side, x, y float32) {
 	if len(s.Trash) == 0 {
 		return
@@ -282,7 +277,7 @@ func trash(c *ui.Context, e *page.Env, m mat, sv *stepView, s *replay.Side, x, y
 	pileButton(box, sv, pileRef{kind: pileTrash, Mine: s == sv.me})
 	sv.Glide(box, top.ID).Children(func() {
 		e.Card(c, top.Code, m.w)
-		Pill(c, fmt.Sprintf("Trash %d", len(s.Trash)), 10).Absolute().Bottom(4).Left(4)
+		page.Pill(c, fmt.Sprintf("Trash %d", len(s.Trash)), 10).Absolute().Bottom(4).Left(4)
 	})
 }
 
@@ -339,7 +334,7 @@ func deckPile(c *ui.Context, k func() *ui.Context, m mat, sv *stepView, s *repla
 	pileButton(box, sv, pileRef{kind: pileDeck, Mine: s == sv.me})
 	box.Children(func() {
 		cardBack(c, m.w, m.h)
-		Pill(c, fmt.Sprint(len(s.Deck())), 10).Absolute().Left(4).Bottom(4)
+		page.Pill(c, fmt.Sprint(len(s.Deck())), 10).Absolute().Left(4).Bottom(4)
 	})
 }
 
@@ -422,7 +417,7 @@ func donDeck(c *ui.Context, e *page.Env, k func() *ui.Context, m mat, s *replay.
 		} else {
 			ui.Box(c).Size(m.dw, m.dh).Radius(3).Background(donGold)
 		}
-		Pill(c, fmt.Sprint(s.DonDeck), 10).Absolute().Left(2).Bottom(2)
+		page.Pill(c, fmt.Sprint(s.DonDeck), 10).Absolute().Left(2).Bottom(2)
 	})
 }
 

@@ -182,6 +182,18 @@ func (x *appActions) CopyArt(key string) {
 	}()
 }
 
+func (x *appActions) CopyText(text string, toast ui.Toast) {
+	go func() {
+		if err := mygo.Clipboard.Write(transfer.TextData(text)); err != nil {
+			x.toast(ui.Toast{Title: "Couldn't copy to the clipboard.", Description: err.Error(), Type: "error"})
+			return
+		}
+		if toast.Title != "" {
+			x.toast(toast)
+		}
+	}()
+}
+
 func (x *appActions) OpenURL(url string) {
 	go func() {
 		if err := mygo.Shell.OpenExternal(url); err != nil {

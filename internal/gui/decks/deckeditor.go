@@ -7,16 +7,18 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/VTGare/logpose/internal/gui/matches"
-
-	"github.com/VTGare/logpose/internal/gui/page"
-
-	"github.com/VTGare/logpose/internal/gui/kit"
-
 	"github.com/egoist/mygo/ui"
 
+	"github.com/VTGare/logpose/internal/gui/kit"
+	"github.com/VTGare/logpose/internal/gui/page"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
+)
+
+const (
+	stackW     = 60
+	stackStepX = 4
+	stackStepY = 6
 )
 
 // buildEdit is a build's core and name being edited. A new build has ID 0.
@@ -90,7 +92,7 @@ func (pg *Page) coreEditor(c *ui.Context, e *page.Env, d leaderDecks) {
 		ui.Column(c).Gap(12).Children(func() {
 			ui.Text(c, "Latest list").FontWeight(600)
 			ui.Row(c).Gap(10).Wrap().AlignItems(ui.Start).Children(func() {
-				for _, code := range listOrder(e, base) {
+				for _, code := range page.DeckListOrder(e, base) {
 					editStack(c.Key(code), e, ed, code, base[code], freq[code], len(p.all), slices.Contains(p.Staples, code))
 				}
 			})
@@ -282,7 +284,7 @@ func editStack(c *ui.Context, e *page.Env, ed *buildEdit, code string, n, in, to
 			for i := range n {
 				e.Card(c.Key(i), code, stackW).Absolute().Left(float32(i) * stackStepX).Top(float32(i) * stackStepY)
 			}
-			matches.Pill(c, fmt.Sprintf("×%d", n), 11).Absolute().Right(4).Bottom(4)
+			page.Pill(c, fmt.Sprintf("×%d", n), 11).Absolute().Right(4).Bottom(4)
 		})
 		freqBar(c, in, total, stackW+float32(n-1)*stackStepX)
 		coreMark(c, core, hovered, staple)

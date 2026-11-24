@@ -263,12 +263,22 @@ func (*Host) PageLabel(id string) string {
 type EnvActions struct {
 	Calls   []string
 	Applied []page.Prefs
+	Copied  []CopiedText
 	timers  []func()
+}
+
+type CopiedText struct {
+	Text  string
+	Toast ui.Toast
 }
 
 func (f *EnvActions) SetSetting(key, value string) { f.Calls = append(f.Calls, key+"="+value) }
 
 func (f *EnvActions) ApplyPrefs(p page.Prefs) { f.Applied = append(f.Applied, p) }
+
+func (f *EnvActions) CopyText(text string, toast ui.Toast) {
+	f.Copied = append(f.Copied, CopiedText{Text: text, Toast: toast})
+}
 
 // After keeps the timer for a spec to fire with Fire.
 func (f *EnvActions) After(_ time.Duration, fn func()) { f.timers = append(f.timers, fn) }

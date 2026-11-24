@@ -36,13 +36,17 @@ func (pg *Page) chosenChange(changes []stats.Change) int {
 // versionRail lists the build's lists, newest first, each with its date and time, the copies
 // swapped in and out, and a square per game. Clicking one shows it. With Show changes on, the
 // chosen one lists the cards swapped.
-func (pg *Page) versionRail(c *ui.Context, e *page.Env, changes []stats.Change, chosen int) {
+func (pg *Page) versionRail(c *ui.Context, e *page.Env, leader string, changes []stats.Change, chosen int) {
 	t := c.Theme()
 	kit.Panel(c).Width(railW).Gap(2).Padding(6).Children(func() {
 		for i := len(changes) - 1; i >= 0; i-- {
 			ch := changes[i]
 			b := ui.ButtonBase(c.Key(i)).Label(e.DateTime(ch.At)).Column().Gap(3).Padding(7, 8).Radius(8).
-				Background(ui.Transparent).AlignItems(ui.Stretch)
+				Background(ui.Transparent).AlignItems(ui.Stretch).PopoverMenu(func(m *ui.Menu) {
+				if m.Item("Copy for sim").Chosen() {
+					page.CopyDeckForSim(e, leader, e.Snap.Card(leader).Name, ch.Games[0].Facts.List)
+				}
+			})
 			switch {
 			case i == chosen:
 				b.Background(t.Surface).Border(1, t.Accent)

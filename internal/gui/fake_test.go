@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/egoist/mygo/ui"
+
 	"github.com/VTGare/logpose/internal/gui/page"
 
 	"github.com/VTGare/logpose/internal/cards"
@@ -140,4 +142,7 @@ func (f *fakeActions) UseSimArt(card cards.Card, choice, _ sim.ArtChoice) {
 }
 func (f *fakeActions) SaveArt(key string) { f.calls = append(f.calls, "save art "+key) }
 func (f *fakeActions) CopyArt(key string) { f.calls = append(f.calls, "copy art "+key) }
+func (f *fakeActions) CopyText(text string, _ ui.Toast) {
+	f.calls = append(f.calls, "copy text "+text)
+}
 func (f *fakeActions) OpenURL(url string) { f.calls = append(f.calls, "open url "+url) }

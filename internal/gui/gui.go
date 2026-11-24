@@ -653,6 +653,16 @@ func (x *appActions) LoadTimeline(fingerprint, me, opp string) {
 			}
 			l.Replayable = g.HasRZ()
 		}
+		if list, err := x.a.opts.Store.DeckList(x.ctx, fingerprint, opp); err != nil {
+			x.a.opts.Log.Warn("read opponent decklist", "err", err)
+		} else if len(list) > 0 {
+			l.OppList = list
+		}
+		if list, err := x.a.opts.Store.DeckList(x.ctx, fingerprint, me); err != nil {
+			x.a.opts.Log.Warn("read player decklist", "err", err)
+		} else if len(list) > 0 {
+			l.MyList = list
+		}
 		x.a.win.Update(func() { x.a.view.matches.SetTimeline(l) })
 	}()
 }
