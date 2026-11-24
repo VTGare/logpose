@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/cards"
+	"github.com/VTGare/logpose/internal/sim"
 	"github.com/VTGare/logpose/internal/stats"
 )
 
@@ -20,6 +21,12 @@ type EnvActions interface {
 	After(d time.Duration, fn func())
 	// CopyText writes text to the clipboard and shows toast on success.
 	CopyText(text string, toast ui.Toast)
+	ChooseSimFolder()
+	LoadSimArt(card cards.Card)
+	LoadArts(card cards.Card, gen int)
+	ScanSimArt()
+	// UseSimArt makes the sim show choice for the card. prev is what it showed, for Undo.
+	UseSimArt(card cards.Card, choice, prev sim.ArtChoice)
 }
 
 // Env is what the frame hands every page: the games, the prefs and the clock.
@@ -37,6 +44,8 @@ type Env struct {
 	shown string
 
 	Art      *ArtCache
+	SimArt   SimArtState
+	Arts     ArtsState
 	Filter   filters
 	scope    scoped
 	periodUI periodState
@@ -55,6 +64,7 @@ type nav interface {
 	OpenMatch(m stats.Match)
 	OpenInCards(code string)
 	ViewArt(code string)
+	ViewArtAt(code, key string)
 	GameMenu(m stats.Match) func(*ui.Menu)
 	CardMenu(card cards.Card) func(*ui.Menu)
 	ShowsHands() bool

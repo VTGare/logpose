@@ -27,9 +27,10 @@ const (
 	keyCardPanelWidth = "card_panel_width"
 	// KeyCardSort is the Cards page's sort, a key such as "cost", with " reversed" after it for
 	// the key's other direction.
-	KeyCardSort = "card_sort"
-	KeyCardList = "card_list"
-	KeyArtOff   = "art_off"
+	KeyCardSort  = "card_sort"
+	KeyCardList  = "card_list"
+	KeyArtOff    = "art_off"
+	KeySimArtOff = "sim_art_off"
 	// KeyArtCap is how many MB of large card images are kept.
 	KeyArtCap = "art_cap_mb"
 	// KeyShortcutsOffered is on once the user answered the offer of shortcuts.
@@ -70,6 +71,7 @@ type Prefs struct {
 	SideWidth        float32
 	PanelWidth       float32
 	ArtOff           bool
+	SimArtOff        bool
 	// ArtCap is the MB of large card images kept, one of artCaps.
 	ArtCap int
 	// DeckChanges marks the cards a build's list changed.
@@ -127,6 +129,7 @@ var (
 	PrefSideWidth        = prefEntry[float32]{KeySidebarWidth, func(p *Prefs) *float32 { return &p.SideWidth }, widthFrom(SideDefault, SnapSide), widthText}
 	PrefPanelWidth       = prefEntry[float32]{keyCardPanelWidth, func(p *Prefs) *float32 { return &p.PanelWidth }, widthFrom(PanelDefault, SnapPanel), widthText}
 	PrefArtOff           = flagPref(KeyArtOff, func(p *Prefs) *bool { return &p.ArtOff })
+	PrefSimArtOff        = flagPref(KeySimArtOff, func(p *Prefs) *bool { return &p.SimArtOff })
 	PrefArtCap           = prefEntry[int]{KeyArtCap, func(p *Prefs) *int { return &p.ArtCap }, artCapFrom, strconv.Itoa}
 	PrefDeckChanges      = flagPref(keyDeckChanges, func(p *Prefs) *bool { return &p.DeckChanges })
 	prefFolded           = prefEntry[map[string]bool]{KeyFolded, func(p *Prefs) *map[string]bool { return &p.folded }, foldedFrom, foldedText}
@@ -140,7 +143,7 @@ var (
 
 var prefTable = []pref{
 	PrefTheme, PrefColorblind, PrefCloseQuits, PrefStartHidden, PrefShortcutsOffered, PrefSideWidth,
-	PrefPanelWidth, PrefArtOff, PrefArtCap, PrefDeckChanges, prefFolded, prefTables, PrefCardSort,
+	PrefPanelWidth, PrefArtOff, PrefSimArtOff, PrefArtCap, PrefDeckChanges, prefFolded, prefTables, PrefCardSort,
 	PrefCardList, PrefUpdateManual, prefStartFormat, PrefSimSaves,
 }
 

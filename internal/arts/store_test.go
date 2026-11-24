@@ -391,4 +391,95 @@ var _ = Describe("Store", func() {
 		}
 		wg.Wait()
 	})
+
+	It("deduplicates concurrent downloads and marks use for a waiting Full caller", func() {
+		w := open(DefaultCap)
+		k := Key{Source: Bandai, Print: "OP07-021_p9"}
+		started := make(chan struct{}, 1)
+		release := make(chan struct{})
+		var reqs atomic.Int32
+		custom := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
+			reqs.Add(1)
+			select {
+			case started <- struct{}{}:
+			default:
+			}
+			<-release
+			_, _ = rw.Write(body)
+		}))
+		DeferCleanup(custom.Close)
+		w.client = &http.Client{Transport: toServer{custom}}
+
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			defer GinkgoRecover()
+			_, err := w.Picture(k)
+			Expect(err).NotTo(HaveOccurred())
+		})
+		<-started
+		for range 3 {
+			wg.Go(func() {
+				defer GinkgoRecover()
+				img, err := w.Full(k)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(img.Bounds().Dx()).To(Equal(600))
+			})
+		}
+		Eventually(func() int {
+			w.mu.Lock()
+			defer w.mu.Unlock()
+			return len(w.inflight)
+		}).Should(Equal(1))
+		close(release)
+		wg.Wait()
+
+		Expect(reqs.Load()).To(Equal(int32(1)))
+		fi, err := os.Stat(filepath.Join(dir, "OP07-021_p9_bd.png"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(fi.ModTime()).To(BeTemporally(">", unused))
+	})
+
+	It("shares a single failed fetch across concurrent callers and remembers the failure", func() {
+		w := open(DefaultCap)
+		k := Key{Source: Bandai, Print: "OP07-021_p8"}
+		started := make(chan struct{}, 1)
+		release := make(chan struct{})
+		var reqs atomic.Int32
+		failSrv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
+			reqs.Add(1)
+			select {
+			case started <- struct{}{}:
+			default:
+			}
+			<-release
+			http.Error(rw, "missing", http.StatusNotFound)
+		}))
+		DeferCleanup(failSrv.Close)
+		w.client = &http.Client{Transport: toServer{failSrv}}
+
+		var wg sync.WaitGroup
+		errs := make(chan error, 4)
+		wg.Go(func() {
+			_, err := w.Picture(k)
+			errs <- err
+		})
+		<-started
+		for range 3 {
+			wg.Go(func() {
+				_, err := w.Full(k)
+				errs <- err
+			})
+		}
+		close(release)
+		wg.Wait()
+		close(errs)
+
+		for err := range errs {
+			Expect(err).To(HaveOccurred())
+		}
+		Expect(reqs.Load()).To(Equal(int32(1)))
+		_, err := w.Full(k)
+		Expect(err).To(MatchError(ErrNoPicture))
+		Expect(reqs.Load()).To(Equal(int32(1)))
+	})
 })

@@ -13,6 +13,7 @@ import (
 	"github.com/VTGare/logpose/internal/deck"
 	"github.com/VTGare/logpose/internal/gui/kit"
 	"github.com/VTGare/logpose/internal/gui/page"
+	"github.com/VTGare/logpose/internal/sim"
 	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
@@ -118,6 +119,7 @@ type Host struct {
 	MatchOpener func(m stats.Match)
 	CardsOpener func(code string)
 	ArtViewer   func(code string)
+	ArtViewerAt func(code, key string)
 	GameMenus   func(m stats.Match) func(*ui.Menu)
 	CardMenus   func(card cards.Card) func(*ui.Menu)
 	HandsShown  func() bool
@@ -206,6 +208,16 @@ func (h *Host) ViewArt(code string) {
 	}
 }
 
+func (h *Host) ViewArtAt(code, key string) {
+	if h.ArtViewerAt != nil {
+		h.ArtViewerAt(code, key)
+		return
+	}
+	if h.ArtViewer != nil {
+		h.ArtViewer(code)
+	}
+}
+
 func (h *Host) GameMenu(m stats.Match) func(*ui.Menu) {
 	if h.GameMenus != nil {
 		return h.GameMenus(m)
@@ -261,10 +273,11 @@ func (*Host) PageLabel(id string) string {
 
 // EnvActions records what the env asks the app for. A page's fake embeds it.
 type EnvActions struct {
-	Calls   []string
-	Applied []page.Prefs
-	Copied  []CopiedText
-	timers  []func()
+	Calls    []string
+	ArtLoads []string
+	Applied  []page.Prefs
+	Copied   []CopiedText
+	timers   []func()
 }
 
 type CopiedText struct {
@@ -278,6 +291,17 @@ func (f *EnvActions) ApplyPrefs(p page.Prefs) { f.Applied = append(f.Applied, p)
 
 func (f *EnvActions) CopyText(text string, toast ui.Toast) {
 	f.Copied = append(f.Copied, CopiedText{Text: text, Toast: toast})
+}
+
+func (f *EnvActions) ChooseSimFolder()           { f.Calls = append(f.Calls, "choose sim") }
+func (f *EnvActions) LoadSimArt(card cards.Card) { f.Calls = append(f.Calls, "load art "+card.Code) }
+
+func (f *EnvActions) LoadArts(card cards.Card, gen int) {
+	f.ArtLoads = append(f.ArtLoads, fmt.Sprint(card.Code, " ", gen))
+}
+func (f *EnvActions) ScanSimArt() { f.Calls = append(f.Calls, "scan art") }
+func (f *EnvActions) UseSimArt(card cards.Card, choice, _ sim.ArtChoice) {
+	f.Calls = append(f.Calls, "use art "+card.Code+" "+choice.Key)
 }
 
 // After keeps the timer for a spec to fire with Fire.

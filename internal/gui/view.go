@@ -434,6 +434,8 @@ func (v *view) OpenInCards(code string) {
 // ViewArt opens the art viewer over the page, which build draws off the Cards page.
 func (v *view) ViewArt(code string) { v.cards.Select(code, true) }
 
+func (v *view) ViewArtAt(code, key string) { v.cards.SelectKey(code, key, true) }
+
 // ShowsHands reports whether the page is a Decks tab where "Show hands with" fits a card.
 func (v *view) ShowsHands() bool {
 	return v.Page == page.Decks && v.matches.Detail.Fingerprint == "" && v.decks.ShowsHands()

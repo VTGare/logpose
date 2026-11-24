@@ -31,10 +31,7 @@ func (pg *Page) Draw(c *ui.Context, e *page.Env) {
 		pg.cardsMissing(c)
 		return
 	}
-	if !pg.simArt.scanned {
-		pg.simArt.scanned = true
-		pg.do(func(a Actions) { a.ScanSimArt() })
-	}
+	e.SimArt.Scan(e)
 	shown := s.results(e.Snap.Cards, cardSortFrom(e.Prefs.CardSort))
 	if s.Selected == "" && len(shown) > 0 {
 		s.Selected = shown[0].Code
@@ -626,15 +623,15 @@ func (pg *Page) cardTile(c *ui.Context, e *page.Env, card cards.Card, w float32)
 		}
 		at := box.AnimateTo("lift", up, ui.Animation{Duration: kit.HoverTime})
 		box.Translate(0, -3*at).Shadow(0, 2+8*at, 6+14*at, 0, ui.RGBA(0, 0, 0, 0.3+0.25*at))
-		box.Children(func() { e.CardImage(c, card.Code, w).Radius(6) })
+		box.Children(func() { e.CardImage(c, page.ExactPrintRef(card.Code), w).Radius(6) })
 		ui.Row(c).Height(captionH).Gap(6).AlignItems(ui.Center).Children(func() {
 			col := t.TextMuted
 			if selected {
 				col = t.Text
 			}
 			ui.Text(c, card.Code).FontSize(12).TextColor(col).FontWeight(500)
-			if pg.simArt.changed[card.Code] {
-				ui.Icon(c, kit.IconSim).Size(12, 12).TextColor(simGold).Tooltip("The sim shows other art for this card")
+			if e.SimArt.Changed(card.Code) {
+				ui.Icon(c, kit.IconSim).Size(12, 12).TextColor(page.SimGold).Tooltip("The sim shows other art for this card")
 			}
 			ui.Spacer(c)
 			if l := legalityOf(card.Legality); l.tag != "" {
@@ -718,7 +715,7 @@ func (pg *Page) cardRows(c *ui.Context, e *page.Env, shown []cards.Card) {
 		}
 		row.PopoverMenu(pg.CardMenu(e, card))
 		row.Children(func() {
-			e.CardImage(c, card.Code, rowArtW).Radius(6)
+			e.CardImage(c, page.ExactPrintRef(card.Code), rowArtW).Radius(6)
 			ui.Column(c).Width(rowNameW).Children(func() {
 				ui.Text(c, card.Name).FontWeight(600).MaxLines(1).Ellipsis("…")
 				ui.Text(c, card.Code+" · "+card.Type).FontSize(12).TextColor(t.TextMuted)
@@ -788,8 +785,8 @@ func counterChip(n int) string { return kit.CounterText(n, false, "No counter") 
 
 func (pg *Page) cardDetail(c *ui.Context, e *page.Env, card cards.Card) {
 	t := c.Theme()
-	info, loaded := pg.simArtFor(card)
-	ca, _ := pg.artsFor(card)
+	info, loaded := e.SimArt.For(e, card)
+	ca, _ := e.Arts.For(e, card)
 	key := pg.viewedKey(card, info, ca)
 	if e.Prefs.PanelWidth <= page.PanelStrip {
 		foldedPanel(c, e)
@@ -806,9 +803,10 @@ func (pg *Page) cardDetail(c *ui.Context, e *page.Env, card cards.Card) {
 				if art.Clicked() {
 					pg.State.Viewer = true
 				}
-				art.Children(func() { e.CardImage(c, key, artW).Radius(6) })
+				exactKey := page.ExactPrintRef(key)
+				art.Children(func() { e.CardImage(c, exactKey, artW).Radius(6) })
 				if page.NeedsPreview(c, artW) {
-					e.CardPreview(c, art, key)
+					e.CardPreview(c, art, exactKey)
 				}
 				ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(8).Children(func() {
 					ui.Text(c, card.Name).FontSize(20).Bold().Wrap()
@@ -822,7 +820,7 @@ func (pg *Page) cardDetail(c *ui.Context, e *page.Env, card cards.Card) {
 					cardStats(c, card)
 				})
 			})
-			pg.detailTabs(c, key, len(pg.artEntries(e, card, ca, info, loaded)))
+			pg.detailTabs(c, key, len(page.ArtEntries(e, card, ca, info, loaded, pg.State.Viewed)))
 			if pg.State.tab == tabArt {
 				pg.artChoices(c, e, card, info, loaded)
 				return
@@ -882,7 +880,7 @@ func (pg *Page) tabList(c *ui.Context, labels []string) {
 }
 
 // simArtLine names the art the sim shows when it isn't the sim's own. A click opens the Art tab.
-func (pg *Page) simArtLine(c *ui.Context, ca arts.CardArts, info SimArtInfo, loaded bool) {
+func (pg *Page) simArtLine(c *ui.Context, ca arts.CardArts, info page.SimArtInfo, loaded bool) {
 	if !loaded || info.NoSim || info.Cur.Kind == sim.ArtOwn {
 		return
 	}
@@ -903,8 +901,8 @@ func (pg *Page) simArtLine(c *ui.Context, ca arts.CardArts, info SimArtInfo, loa
 	}
 	b.Tooltip("Show the art")
 	b.Children(func() {
-		ui.Icon(c, kit.IconSim).Size(13, 13).TextColor(simGold)
-		ui.Text(c, "In the sim: "+name).FontSize(12.5).TextColor(simGold)
+		ui.Icon(c, kit.IconSim).Size(13, 13).TextColor(page.SimGold)
+		ui.Text(c, "In the sim: "+name).FontSize(12.5).TextColor(page.SimGold)
 	})
 }
 
@@ -1068,15 +1066,6 @@ func effectSpans(effect string, t *ui.Theme) []ui.Span {
 
 type Actions interface {
 	RefreshCards()
-	ChooseSimFolder()
-	// LoadSimArt reads what the sim shows for the card and shows it with view.setSimArt.
-	LoadSimArt(card cards.Card)
-	// LoadArts groups the card's pictures and shows each step with view.setArts.
-	LoadArts(card cards.Card, gen int)
-	// ScanSimArt finds the cards the sim shows other art for.
-	ScanSimArt()
-	// UseSimArt makes the sim show choice for the card. prev is what it showed, for Undo.
-	UseSimArt(card cards.Card, choice, prev sim.ArtChoice)
 	SaveArt(key string)
 	CopyArt(key string)
 	OpenURL(url string)
@@ -1085,11 +1074,9 @@ type Actions interface {
 type Page struct {
 	Act   Actions
 	State cardsState
-	// CardSync and artSync are the card data and art refreshes running now.
+	// CardSync and ArtSync are the card data and art refreshes running now.
 	CardSync CardSync
 	ArtSync  ArtSync
-	simArt   simArtState
-	arts     artsState
 	// panelDrag follows a drag of the card panel's edge.
 	panelDrag page.PaneDrag
 	// Note is the last card data refresh's Note, which the frame sets before drawing.
@@ -1108,5 +1095,12 @@ func (pg *Page) Select(code string, viewer bool) {
 	if s.Selected != code {
 		s.Selected, s.Viewed, s.Versions = code, "", ""
 	}
+	s.Viewer = viewer
+}
+
+// SelectKey opens the card on a specific printing key, with the art viewer open or closed.
+func (pg *Page) SelectKey(code, key string, viewer bool) {
+	s := &pg.State
+	s.Selected, s.Viewed, s.Versions = code, key, ""
 	s.Viewer = viewer
 }

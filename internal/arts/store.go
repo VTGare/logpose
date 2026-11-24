@@ -47,6 +47,12 @@ const staleTemp = time.Hour
 
 const tempPrefix = "dl-"
 
+type inflight struct {
+	done chan struct{}
+	img  image.Image
+	err  error
+}
+
 // Store keeps card images from Limitless and Bandai in dir. Full images are downloaded as
 // <key><Key.Ext>, in the site's own format, and the least recently used are deleted past limit.
 // Thumbs are thumb/<key>.jpg, made from the full image once and never deleted by the limit.
@@ -55,10 +61,11 @@ type Store struct {
 	client *http.Client
 	slots  map[Source]chan struct{}
 
-	mu     sync.Mutex
-	limit  int64
-	off    bool
-	failed map[Key]bool
+	mu       sync.Mutex
+	limit    int64
+	off      bool
+	failed   map[Key]bool
+	inflight map[Key]*inflight
 	// fullBytes is the size of every full image, valid once counted is set.
 	fullBytes int64
 	counted   bool
@@ -76,7 +83,8 @@ func NewStore(dir string) *Store {
 			Limitless: make(chan struct{}, storeSlots),
 			Bandai:    make(chan struct{}, storeSlots),
 		},
-		failed: make(map[Key]bool),
+		failed:   make(map[Key]bool),
+		inflight: make(map[Key]*inflight),
 	}
 }
 
@@ -134,22 +142,36 @@ func (w *Store) load(k Key, use bool) (image.Image, error) {
 		return img, nil
 	}
 	w.mu.Lock()
-	failed := w.failed[k]
-	w.mu.Unlock()
-	if failed {
+	if w.failed[k] {
+		w.mu.Unlock()
 		return nil, ErrNoPicture
 	}
+	if c := w.inflight[k]; c != nil {
+		w.mu.Unlock()
+		<-c.done
+		if use && c.err == nil {
+			now := time.Now()
+			_ = os.Chtimes(path, now, now)
+		}
+		return c.img, c.err
+	}
+	c := &inflight{done: make(chan struct{})}
+	w.inflight[k] = c
+	w.mu.Unlock()
+
 	slots := w.slots[k.Source]
 	slots <- struct{}{}
-	img, err := w.download(k, path, use)
+	c.img, c.err = w.download(k, path, use)
 	<-slots
-	if err != nil {
-		w.mu.Lock()
+
+	w.mu.Lock()
+	delete(w.inflight, k)
+	if c.err != nil {
 		w.failed[k] = true
-		w.mu.Unlock()
-		return nil, err
 	}
-	return img, nil
+	w.mu.Unlock()
+	close(c.done)
+	return c.img, c.err
 }
 
 func (w *Store) Off() bool {

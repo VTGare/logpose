@@ -370,6 +370,11 @@ func (pg *Page) artSettings(c *ui.Context, e *page.Env) {
 	if switchRow(c, "Download card art", "Off shows the sim's own images", &on, false) {
 		page.PrefArtOff.Set(e, !on)
 	}
+	divider(c)
+	mirror := !e.Prefs.SimArtOff
+	if switchRow(c, "Use the sim's alt art", "Show the alt art you picked for the sim on banners, decklists, matches and replays", &mirror, false) {
+		page.PrefSimArtOff.Set(e, !mirror)
+	}
 	dir := pg.Info.ArtDir
 	if dir == "" {
 		return

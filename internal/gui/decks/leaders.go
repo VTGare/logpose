@@ -97,6 +97,9 @@ func (pg *Page) deckData(e *page.Env, ld leaderDecks) *deckData {
 }
 
 func (pg *Page) Draw(c *ui.Context, e *page.Env) {
+	if e.Entered {
+		pg.artPick = nil
+	}
 	ld := pg.leaderDecks(e)
 	// Choosing a build changes the scope, so it comes before the scope's numbers.
 	pg.chooseBuild(ld)
@@ -106,6 +109,13 @@ func (pg *Page) Draw(c *ui.Context, e *page.Env) {
 			if pg.Edit != nil {
 				pg.coreEditor(c, e, ld)
 				return
+			}
+			if pg.artPick != nil {
+				if pg.artPick.leader == ld.leader {
+					pg.deckArtPage(c, e)
+					return
+				}
+				pg.artPick = nil
 			}
 			e.DeckTabs(c, e.Scoped().Decks, ld.leader, "Show ", e.OpenLeader)
 			leaderHead(c, e, d)
@@ -440,6 +450,7 @@ func dayRuns(games []stats.Match) []dayRun {
 }
 
 func (pg *Page) Open(e *page.Env, sub string) {
+	pg.artPick = nil
 	switch sub {
 	case "nobuild":
 		pg.scope = deckScope{kind: scopeNoBuild}
@@ -459,9 +470,9 @@ func (pg *Page) Open(e *page.Env, sub string) {
 }
 
 // ShowsHands reports whether the tab shown is one where "Show hands with" fits a card.
-func (pg *Page) ShowsHands() bool { return pg.Tab != tabResults }
+func (pg *Page) ShowsHands() bool { return pg.Tab != tabResults && pg.artPick == nil }
 
 // ShowHands opens the Hands tab on the hands the card was dealt in.
 func (pg *Page) ShowHands(code string) {
-	pg.Tab, pg.handsCard, pg.AllHands, pg.Edit = tabHands, code, false, nil
+	pg.Tab, pg.handsCard, pg.AllHands, pg.Edit, pg.artPick = tabHands, code, false, nil, nil
 }

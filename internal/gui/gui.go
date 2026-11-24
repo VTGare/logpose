@@ -240,7 +240,7 @@ func (a *app) setInstall(ctx context.Context, in sim.Install, chosen bool) error
 	a.pack, a.cards = nil, nil
 	a.cardsMu.Unlock()
 	a.resetArtCache()
-	a.win.Update(func() { a.view.cards.ResetSimArt() })
+	a.win.Update(func() { a.view.SimArt.Reset() })
 	a.watch(ctx)
 	a.refresh(ctx)
 	return nil
@@ -347,7 +347,7 @@ func (a *app) refreshCatalog(ctx context.Context, force bool) error {
 	}
 	printings, berr := a.refreshBandai(ctx, force)
 	if changed || printings {
-		a.win.Update(func() { a.view.cards.ResetArts() })
+		a.win.Update(func() { a.view.Arts.Reset() })
 	}
 	return errors.Join(err, berr)
 }
@@ -574,7 +574,11 @@ func (a *app) quit() {
 // resetArtCache drops the card images decoded so far, for another sim folder or art source.
 func (a *app) resetArtCache() {
 	in := a.install()
-	a.win.Update(func() { a.view.setArtCache(page.NewArtCache(in, a.web, a.win.Update)) })
+	a.win.Update(func() {
+		cache := page.NewArtCache(in, a.web, a.win.Update)
+		cache.SetMirror(!a.view.Prefs.SimArtOff)
+		a.view.setArtCache(cache)
+	})
 }
 
 // appActions makes the view's changes on a goroutine, then shows the result.

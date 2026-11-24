@@ -53,6 +53,9 @@ const WebSmallWidth = 150
 // memory of a full image.
 const CardArtWidth = 240
 
+// largeArtWidth caps mirrored custom overrides so huge PNGs don't bloat hover previews.
+const largeArtWidth = 600
+
 // artCard is scaled from the thumb, and scaling only shrinks. This fails to compile when the
 // thumb is narrower than cardArtWidth.
 const _ = uint(arts.ThumbWidth - CardArtWidth)
@@ -72,6 +75,8 @@ type ArtCache struct {
 	redraw func(func())
 
 	mu      sync.Mutex
+	mirror  bool
+	ver     map[string]int
 	images  map[artKey]image.Image
 	loading map[artKey]bool
 	bitmaps map[artKey]*ui.Bitmap
@@ -82,10 +87,47 @@ func NewArtCache(install *sim.Install, web *arts.Store, redraw func(func())) *Ar
 		install: install,
 		web:     web,
 		redraw:  redraw,
+		ver:     make(map[string]int),
 		images:  make(map[artKey]image.Image),
 		loading: make(map[artKey]bool),
 		bitmaps: make(map[artKey]*ui.Bitmap),
 	}
+}
+
+// SetMirror controls whether plain card codes use the sim's _OVERRIDE art when one exists.
+func (a *ArtCache) SetMirror(on bool) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	a.mirror = on
+	a.mu.Unlock()
+}
+
+// Invalidate drops every cached size of code so the next frame reloads it. Runs on the main thread.
+func (a *ArtCache) Invalidate(code string) {
+	if a == nil || code == "" {
+		return
+	}
+	for k := range a.bitmaps {
+		if k.code == code {
+			delete(a.bitmaps, k)
+		}
+	}
+	a.mu.Lock()
+	a.ver[code]++
+	for k := range a.images {
+		if k.code == code {
+			delete(a.images, k)
+		}
+	}
+	for k := range a.loading {
+		if k.code == code {
+			delete(a.loading, k)
+		}
+	}
+	a.mu.Unlock()
+	a.redraw(func() {})
 }
 
 // Get returns the card's bitmap, or nil while it loads or when there's no image for it. code
@@ -111,12 +153,13 @@ func (a *ArtCache) Get(code string, kind artKind) *ui.Bitmap {
 	}
 	if !a.loading[k] {
 		a.loading[k] = true
-		go a.load(k)
+		ver := a.ver[k.code]
+		go a.load(k, ver)
 	}
 	return nil
 }
 
-func (a *ArtCache) load(k artKey) {
+func (a *ArtCache) load(k artKey, ver int) {
 	img, err := a.source(k)
 	switch {
 	case err != nil:
@@ -135,15 +178,36 @@ func (a *ArtCache) load(k artKey) {
 		img = arts.ScaleToWidth(img, CardArtWidth)
 	}
 	a.mu.Lock()
+	if a.ver[k.code] != ver {
+		a.mu.Unlock()
+		return
+	}
 	a.images[k] = img
 	a.mu.Unlock()
 	a.redraw(func() {})
 }
 
-// source is the card's image from Limitless or Bandai, or from the sim when they have none or
-// can't be reached.
+// source is the sim's override when mirroring is on, then Limitless or Bandai, then the sim's own
+// image.
 func (a *ArtCache) source(k artKey) (image.Image, error) {
-	return ParseArtRef(k.code).Read(a.install, a.web, k.kind, true)
+	a.mu.Lock()
+	mirror := a.mirror
+	a.mu.Unlock()
+	ref := ParseArtRef(k.code)
+	if mirror && a.install != nil && ref.kind == refPrint {
+		if path := a.install.Override(ref.code); path != "" {
+			if img, err := Decode(path); err == nil {
+				switch k.kind {
+				case ArtFull:
+					img = arts.ScaleToWidth(img, WebSmallWidth)
+				case ArtLarge:
+					img = arts.ScaleToWidth(img, largeArtWidth)
+				}
+				return img, nil
+			}
+		}
+	}
+	return ref.Read(a.install, a.web, k.kind, true)
 }
 
 func Decode(path string) (image.Image, error) {

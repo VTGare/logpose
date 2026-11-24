@@ -11,8 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/VTGare/logpose/internal/gui/cardspage"
-
 	"github.com/VTGare/logpose/internal/gui/page"
 
 	"github.com/egoist/mygo"
@@ -39,14 +37,14 @@ func (a *app) simArt() *sim.SimArt {
 
 // readSimArt is what the sim shows for the card. A file of the user's is compared with the
 // card's printings once, so one that is a printing shows as that printing.
-func (a *app) readSimArt(ctx context.Context, card cards.Card) cardspage.SimArtInfo {
+func (a *app) readSimArt(ctx context.Context, card cards.Card) page.SimArtInfo {
 	art := a.simArt()
 	if art == nil {
-		return cardspage.SimArtInfo{NoSim: true}
+		return page.SimArtInfo{NoSim: true}
 	}
 	cur, err := art.Current(card.Code)
 	if err != nil {
-		return cardspage.SimArtInfo{Err: "Couldn't read the sim's art: " + err.Error()}
+		return page.SimArtInfo{Err: "Couldn't read the sim's art: " + err.Error()}
 	}
 	if cur.Kind == sim.ArtFile && a.firstMatch(card.Code) {
 		if img, err := page.Decode(art.Install.Override(card.Code)); err == nil {
@@ -55,7 +53,7 @@ func (a *app) readSimArt(ctx context.Context, card cards.Card) cardspage.SimArtI
 			}
 		}
 	}
-	return cardspage.SimArtInfo{Cur: cur, OwnFile: art.OwnFile(card.Code)}
+	return page.SimArtInfo{Cur: cur, OwnFile: art.OwnFile(card.Code)}
 }
 
 // firstMatch reports whether the card's file hasn't been compared yet this run.
@@ -73,13 +71,13 @@ func (a *app) firstMatch(code string) bool {
 func (x *appActions) LoadSimArt(card cards.Card) {
 	go func() {
 		info := x.a.readSimArt(x.ctx, card)
-		x.a.win.Update(func() { x.a.view.cards.SetSimArt(card.Code, info) })
+		x.a.win.Update(func() { x.a.view.SimArt.Set(card.Code, info) })
 	}()
 }
 
 func (x *appActions) LoadArts(card cards.Card, gen int) {
 	go x.a.gallery.Arts(x.ctx, card, func(ca arts.CardArts) {
-		x.a.win.Update(func() { x.a.view.cards.SetArts(gen, card.Code, ca) })
+		x.a.win.Update(func() { x.a.view.Arts.Set(gen, card.Code, ca) })
 	})
 }
 
@@ -89,7 +87,7 @@ func (x *appActions) ScanSimArt() {
 		if in := x.a.install(); in != nil {
 			codes = in.Overrides()
 		}
-		x.a.win.Update(func() { x.a.view.cards.SetSimArtChanged(codes) })
+		x.a.win.Update(func() { x.a.view.SimArt.SetChanged(codes) })
 	}()
 }
 
@@ -100,7 +98,7 @@ func (x *appActions) UseSimArt(card cards.Card, choice, prev sim.ArtChoice) {
 		if err != nil {
 			x.a.opts.Log.Warn("sim art", "card", card.Code, "err", err)
 		}
-		x.a.win.Update(func() { x.a.view.cards.SimArtDone(&x.a.view.Env, card, choice, info, prev, err) })
+		x.a.win.Update(func() { x.a.view.SimArt.Done(&x.a.view.Env, card, choice, info, prev, err) })
 	}()
 }
 

@@ -43,6 +43,9 @@ type Page struct {
 	suggesting bool
 	// Edit is the core being edited, nil when none is.
 	Edit *buildEdit
+	// artPick is the deck list whose art is being picked, nil when closed.
+	artPick  *deckArtPick
+	artGridW float32
 	// renaming shows the rename bar under the build row for the chosen build.
 	renaming bool
 	rename   string

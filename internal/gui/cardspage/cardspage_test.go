@@ -521,15 +521,15 @@ var _ = Describe("Cards page", func() {
 	})
 
 	Describe("the sim's art", func() {
-		luffy := func(info SimArtInfo) {
+		luffy := func(info page.SimArtInfo) {
 			GinkgoHelper()
 			guitest.Click(tt, "Monkey D. Luffy OP01-024")
-			v.cards.SetSimArt("OP01-024", info)
+			v.SimArt.Set("OP01-024", info)
 			tt.Frame()
 		}
 
 		It("puts a printing in the sim from the dot under it, and offers to undo", func() {
-			luffy(SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
+			luffy(page.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
 			guitest.Click(tt, "Art · 3")
 			for _, text := range []string{"Base", "Alt art", "Sim's own", "In sim"} {
 				Expect(tt.HasText(text)).To(BeTrue(), text)
@@ -540,7 +540,7 @@ var _ = Describe("Cards page", func() {
 			Expect(fa.Calls).NotTo(ContainElement("use art OP01-024 OP01-024"))
 
 			alt := sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024_p1"}
-			v.cards.SimArtDone(&v.Env, v.Snap.Card("OP01-024"), alt, SimArtInfo{Cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
+			v.SimArt.Done(&v.Env, v.Snap.Card("OP01-024"), alt, page.SimArtInfo{Cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
 			tt.Frame()
 			Expect(tt.HasText("The sim now shows Monkey D. Luffy's Alt art.")).To(BeTrue())
 			guitest.Click(tt, "Undo")
@@ -550,7 +550,7 @@ var _ = Describe("Cards page", func() {
 		It("closes the message after a change without undoing it", func() {
 			guitest.Click(tt, "Monkey D. Luffy OP01-024")
 			alt := sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024_p1"}
-			v.cards.SimArtDone(&v.Env, v.Snap.Card("OP01-024"), alt, SimArtInfo{Cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
+			v.SimArt.Done(&v.Env, v.Snap.Card("OP01-024"), alt, page.SimArtInfo{Cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
 			tt.Frame()
 			Expect(tt.HasText("The sim now shows Monkey D. Luffy's Alt art.")).To(BeTrue())
 			guitest.Click(tt, "Close")
@@ -559,7 +559,7 @@ var _ = Describe("Cards page", func() {
 		})
 
 		It("shows the picture a click picks without changing the sim", func() {
-			luffy(SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
+			luffy(page.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
 			guitest.Click(tt, "Art · 3")
 			guitest.Click(tt, "Show Alt art")
 			guitest.Click(tt, "Save image…")
@@ -569,7 +569,7 @@ var _ = Describe("Cards page", func() {
 		})
 
 		It("keeps a file of the user's as a choice and says what happens to it", func() {
-			luffy(SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtFile}, OwnFile: `C:\sim\OP01-024_OVERRIDE.png`})
+			luffy(page.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtFile}, OwnFile: `C:\sim\OP01-024_OVERRIDE.png`})
 			artTab()
 			Expect(tt.HasText("Your file")).To(BeTrue())
 			Expect(tt.HasText("The sim shows a file you added yourself.")).To(BeTrue())
@@ -577,7 +577,7 @@ var _ = Describe("Cards page", func() {
 
 		It("keeps printings out of the sim while art downloads are off", func() {
 			v.setPrefs(page.PrefsFrom(map[string]string{page.KeyArtOff: "1"}))
-			luffy(SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024"}})
+			luffy(page.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024"}})
 			guitest.Click(tt, "Art · 3")
 			Expect(tt.HasText("Card art downloads are off in Settings, so only the sim's own art and your own file can be used.")).
 				To(BeTrue())
@@ -588,7 +588,7 @@ var _ = Describe("Cards page", func() {
 		})
 
 		It("says why the dots are off without a sim", func() {
-			luffy(SimArtInfo{NoSim: true})
+			luffy(page.SimArtInfo{NoSim: true})
 			artTab()
 			Expect(tt.HasText("logpose can't find the sim, so it can't change the sim's art.")).To(BeTrue())
 			guitest.Click(tt, "Choose the sim's folder")
@@ -597,7 +597,7 @@ var _ = Describe("Cards page", func() {
 		})
 
 		It("keeps the effect on the Card tab and names the sim's art above the tabs", func() {
-			luffy(SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024_p1"}})
+			luffy(page.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024_p1"}})
 			Expect(tt.HasText("This Character cannot be K.O.'d")).To(BeTrue())
 			Expect(tt.HasText("Sim's own")).To(BeFalse())
 			guitest.Click(tt, "In the sim: Alt art")
@@ -631,19 +631,19 @@ var _ = Describe("Cards page", func() {
 		// lastGen is the grouping generation of the last LoadArts the page asked for.
 		lastGen := func() int {
 			GinkgoHelper()
-			Expect(fa.artLoads).NotTo(BeEmpty())
+			Expect(fa.ArtLoads).NotTo(BeEmpty())
 			var code string
 			var gen int
-			_, err := fmt.Sscan(fa.artLoads[len(fa.artLoads)-1], &code, &gen)
+			_, err := fmt.Sscan(fa.ArtLoads[len(fa.ArtLoads)-1], &code, &gen)
 			Expect(err).NotTo(HaveOccurred())
 			return gen
 		}
 		open := func(cur sim.ArtChoice, ca arts.CardArts) {
 			GinkgoHelper()
-			v.cards.SetSimArt("OP14-002", SimArtInfo{Cur: cur})
-			v.cards.ResetArts()
+			v.SimArt.Set("OP14-002", page.SimArtInfo{Cur: cur})
+			v.Arts.Reset()
 			tt.Frame()
-			v.cards.SetArts(lastGen(), "OP14-002", ca)
+			v.Arts.Set(lastGen(), "OP14-002", ca)
 			tt.Frame()
 			artTab()
 		}
@@ -729,23 +729,23 @@ var _ = Describe("Cards page", func() {
 		})
 
 		It("asks for a card's arts once, again after a reset, and drops a step from before it", func() {
-			v.cards.SetSimArt("OP14-002", SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
+			v.SimArt.Set("OP14-002", page.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
 			tt.Frame()
-			Expect(fa.artLoads).To(HaveLen(1))
+			Expect(fa.ArtLoads).To(HaveLen(1))
 			first := lastGen()
 
-			v.cards.ResetArts()
+			v.Arts.Reset()
 			tt.Frame()
-			Expect(fa.artLoads).To(HaveLen(2))
+			Expect(fa.ArtLoads).To(HaveLen(2))
 			second := lastGen()
 			Expect(second).NotTo(Equal(first))
 
-			v.cards.ResetArts()
-			v.cards.SetArts(second, "OP14-002", regional(0))
+			v.Arts.Reset()
+			v.Arts.Set(second, "OP14-002", regional(0))
 			tt.Frame()
-			Expect(fa.artLoads).To(HaveLen(3))
+			Expect(fa.ArtLoads).To(HaveLen(3))
 			Expect(tt.HasText("Art · 2")).To(BeTrue())
-			v.cards.SetArts(lastGen(), "OP14-002", regional(0))
+			v.Arts.Set(lastGen(), "OP14-002", regional(0))
 			tt.Frame()
 			Expect(tt.HasText("Art · 3")).To(BeTrue())
 		})
@@ -755,7 +755,7 @@ var _ = Describe("Cards page", func() {
 		luffyViewer := func() {
 			GinkgoHelper()
 			guitest.Click(tt, "Monkey D. Luffy OP01-024")
-			v.cards.SetSimArt("OP01-024", SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
+			v.SimArt.Set("OP01-024", page.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
 			guitest.Click(tt, "View full size")
 		}
 
@@ -772,7 +772,7 @@ var _ = Describe("Cards page", func() {
 			guitest.Click(tt, "Use this art in the sim")
 			Expect(calls("use art")).To(Equal([]string{"use art OP01-024 OP01-024_p1"}))
 			alt := sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024_p1"}
-			v.cards.SimArtDone(&v.Env, v.Snap.Card("OP01-024"), alt, SimArtInfo{Cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
+			v.SimArt.Done(&v.Env, v.Snap.Card("OP01-024"), alt, page.SimArtInfo{Cur: alt}, sim.ArtChoice{Kind: sim.ArtOwn}, nil)
 			tt.Key(0, ui.KeyUp)
 			tt.Key(0, ui.KeyUp)
 			guitest.Click(tt, "Use this art in the sim")
@@ -805,6 +805,22 @@ var _ = Describe("Cards page", func() {
 			Expect(guitest.Labelled(tt, "Close the viewer")).To(BeTrue())
 			Expect(tt.Texts()).To(ContainElement("OP14-002 · Red Character"))
 			Expect(tt.Texts()).NotTo(ContainElement("OP01-024 · Red Character"))
+		})
+
+		It("resolves mirrored sim art for right-click actions off the Cards page only", func() {
+			card := v.Snap.Card("OP01-024")
+			printInfo := page.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024_p1"}}
+			fileInfo := page.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtFile}, OwnFile: `C:\sim\OP01-024_OVERRIDE.png`}
+
+			v.Page = page.Cards
+			Expect(shownArtKey(&v.Env, card, printInfo, true)).To(Equal("OP01-024"))
+
+			v.Page = page.Decks
+			Expect(shownArtKey(&v.Env, card, printInfo, true)).To(Equal("OP01-024_p1"))
+			Expect(shownArtKey(&v.Env, card, fileInfo, true)).To(Equal(page.FileRef(fileInfo.OwnFile)))
+
+			v.setPrefs(page.PrefsFrom(map[string]string{page.KeySimArtOff: "1"}))
+			Expect(shownArtKey(&v.Env, card, printInfo, true)).To(Equal("OP01-024"))
 		})
 	})
 })

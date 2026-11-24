@@ -38,22 +38,26 @@ func (pg *Page) scopeList(c *ui.Context, e *page.Env, d *deckData) {
 	ui.Row(c).Gap(16).AlignItems(ui.Start).Children(func() {
 		pg.versionRail(c, e, d.leader, changes, i)
 		kit.Panel(c).Grow(1).Basis(0).MinWidth(0).Gap(14).Padding(16).Children(func() {
-			ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
-				title := "List from " + e.Date(ch.At) + ", " + ch.At.Format("15:04")
-				if i == len(changes)-1 {
-					title = "Latest list · " + e.Date(ch.At) + ", " + ch.At.Format("15:04")
-				}
-				ui.Text(c, title).FontWeight(600)
-				ui.Text(c, kit.Games(len(ch.Games))+" · "+kit.Record(stats.RecordOf(ch.Games))).FontSize(13).TextColor(t.TextMuted)
+			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+				title, artTitle := listTitle(e, ch, i == len(changes)-1)
+				ui.Column(c).Gap(2).Children(func() {
+					ui.Text(c, title).FontWeight(600).SingleLine()
+					ui.Text(c, kit.Games(len(ch.Games))+" · "+kit.Record(stats.RecordOf(ch.Games))).FontSize(12.5).TextColor(t.TextMuted).SingleLine()
+				})
 				ui.Spacer(c)
+				if kit.IconButton(c, kit.IconArt, "Customize art").Clicked() {
+					pg.openDeckArt(d.leader, artTitle, list)
+				}
 				if kit.IconButton(c, kit.IconCopy, "Copy for sim").Clicked() {
 					page.CopyDeckForSim(e, d.leader, e.Snap.Card(d.leader).Name, list)
 				}
-				on := e.Prefs.DeckChanges
-				if ui.Switch(c, &on).Label("Show changes").Changed() {
-					page.PrefDeckChanges.Set(e, on)
-				}
-				ui.Text(c, "Show changes").FontSize(13).TextColor(t.TextMuted)
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+					on := e.Prefs.DeckChanges
+					if ui.Switch(c, &on).Label("Show changes").Changed() {
+						page.PrefDeckChanges.Set(e, on)
+					}
+					ui.Text(c, "Show changes").FontSize(13).TextColor(t.TextMuted).SingleLine()
+				})
 			})
 			if note := page.DeckPartialNote(deck.Count(list)); note != "" {
 				page.DeckPartialBanner(c, note)
@@ -173,4 +177,12 @@ func linkButton(c *ui.Context, label string) bool {
 	}
 	b.Children(func() { ui.Text(c, label).FontSize(13).TextColor(col) })
 	return b.Clicked()
+}
+
+func listTitle(e *page.Env, ch stats.Change, latest bool) (heading, short string) {
+	when := e.Date(ch.At) + ", " + ch.At.Format("15:04")
+	if latest {
+		return "Latest list · " + when, "Latest list"
+	}
+	return "List from " + when, when
 }

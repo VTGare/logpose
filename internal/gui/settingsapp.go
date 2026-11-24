@@ -109,10 +109,13 @@ func (a *app) applyPrefs(ctx context.Context, p page.Prefs) {
 			web.SetOff(p.ArtOff)
 			a.resetArtCache()
 		}
-		a.win.Update(func() { a.view.cards.ResetArts() })
+		a.win.Update(func() { a.view.Arts.Reset() })
 		if !p.ArtOff {
 			go func() { _ = a.refreshCatalog(ctx, false) }()
 		}
+	}
+	if p.SimArtOff != was.SimArtOff {
+		a.resetArtCache()
 	}
 	if p.ArtCap != was.ArtCap && web != nil {
 		web.SetLimit(int64(p.ArtCap) << 20)

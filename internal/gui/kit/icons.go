@@ -58,4 +58,5 @@ var (
 	IconFilter      = mustSVG(svgHead + `<path d="M4 5h16l-6 7.5V19l-4 1.5v-8z"/></svg>`)
 	IconMore        = mustSVG(svgBold + `<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>`)
 	IconWarn        = mustSVG(svgHead + `<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>`)
+	IconArt         = mustSVG(svgHead + `<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 15l-5-5-9 10"/></svg>`)
 )

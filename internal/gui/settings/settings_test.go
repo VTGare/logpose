@@ -234,6 +234,15 @@ var _ = Describe("settings", func() {
 			Expect([]bool{st.fa.Applied[0].ArtOff, st.fa.Applied[1].ArtOff}).To(Equal([]bool{true, false}))
 		})
 
+		It("turns sim alt-art mirroring off and on", func() {
+			st := artTester()
+			st.click("Use the sim's alt art")
+			st.click("Use the sim's alt art")
+			Expect(st.fa.Calls).To(Equal([]string{page.KeySimArtOff + "=1", page.KeySimArtOff + "="}))
+			Expect(st.fa.Applied).To(HaveLen(2))
+			Expect([]bool{st.fa.Applied[0].SimArtOff, st.fa.Applied[1].SimArtOff}).To(Equal([]bool{true, false}))
+		})
+
 		It("offers only the switch without an art folder", func() {
 			info := testSettingsInfo()
 			info.ArtDir = ""

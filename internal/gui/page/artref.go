@@ -14,6 +14,8 @@ type refKind int
 const (
 	// refPrint is a card's code or a printing's key, read from the web art and then the sim.
 	refPrint refKind = iota
+	// refExactPrint names a specific printing without mirroring the sim's override.
+	refExactPrint
 	// refSimOwn is the sim's own picture of a card.
 	refSimOwn
 	// refFile is a file of the user's by its path.
@@ -31,13 +33,17 @@ type ArtRef struct {
 }
 
 const (
-	simOwnPrefix  = "sim:"
-	ownFilePrefix = "file:"
-	DonCode       = "Don"
-	DonBackCode   = "DonBack"
+	exactPrintPrefix = "print:"
+	simOwnPrefix     = "sim:"
+	ownFilePrefix    = "file:"
+	DonCode          = "Don"
+	DonBackCode      = "DonBack"
 )
 
 func ParseArtRef(s string) ArtRef {
+	if code, ok := strings.CutPrefix(s, exactPrintPrefix); ok {
+		return ArtRef{refExactPrint, code}
+	}
 	if code, ok := strings.CutPrefix(s, simOwnPrefix); ok {
 		return ArtRef{refSimOwn, code}
 	}
@@ -55,6 +61,8 @@ func ParseArtRef(s string) ArtRef {
 
 func (r ArtRef) String() string {
 	switch r.kind {
+	case refExactPrint:
+		return exactPrintPrefix + r.code
 	case refSimOwn:
 		return simOwnPrefix + r.code
 	case refFile:
@@ -70,6 +78,15 @@ func (r ArtRef) String() string {
 // PrintRef is the art of a card or printing, by its code or key.
 func PrintRef(key string) ArtRef { return ArtRef{refPrint, key} }
 
+// ExactPrintRef keeps a printing key on its own art even when mirroring sim overrides.
+func ExactPrintRef(key string) string {
+	r := ParseArtRef(key)
+	if r.kind != refPrint || key == "" {
+		return key
+	}
+	return ArtRef{refExactPrint, r.code}.String()
+}
+
 func SimOwnRef(code string) string { return ArtRef{refSimOwn, code}.String() }
 
 func FileRef(path string) string { return ArtRef{refFile, path}.String() }
@@ -79,7 +96,7 @@ func (r ArtRef) Card() string {
 	switch r.kind {
 	case refSimOwn:
 		return r.code
-	case refPrint:
+	case refPrint, refExactPrint:
 		if k, err := arts.ParseKey(r.code); err == nil {
 			return k.Code()
 		}
@@ -91,6 +108,8 @@ func (r ArtRef) Card() string {
 // FileName is the name a saved picture gets: the printing's key, or the card's code.
 func (r ArtRef) FileName() string {
 	switch r.kind {
+	case refExactPrint:
+		return r.code + ".png"
 	case refSimOwn:
 		return r.code + "_sim.png"
 	case refFile:
@@ -116,7 +135,7 @@ func (r ArtRef) Read(in *sim.Install, web *arts.Store, kind artKind, simFallback
 			img = arts.ScaleToWidth(img, WebSmallWidth)
 		}
 		return img, err
-	case refPrint:
+	case refPrint, refExactPrint:
 		img, err := r.web(web, kind.fromThumb())
 		if err == nil {
 			if small {
