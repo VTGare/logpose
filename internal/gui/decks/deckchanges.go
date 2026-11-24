@@ -13,6 +13,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"github.com/VTGare/logpose/internal/deck"
 	"github.com/VTGare/logpose/internal/stats"
 )
 
@@ -43,12 +44,13 @@ func (pg *Page) versionRail(c *ui.Context, e *page.Env, leader string, changes [
 			ch := changes[i]
 			b := ui.ButtonBase(c.Key(i)).Label(e.DateTime(ch.At)).Column().Gap(3).Padding(7, 8).Radius(8).
 				Background(ui.Transparent).AlignItems(ui.Stretch).PopoverMenu(func(m *ui.Menu) {
+				list := ch.Games[0].Facts.List
 				if m.Item("Customize art").Chosen() {
 					_, artTitle := listTitle(e, ch, i == len(changes)-1)
-					pg.openDeckArt(leader, artTitle, ch.Games[0].Facts.List)
+					pg.openDeckArt(leader, artTitle, list)
 				}
-				if m.Item("Copy for sim").Chosen() {
-					page.CopyDeckForSim(e, leader, e.Snap.Card(leader).Name, ch.Games[0].Facts.List)
+				if m.Item("Copy for sim").Disabled(leader == "" || deck.Count(list) == 0).Chosen() {
+					page.CopyDeckForSim(e, leader, e.Snap.Card(leader).Name, list)
 				}
 			})
 			switch {

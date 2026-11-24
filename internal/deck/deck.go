@@ -29,13 +29,7 @@ type Facts struct {
 }
 
 // Named is how many of the deck's cards the log names.
-func (f Facts) Named() int {
-	n := 0
-	for _, c := range f.List {
-		n += c
-	}
-	return n
-}
+func (f Facts) Named() int { return Count(f.List) }
 
 type EventKind int
 

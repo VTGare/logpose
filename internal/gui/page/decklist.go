@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	stackW      = 60
-	stackStepX  = 4
-	stackStepY  = 6
+	StackW      = 60
+	StackStepX  = 4
+	StackStepY  = 6
 	maxStackFan = 4
 	shownTraits = 6
 	railTraits  = 4
@@ -29,12 +29,17 @@ const (
 
 var pillBack = ui.RGBA(0, 0, 0, 0.72)
 
-// Pill draws a small dark badge over a card or pile.
 func Pill(c *ui.Context, text string, size float32) ui.Element {
 	return ui.Text(c, text).FontSize(size).Bold().TextColor(PillText).Padding(1, 6).Radius(8).Background(pillBack)
 }
 
-// DeckListOrder orders a decklist the way lists are read: by type, then cost, then name.
+// StackSize returns the width, height and capped fanned-layer count for n copies of a card.
+func StackSize(n int) (w, h float32, fan int) {
+	fan = min(max(n, 1), maxStackFan)
+	return StackW + float32(fan-1)*StackStepX, CardHeight(StackW) + float32(fan-1)*StackStepY, fan
+}
+
+// DeckListOrder sorts a decklist by card type, then cost, then name.
 func DeckListOrder(e *Env, list map[string]int) []string {
 	codes := slices.Collect(func(yield func(string) bool) {
 		for code, n := range list {
@@ -61,7 +66,7 @@ func DeckListOrder(e *Env, list map[string]int) []string {
 func DeckStacks(c *ui.Context, e *Env, leader string, list, marks map[string]int) {
 	ui.Row(c).Gap(10).Wrap().AlignItems(ui.Start).Children(func() {
 		if leader != "" {
-			e.Card(c.Key("leader"), leader, stackW).Shadow(0, 2, 6, 0, ui.RGBA(0, 0, 0, 0.45))
+			e.Card(c.Key("leader"), leader, StackW).Shadow(0, 2, 6, 0, ui.RGBA(0, 0, 0, 0.45))
 		}
 		for _, code := range DeckListOrder(e, list) {
 			deckStack(c.Key(code), e, code, list[code], marks[code], false)
@@ -75,13 +80,12 @@ func DeckStacks(c *ui.Context, e *Env, leader string, list, marks map[string]int
 }
 
 func deckStack(c *ui.Context, e *Env, code string, n, swapped int, gone bool) {
-	fan := min(max(n, 1), maxStackFan)
-	h := CardHeight(stackW)
-	box := ui.Box(c).Size(stackW+float32(fan-1)*stackStepX, h+float32(fan-1)*stackStepY)
+	w, h, fan := StackSize(n)
+	box := ui.Box(c).Size(w, h)
 	box.Children(func() {
 		for i := range fan {
-			card := e.Card(c.Key(i), code, stackW).Absolute().
-				Left(float32(i)*stackStepX).Top(float32(i)*stackStepY).Shadow(0, 2, 6, 0, ui.RGBA(0, 0, 0, 0.45))
+			card := e.Card(c.Key(i), code, StackW).Absolute().
+				Left(float32(i)*StackStepX).Top(float32(i)*StackStepY).Shadow(0, 2, 6, 0, ui.RGBA(0, 0, 0, 0.45))
 			if swapped > 0 && i >= fan-swapped {
 				card.Border(2, kit.WinColor(c.Theme()))
 			}
@@ -144,13 +148,9 @@ func DeckListStatsGrid(c *ui.Context, st stats.ListStats) {
 	})
 }
 
-// DeckListStatsRail draws a decklist's stats in a narrow vertical column beside card stacks.
-func DeckListStatsRail(c *ui.Context, st stats.ListStats, partialNote string) {
+func DeckListStatsRail(c *ui.Context, st stats.ListStats) {
 	t := c.Theme()
 	ui.Column(c).Width(statsRailW).Gap(14).BorderStartWidth(1).BorderColor(t.Border.Alpha(0.7)).Padding(0, 0, 0, 18).Children(func() {
-		if partialNote != "" {
-			DeckPartialBanner(c, partialNote)
-		}
 		railSection(c, "Cost curve", func() { curveBars(c, st.Curve, 44) })
 		railSection(c, "Counters", func() { counterLines(c, st.Counters) })
 		if line := compactTypes(st.Types); line != "" {
@@ -164,11 +164,16 @@ func DeckListStatsRail(c *ui.Context, st stats.ListStats, partialNote string) {
 	})
 }
 
-// DeckPartialBanner draws a muted amber note when a game's log named fewer than 50 cards.
+// DeckPartialBanner draws an amber notice box for note.
 func DeckPartialBanner(c *ui.Context, note string) {
 	ui.Box(c).Padding(7, 10).Radius(7).Background(kit.WarnColor.Alpha(0.10)).Border(1, kit.WarnColor.Alpha(0.28)).Children(func() {
 		ui.Text(c, note).FontSize(12).TextColor(kit.WarnColor).Wrap()
 	})
+}
+
+func missingCardsNote(total int) string {
+	miss := stats.DeckSize - total
+	return fmt.Sprintf("%s %s named in the log.", kit.Cards(miss), kit.Plural(miss, "wasn't", "weren't"))
 }
 
 // DeckPartialNote describes missing cards when total is under DeckSize, or "" for a full deck.
@@ -176,32 +181,29 @@ func DeckPartialNote(total int) string {
 	if total <= 0 || total >= stats.DeckSize {
 		return ""
 	}
-	miss := stats.DeckSize - total
-	if miss == 1 {
-		return fmt.Sprintf("%d of %d cards · 1 card wasn't named in the log.", total, stats.DeckSize)
-	}
-	return fmt.Sprintf("%d of %d cards · %d cards weren't named in the log.", total, stats.DeckSize, miss)
+	return fmt.Sprintf("%d of %d cards · %s", total, stats.DeckSize, missingCardsNote(total))
 }
 
-// CopyDeckForSim formats a decklist in OPTCGSim clipboard format and asks the app to copy it.
 func CopyDeckForSim(e *Env, leader, label string, list map[string]int) {
-	if e.Act == nil || len(list) == 0 {
+	if e.Act == nil {
+		return
+	}
+	total := deck.Count(list)
+	if leader == "" || total == 0 {
+		e.Toast = &ui.Toast{ID: "copy-deck", Title: "Couldn't copy decklist.", Type: "error"}
 		return
 	}
 	text := deck.FormatSim(leader, DeckListOrder(e, list), list)
-	total := deck.Count(list)
 	toast := ui.Toast{ID: "copy-deck"}
 	if total < stats.DeckSize {
-		miss := stats.DeckSize - total
 		toast.Title = fmt.Sprintf("Copied %d of %d cards for the sim.", total, stats.DeckSize)
-		if miss == 1 {
-			toast.Description = "1 card wasn't named in the log."
-		} else {
-			toast.Description = fmt.Sprintf("%d cards weren't named in the log.", miss)
+		toast.Description = missingCardsNote(total)
+		if label != "" {
+			toast.Description = label + " · " + toast.Description
 		}
 	} else {
 		toast.Title = "Copied decklist for the sim."
-		toast.Description = fmt.Sprintf("%d cards", total)
+		toast.Description = kit.Cards(total)
 		if label != "" {
 			toast.Description += " · " + label
 		}

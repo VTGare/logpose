@@ -43,10 +43,8 @@ type detailState struct {
 	// focusNote puts the keyboard in the note box once, when the row menu opens the match to
 	// write one.
 	focusNote bool
-	// decksSide picks which player's list the Decks tile shows: 0 for the opponent, 1 for you.
-	decksSide  int
-	decksWidth float32
-	deckStats  [2]deckStatsCache
+	// decksMine shows the local player's list in the Decks tile instead of the opponent's.
+	decksMine bool
 	// Replay is the match's open Replay, or nil on the match page.
 	Replay *replayState
 }
@@ -99,7 +97,6 @@ func (pg *Page) saveNote() {
 func (pg *Page) SetTimeline(l MatchTimeline) {
 	if pg.Detail.Fingerprint == l.Fingerprint {
 		pg.Detail.timeline = &l
-		pg.Detail.deckStats = [2]deckStatsCache{}
 		pg.buildReplay()
 	}
 }

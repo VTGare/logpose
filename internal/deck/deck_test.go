@@ -122,4 +122,10 @@ var _ = Describe("FormatSim", func() {
 		list := map[string]int{"ST31-005": 4, "EB04-002": 2}
 		Expect(FormatSim("OP13-001", nil, list)).To(Equal("1xOP13-001\r\n2xEB04-002\r\n4xST31-005\r\n"))
 	})
+
+	It("handles empty leaders, copies over 4, and cards omitted from order", func() {
+		list := map[string]int{"OP01-016": 6, "ST31-005": 2, "EB04-002": 4}
+		Expect(FormatSim("", []string{"OP01-016", "OP01-016"}, list)).
+			To(Equal("6xOP01-016\r\n4xEB04-002\r\n2xST31-005\r\n"))
+	})
 })

@@ -91,13 +91,10 @@ var _ = Describe("match decks", func() {
 		s := guitest.Snapshot(1)
 		oppList := fillDeck(s.Cards, "OPP", "King", "Animal Kingdom Pirates", cards.Purple, 50)
 		myList := fillDeck(s.Cards, "ME", "Zoro", "Straw Hat Crew", cards.Red, 50)
-		s.Decks = map[string]stats.DeckGame{
-			"0": {Match: s.Matches[0], Facts: deck.Facts{Player: guitest.Me, List: myList}},
-		}
 
 		v, tt := open(s)
 		v.OpenMatch(s.Matches[0])
-		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0", OppList: oppList})
+		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0", OppList: oppList, MyList: myList})
 		tt.Frame()
 
 		Expect(tt.Click("You · Monkey D. Luffy")).To(Succeed())
@@ -114,6 +111,25 @@ var _ = Describe("match decks", func() {
 		Expect(fa.Copied[0].Text).To(HavePrefix("1xOP13-001\r\n"))
 		Expect(fa.Copied[0].Toast.Title).To(Equal("Copied decklist for the sim."))
 		Expect(fa.Copied[0].Toast.Description).To(Equal("50 cards · Monkey D. Luffy"))
+	})
+
+	It("shows your factual 49-card list from the log even when Snap.Decks filled it to 50", func() {
+		s := guitest.Snapshot(1)
+		oppList := fillDeck(s.Cards, "OPP", "King", "Animal Kingdom Pirates", cards.Purple, 50)
+		filled := fillDeck(s.Cards, "ME", "Zoro", "Straw Hat Crew", cards.Red, 50)
+		factual := fillDeck(s.Cards, "ME", "Zoro", "Straw Hat Crew", cards.Red, 49)
+		s.Decks = map[string]stats.DeckGame{
+			"0": {Match: s.Matches[0], Facts: deck.Facts{Player: guitest.Me, List: filled}},
+		}
+
+		v, tt := open(s)
+		v.OpenMatch(s.Matches[0])
+		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0", OppList: oppList, MyList: factual})
+		tt.Frame()
+
+		Expect(tt.Click("You · Monkey D. Luffy")).To(Succeed())
+		tt.Frame()
+		Expect(tt.HasText("49 of 50 cards · 1 card wasn't named in the log.")).To(BeTrue())
 	})
 
 	It("notes a partial 49-card opponent list and copies it with the partial toast", func() {
@@ -138,7 +154,7 @@ var _ = Describe("match decks", func() {
 		tt.Frame()
 		Expect(fa.Copied).To(HaveLen(1))
 		Expect(fa.Copied[0].Toast.Title).To(Equal("Copied 49 of 50 cards for the sim."))
-		Expect(fa.Copied[0].Toast.Description).To(Equal("1 card wasn't named in the log."))
+		Expect(fa.Copied[0].Toast.Description).To(Equal("Opp · Kaido · 1 card wasn't named in the log."))
 	})
 
 	It("says when a log has no decklists", func() {
@@ -152,7 +168,15 @@ var _ = Describe("match decks", func() {
 		Expect(tt.HasText("Copy for sim")).To(BeFalse())
 	})
 
-	It("handles a single missing side gracefully", func() {
+	It("shows Reading the log while the timeline is loading", func() {
+		s := guitest.Snapshot(1)
+		v, tt := open(s)
+		v.OpenMatch(s.Matches[0])
+		tt.Frame()
+		Expect(tt.HasText("Reading the log")).To(BeTrue())
+	})
+
+	It("disables Copy for sim and labels the switcher on a side with no list", func() {
 		s := guitest.Snapshot(1)
 		myList := fillDeck(s.Cards, "ME", "Zoro", "Straw Hat Crew", cards.Red, 50)
 		v, tt := open(s)
@@ -160,6 +184,7 @@ var _ = Describe("match decks", func() {
 		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0", MyList: myList})
 		tt.Frame()
 
+		Expect(tt.HasText("Opp · Kaido (no list)")).To(BeTrue())
 		Expect(tt.HasText("The log doesn't include this decklist.")).To(BeTrue())
 		Expect(tt.Click("Copy for sim")).To(Succeed())
 		Expect(fa.Copied).To(BeEmpty())
@@ -175,5 +200,33 @@ var _ = Describe("match decks", func() {
 		Expect(guitest.Labelled(tt, "Zoro 01")).To(BeTrue())
 		Expect(tt.Click("Copy for sim")).To(Succeed())
 		Expect(fa.Copied).To(HaveLen(1))
+	})
+
+	It("stacks the stats grid below the cards when narrow and keeps fold state across matches", func() {
+		s := guitest.Snapshot(2)
+		oppList := fillDeck(s.Cards, "OPP", "King", "Animal Kingdom Pirates", cards.Purple, 48)
+		myList := fillDeck(s.Cards, "ME", "Zoro", "Straw Hat Crew", cards.Red, 50)
+
+		v, tt := open(s)
+		tt.SetSize(820, 900)
+		v.OpenMatch(s.Matches[0])
+		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0", OppList: oppList, MyList: myList})
+		tt.Frame()
+		tt.Frame()
+
+		Expect(tt.HasText("48 of 50 cards · 2 cards weren't named in the log.")).To(BeTrue())
+		cardRect, ok := tt.Find("King 01")
+		Expect(ok).To(BeTrue())
+		curveRect, ok := tt.Find("Cost curve")
+		Expect(ok).To(BeTrue())
+		Expect(curveRect.Y).To(BeNumerically(">", cardRect.Y+40))
+
+		Expect(tt.Click("Collapse Decks")).To(Succeed())
+		tt.Frame()
+		v.OpenMatch(s.Matches[1])
+		v.matches.SetTimeline(MatchTimeline{Fingerprint: "1", OppList: oppList, MyList: myList})
+		tt.Frame()
+		Expect(tt.HasText("Opp: 48 of 50 cards · You: 50 cards")).To(BeTrue())
+		Expect(guitest.Labelled(tt, "King 01")).To(BeFalse())
 	})
 })

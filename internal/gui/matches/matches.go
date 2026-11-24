@@ -42,6 +42,8 @@ type Page struct {
 	list matchesState
 	// Detail is the open match. Its fingerprint is empty on the match list.
 	Detail detailState
+	// decksWidth remembers the Decks tile's last measured width across matches.
+	decksWidth float32
 }
 
 func (pg *Page) do(fn func(Actions)) {

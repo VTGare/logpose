@@ -7,18 +7,28 @@ import (
 	"strings"
 )
 
-// FormatSim writes a decklist as OPTCGSim imports it from the clipboard or a .deck file: the
-// leader first as 1xCODE, then each main-deck card as NxCODE on CRLF lines. Cards follow order
-// when given, or sort by code.
+// FormatSim writes a decklist in OPTCGSim's clipboard and .deck format.
+// The leader comes first as 1xCODE, then each main-deck card as NxCODE on CRLF lines.
+// Cards follow order first, and any remaining cards in list are appended sorted by code.
 func FormatSim(leader string, order []string, list map[string]int) string {
 	var b strings.Builder
 	if leader != "" {
 		fmt.Fprintf(&b, "1x%s\r\n", leader)
 	}
-	if len(order) == 0 {
-		order = slices.Sorted(maps.Keys(list))
-	}
+	seen := make(map[string]bool, len(list))
 	for _, code := range order {
+		if seen[code] {
+			continue
+		}
+		if n := list[code]; n > 0 {
+			seen[code] = true
+			fmt.Fprintf(&b, "%dx%s\r\n", n, code)
+		}
+	}
+	for _, code := range slices.Sorted(maps.Keys(list)) {
+		if seen[code] {
+			continue
+		}
 		if n := list[code]; n > 0 {
 			fmt.Fprintf(&b, "%dx%s\r\n", n, code)
 		}
@@ -26,7 +36,6 @@ func FormatSim(leader string, order []string, list map[string]int) string {
 	return b.String()
 }
 
-// Count is the total copies in a decklist.
 func Count(list map[string]int) int {
 	n := 0
 	for _, c := range list {

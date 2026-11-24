@@ -78,7 +78,7 @@ var _ = Describe("Copy for sim on Decks", func() {
 		Expect(act.Copied).To(HaveLen(1))
 		Expect(act.Copied[0].Text).To(Equal("1xOP13-001\r\n4xOTA\r\n20xGARP\r\n16xEVT-1\r\n9xSTG-1\r\n"))
 		Expect(act.Copied[0].Toast.Title).To(Equal("Copied 49 of 50 cards for the sim."))
-		Expect(act.Copied[0].Toast.Description).To(Equal("1 card wasn't named in the log."))
+		Expect(act.Copied[0].Toast.Description).To(Equal("Monkey D. Luffy · 1 card wasn't named in the log."))
 	})
 
 	It("copies an older version from the version rail menu instead of the latest list", func() {

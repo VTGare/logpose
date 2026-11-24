@@ -15,12 +15,6 @@ import (
 	"github.com/VTGare/logpose/internal/store"
 )
 
-const (
-	stackW     = 60
-	stackStepX = 4
-	stackStepY = 6
-)
-
 // buildEdit is a build's core and name being edited. A new build has ID 0.
 type buildEdit struct {
 	build  store.Build
@@ -268,7 +262,7 @@ func toggleLook(c *ui.Context, b ui.Element, core bool) {
 // games ran it. Staples are faded, since they can't tell builds apart.
 func editStack(c *ui.Context, e *page.Env, ed *buildEdit, code string, n, in, total int, staple bool) {
 	core := slices.Contains(ed.core, code)
-	h := page.CardHeight(stackW)
+	w, h, fan := page.StackSize(n)
 	b := ui.ButtonBase(c).Label(e.Snap.Card(code).Name).Column().Gap(4).Padding(4)
 	toggleLook(c, b, core)
 	if b.Clicked() {
@@ -276,17 +270,17 @@ func editStack(c *ui.Context, e *page.Env, ed *buildEdit, code string, n, in, to
 	}
 	hovered := b.Hovered()
 	b.Children(func() {
-		art := ui.Box(c).Size(stackW+float32(n-1)*stackStepX, h+float32(n-1)*stackStepY)
+		art := ui.Box(c).Size(w, h)
 		if staple && !core && !hovered {
 			art.Opacity(0.7)
 		}
 		art.Children(func() {
-			for i := range n {
-				e.Card(c.Key(i), code, stackW).Absolute().Left(float32(i) * stackStepX).Top(float32(i) * stackStepY)
+			for i := range fan {
+				e.Card(c.Key(i), code, page.StackW).Absolute().Left(float32(i) * page.StackStepX).Top(float32(i) * page.StackStepY)
 			}
 			page.Pill(c, fmt.Sprintf("×%d", n), 11).Absolute().Right(4).Bottom(4)
 		})
-		freqBar(c, in, total, stackW+float32(n-1)*stackStepX)
+		freqBar(c, in, total, w)
 		coreMark(c, core, hovered, staple)
 	})
 }
