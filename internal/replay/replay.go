@@ -151,8 +151,11 @@ func Build(g *simlog.Game, power func(code string) int, opts ...Option) (*Replay
 		return nil, ErrNoMoves
 	}
 	b := newBuilder(g, power)
-	for _, o := range opts {
-		o(b)
+	if len(opts) > 0 {
+		b.lasts = make(map[string]Duration, len(opts))
+		for _, o := range opts {
+			o(b)
+		}
 	}
 	b.run()
 	r := &Replay{

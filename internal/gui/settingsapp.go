@@ -29,7 +29,7 @@ func (x *appActions) LoadSettings() {
 			x.a.opts.Log.Error("settings", "err", err)
 			return
 		}
-		x.a.win.Update(func() { x.a.view.setSettingsInfo(info) })
+		x.a.win.Update(func() { x.a.view.settings.Info = &info })
 	}()
 }
 
@@ -140,7 +140,7 @@ func (x *appActions) SetOpenAtLogin(on bool) {
 		}
 		now := mygo.App.OpenAtLogin()
 		x.a.win.Update(func() {
-			x.a.view.setOpenAtLogin(now)
+			x.a.view.settings.System.OpenAtLogin = now
 			if err != nil {
 				x.a.view.settings.Note(settings.NoteStartup, "Windows didn't take the change.")
 			}
@@ -269,7 +269,7 @@ func (a *app) loadArtUsage() {
 		return
 	}
 	u := a.web.Usage()
-	a.win.Update(func() { a.view.setArtUsage(u) })
+	a.win.Update(func() { a.view.settings.Art = &u })
 }
 
 func (x *appActions) ClearArt() {

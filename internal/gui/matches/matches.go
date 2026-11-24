@@ -35,7 +35,6 @@ type Actions interface {
 	// ExportToSim writes the match as a save state for the sim's LoadState From File, named
 	// name, into the export folder. g is the parsed game, or nil to read it from the store.
 	ExportToSim(fingerprint, name string, g *simlog.Game)
-	After(d time.Duration, fn func())
 }
 
 type Page struct {

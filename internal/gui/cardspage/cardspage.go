@@ -27,7 +27,7 @@ var cardColors = []cards.Color{cards.Red, cards.Green, cards.Blue, cards.Purple,
 func (pg *Page) Draw(c *ui.Context, e *page.Env) {
 	s := &pg.State
 	if e.Snap.Cards == nil || len(e.Snap.Cards.All()) == 0 {
-		pg.cardsMissing(c)
+		pg.cardsMissing(c, e)
 		return
 	}
 	e.SimArt.Scan(e)
@@ -71,7 +71,7 @@ func (pg *Page) Draw(c *ui.Context, e *page.Env) {
 	})
 }
 
-func (pg *Page) cardsMissing(c *ui.Context) {
+func (pg *Page) cardsMissing(c *ui.Context, e *page.Env) {
 	if pg.CardSync.total > 0 {
 		pg.cardsReading(c)
 		return
@@ -81,8 +81,8 @@ func (pg *Page) cardsMissing(c *ui.Context) {
 		ui.Text(c, "Cards aren't downloaded yet").Bold().FontSize(18)
 		ui.Text(c, "logpose reads every card from Limitless once, which takes about a minute, then checks "+
 			"for new sets once a day.").TextColor(t.TextMuted).MaxWidth(440).Wrap().TextAlign(ui.Center)
-		if ui.Button(c, "Download cards").Clicked() {
-			pg.do(func(a Actions) { a.RefreshCards() })
+		if ui.Button(c, "Download cards").Clicked() && e.Act != nil {
+			e.Act.RefreshCards()
 		}
 		if n := pg.Note; n != "" {
 			ui.Text(c, n).FontSize(13).TextColor(t.TextMuted)
@@ -106,7 +106,7 @@ func (pg *Page) cardsReading(c *ui.Context) {
 				for i, set := range sync.named(5) {
 					ui.Row(c.Key(i)).Gap(8).AlignItems(ui.Center).Children(func() {
 						ui.Icon(c, kit.IconCheck).Size(14, 14).TextColor(kit.WinColor(t))
-						ui.Text(c, set.Set+" · "+kit.CardCount(set.Cards)).FontSize(13)
+						ui.Text(c, set.Set+" · "+kit.Cards(set.Cards)).FontSize(13)
 					})
 				}
 			})
@@ -237,7 +237,7 @@ func (pg *Page) costToggles(c *ui.Context) {
 	s := &pg.State
 	t := c.Theme()
 	joined(c, len(s.curve), 26, 4, func(cost int) (string, bool) {
-		return fmt.Sprintf("Cost %d, %s", cost, kit.CardCount(s.curve[cost])), slices.Contains(s.costs, cost)
+		return fmt.Sprintf("Cost %d, %s", cost, kit.Cards(s.curve[cost])), slices.Contains(s.costs, cost)
 	}, s.toggleCost, func(cost int) {
 		col := toggleText(t, slices.Contains(s.costs, cost))
 		if s.curve[cost] == 0 && col != onText {
@@ -373,18 +373,8 @@ func (pg *Page) chips(c *ui.Context) {
 			pg.chip(c, ch)
 		})
 	}
-	if s.filtered() {
-		clear := ui.ButtonBase(c.Key("clear")).Label("Clear the filters").Background(ui.Transparent).Padding(4, 6)
-		if clear.Clicked() {
-			s.clear()
-		}
-		clear.Children(func() {
-			col := t.Accent
-			if clear.Hovered() {
-				col = t.AccentHover
-			}
-			ui.Text(c, "Clear all").FontSize(13).TextColor(col)
-		})
+	if s.filtered() && kit.LinkButton(c.Key("clear"), nil, "Clear all").Label("Clear the filters").Padding(4, 6).Clicked() {
+		s.clear()
 	}
 }
 
@@ -449,7 +439,7 @@ func (pg *Page) viewControls(c *ui.Context, e *page.Env, count int) {
 			ui.Text(c, status).FontSize(12.5).TextColor(kit.FaintColor(t)).SingleLine()
 		})
 	}
-	ui.Text(c, kit.CardCount(count)).FontSize(13).TextColor(t.TextMuted).SingleLine()
+	ui.Text(c, kit.Cards(count)).FontSize(13).TextColor(t.TextMuted).SingleLine()
 	sortPill(c, e)
 	view := boolInt(e.Prefs.CardList)
 	if ui.Segmented(c, &view, "Images", "List").Label("Show as").Changed() {
@@ -843,7 +833,7 @@ func (pg *Page) detailTabs(c *ui.Context, e *page.Env, code, key string, picture
 	labels := []string{"Card", fmt.Sprintf("Art · %d", pictures)}
 	ui.Column(c).Children(func() {
 		ui.Row(c).AlignItems(ui.End).Gap(6).Children(func() {
-			pg.tabList(c, labels)
+			kit.UnderlineTabs(c, &pg.State.tab, labels)
 			ui.Spacer(c)
 			ui.Box(c).Padding(0, 0, 6, 0).Children(func() {
 				ui.Row(c).Gap(6).Children(func() {
@@ -855,28 +845,6 @@ func (pg *Page) detailTabs(c *ui.Context, e *page.Env, code, key string, picture
 			})
 		})
 		ui.Box(c).Height(1).Background(t.Border)
-	})
-}
-
-func (pg *Page) tabList(c *ui.Context, labels []string) {
-	t := c.Theme()
-	s := &pg.State
-	tabs := ui.TabsBase(c, &s.tab, len(labels))
-	tabs.List.Gap(4).Children(func() {
-		for i, label := range labels {
-			tab := tabs.Tab(i).Column().Gap(6).Padding(7, 4, 0, 4)
-			col, bar := t.TextMuted, ui.Transparent
-			if i == s.tab {
-				col, bar = t.Text, t.Accent
-			} else if tab.Hovered() {
-				col = t.Text
-			}
-			tab.Children(func() {
-				ui.Text(c, label).FontSize(13).TextColor(col).Padding(0, 8).
-					FontWeight(map[bool]int{true: 500, false: 400}[i == s.tab])
-				ui.Box(c).Height(2).Radius(1).Background(bar).AlignSelf(ui.Stretch)
-			})
-		}
 	})
 }
 
@@ -1048,12 +1016,7 @@ func effectSpans(effect string, t *ui.Theme) []ui.Span {
 	return out
 }
 
-type Actions interface {
-	RefreshCards()
-}
-
 type Page struct {
-	Act   Actions
 	State cardsState
 	// CardSync and ArtSync are the card data and art refreshes running now.
 	CardSync CardSync
@@ -1062,12 +1025,6 @@ type Page struct {
 	panelDrag page.PaneDrag
 	// Note is the last card data refresh's Note, which the frame sets before drawing.
 	Note string
-}
-
-func (pg *Page) do(fn func(Actions)) {
-	if pg.Act != nil {
-		fn(pg.Act)
-	}
 }
 
 // Select makes the card the one the page shows.

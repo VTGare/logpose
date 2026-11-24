@@ -169,10 +169,10 @@ func playmat(c *ui.Context, e *page.Env, m mat, sv *stepView) ui.Element {
 	k := func() *ui.Context { key++; return c.Key(key) }
 	bt := sv.step.Battle
 	a, t := -1, -1
-	var attacker page.Side
+	var attacker side
 	if bt != nil {
 		attacker = sv.attacker()
-		a, t = BattlePair(cards, bt, attacker.Mine)
+		a, t = BattlePair(cards, bt, attacker.mine)
 	}
 	themCols, meCols := kit.ColorsOf(e.Snap.Card(sv.them.Leader.Code)), kit.ColorsOf(e.Snap.Card(sv.me.Leader.Code))
 	// No Clip, so cards on their way between the mat and a hand show the whole way.
@@ -216,12 +216,12 @@ func playmat(c *ui.Context, e *page.Env, m mat, sv *stepView) ui.Element {
 			} else {
 				sv.Glide(box, pl.Card.ID)
 			}
-			box.Children(func() { boardCard(c, e, sv, pl.Card, m.w, selected, sv.seat(pl.Mine).Color(), notes...) })
+			box.Children(func() { boardCard(c, e, sv, pl.Card, m.w, selected, sv.seat(pl.Mine).color(), notes...) })
 		}
 		if a >= 0 && t >= 0 {
 			attackArrow(c, e, sv, m, cards[a], cards[t], bt, attacker)
 			if sv.hit() {
-				impact(c, sv, m, cards[t], attacker.Color())
+				impact(c, sv, m, cards[t], attacker.color())
 			}
 		}
 	})
@@ -351,7 +351,7 @@ func pileButton(box ui.Element, sv *stepView, p pileRef) {
 		}
 	}
 	if rs.pile == p {
-		selectRing(box.Radius(6), sv.seat(p.Mine).Color())
+		selectRing(box.Radius(6), sv.seat(p.Mine).color())
 	}
 }
 
@@ -485,8 +485,8 @@ func BattlePair(cards []Placed, bt *replay.Battle, mineAttacks bool) (a, t int) 
 	return find(bt.AttackerID, mineAttacks), find(bt.DefenderID, !mineAttacks)
 }
 
-func attackArrow(c *ui.Context, e *page.Env, sv *stepView, m mat, a, t Placed, bt *replay.Battle, attacker page.Side) {
-	col := attacker.Color()
+func attackArrow(c *ui.Context, e *page.Env, sv *stepView, m mat, a, t Placed, bt *replay.Battle, attacker side) {
+	col := attacker.color()
 	ax, ay := m.center(a)
 	tx, ty := m.center(t)
 	// The arrow covers the whole mat, so clicks have to pass through it to the cards.
@@ -508,7 +508,7 @@ func attackArrow(c *ui.Context, e *page.Env, sv *stepView, m mat, a, t Placed, b
 		})
 	}
 	power(a, bt.Attack, col)
-	power(t, bt.Defense, attacker.Other().Color())
+	power(t, bt.Defense, attacker.other().color())
 }
 
 // impact rings the card an attack hit once, in the attacker's color.

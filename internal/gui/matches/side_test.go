@@ -2,7 +2,6 @@ package matches
 
 import (
 	"github.com/VTGare/logpose/internal/gui/kit"
-	"github.com/VTGare/logpose/internal/gui/page"
 	"github.com/VTGare/logpose/internal/replay"
 	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
@@ -19,11 +18,11 @@ var _ = Describe("sides", func() {
 
 	It("words each side from whose it is, not from its name", func() {
 		m := match("You")
-		them := page.SideOf(m, "You#2")
-		Expect(them.Mine).To(BeFalse())
-		Expect(them.Possessive()).To(Equal("You's"))
-		Expect(them.Color()).To(Equal(kit.OppColor))
-		Expect(page.MySide(m).Possessive()).To(Equal("Your"))
+		them := sideOf(m, "You#2")
+		Expect(them.mine).To(BeFalse())
+		Expect(them.possessive()).To(Equal("You's"))
+		Expect(them.color()).To(Equal(kit.OppColor))
+		Expect(mySide(m).possessive()).To(Equal("Your"))
 	})
 
 	It("says who hit whom from the side that lost life", func() {

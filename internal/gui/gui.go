@@ -67,6 +67,9 @@ type Options struct {
 	Offline bool
 }
 
+// keyDismissedSets is the sets whose new-format suggestion the user dismissed, a list.
+const keyDismissedSets = "dismissed_sets"
+
 //go:embed assets/tray.png
 var trayIcon []byte
 
@@ -159,7 +162,7 @@ func (a *app) ready(ctx context.Context) {
 		a.opts.Log.Warn("settings", "err", err)
 	}
 	a.view.setPrefs(page.PrefsFrom(set))
-	a.view.setSystem(a.readSystem())
+	a.view.settings.System = a.readSystem()
 	title := "logpose"
 	if a.opts.Dev {
 		title = "logpose (dev)"
@@ -286,7 +289,7 @@ func (a *app) follow(ctx context.Context) {
 			if was && s.Phase != live.Playing {
 				go func() { _ = a.refreshCatalog(ctx, false) }()
 			}
-			a.win.Update(func() { a.view.setLive(s) })
+			a.win.Update(func() { a.view.live = s })
 		},
 		OnSaved: func(sv live.Saved) {
 			if sv.Format == "" {
@@ -361,9 +364,9 @@ func (a *app) refreshBandai(ctx context.Context, force bool) (bool, error) {
 		return false, nil
 	}
 	changed, err := a.gallery.Refresh(ctx, now, func(done, total int) {
-		a.win.Update(func() { a.view.setArtSync(cardspage.ArtSync{Done: done, Total: total}) })
+		a.win.Update(func() { a.view.cards.ArtSync = cardspage.ArtSync{Done: done, Total: total} })
 	})
-	a.win.Update(func() { a.view.setArtSync(cardspage.ArtSync{}) })
+	a.win.Update(func() { a.view.cards.ArtSync = cardspage.ArtSync{} })
 	if err != nil {
 		a.opts.Log.Warn("refresh bandai card list", "err", err)
 		return changed, err
@@ -385,9 +388,9 @@ func (a *app) refreshLibrary(ctx context.Context, client *http.Client, force boo
 		return nil
 	}
 	src := cards.Source{Client: client, Limitless: cards.LimitlessBase, Rules: cards.BandaiRestrictions, Pause: cards.LibraryPause}
-	src.Progress = func(p cards.SetProgress) { a.win.Update(func() { a.view.addCardSync(p) }) }
+	src.Progress = func(p cards.SetProgress) { a.win.Update(func() { a.view.cards.CardSync.Add(p) }) }
 	r, err := cards.RefreshLibrary(ctx, src, a.opts.LibraryPath, time.Now(), force)
-	a.win.Update(a.view.endCardSync)
+	a.win.Update(func() { a.view.cards.CardSync = cardspage.CardSync{} })
 	return a.logRefreshed("card library", r, err, changed)
 }
 
@@ -447,7 +450,7 @@ func (a *app) refresh(ctx context.Context) {
 		return
 	}
 	a.win.Update(func() {
-		a.view.setSnapshot(snap)
+		a.view.Snap = snap
 		a.updateTray()
 	})
 }
@@ -475,7 +478,7 @@ func (a *app) load(ctx context.Context) (*page.Snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	dismissed, err := st.Setting(ctx, page.KeyDismissedSets)
+	dismissed, err := st.Setting(ctx, keyDismissedSets)
 	if err != nil {
 		return nil, err
 	}
@@ -575,7 +578,7 @@ func (a *app) resetArtCache() {
 	a.win.Update(func() {
 		cache := page.NewArtCache(a.simArt, a.win.Update)
 		cache.SetMirror(mirror)
-		a.view.setArtCache(cache)
+		a.view.Art = cache
 	})
 }
 
@@ -611,7 +614,7 @@ func (x *appActions) DeleteFormat(id int64) {
 
 func (x *appActions) DismissSet(set string) {
 	x.run("dismiss set", func(ctx context.Context, st *store.Store) error {
-		return st.ChangeSetting(ctx, page.KeyDismissedSets, func(cur string) string {
+		return st.ChangeSetting(ctx, keyDismissedSets, func(cur string) string {
 			return page.JoinList(append(page.SplitList(cur), set))
 		})
 	})

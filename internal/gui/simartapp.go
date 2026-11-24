@@ -135,5 +135,5 @@ func (x *appActions) OpenURL(url string) {
 }
 
 func (x *appActions) toast(t ui.Toast) {
-	x.a.win.Update(func() { x.a.view.queueToast(t) })
+	x.a.win.Update(func() { x.a.view.Toast = &t })
 }

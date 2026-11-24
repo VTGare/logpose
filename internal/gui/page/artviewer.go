@@ -23,28 +23,16 @@ const (
 type ArtViewer struct {
 	open   bool
 	code   string
-	viewed arts.Ref
-}
-
-func (v *ArtViewer) Open(code string) {
-	v.open, v.code, v.viewed = true, code, arts.Ref{}
-}
-
-func (v *ArtViewer) OpenAt(code string, ref arts.Ref) {
-	v.open, v.code, v.viewed = true, code, ref
+	viewed string
 }
 
 func (v *ArtViewer) Close() { v.open = false }
 
-func (v *ArtViewer) IsOpen() bool { return v.open }
+func (e *Env) ViewArt(code string) { e.Viewer = ArtViewer{open: true, code: code} }
 
-func (v *ArtViewer) Code() string { return v.code }
-
-func (v *ArtViewer) Viewed() arts.Ref { return v.viewed }
-
-func (e *Env) ViewArt(code string) { e.Viewer.Open(code) }
-
-func (e *Env) ViewArtAt(code, key string) { e.Viewer.OpenAt(code, arts.ParseRef(key)) }
+func (e *Env) ViewArtAt(code, key string) {
+	e.Viewer = ArtViewer{open: true, code: code, viewed: key}
+}
 
 // Draw shows the viewed picture as large as the window allows, up to the size of its source,
 // with the card's other pictures listed beside it.
@@ -56,8 +44,8 @@ func (v *ArtViewer) Draw(c *ui.Context, e *Env) {
 	t := c.Theme()
 	info, loaded := e.SimArt.For(e, card)
 	ca, _ := e.Arts.For(e, card)
-	entries := artEntries(e, card, ca, info, loaded, v.viewed.String())
-	viewed := ViewedArtKey(card, info, ca, v.viewed.String())
+	entries := artEntries(e, card, ca, info, loaded, v.viewed)
+	viewed := ViewedArtKey(card, info, ca, v.viewed)
 	at := max(slices.IndexFunc(entries, func(en artEntry) bool { return en.key == viewed }), 0)
 	entry := entries[at]
 
@@ -66,7 +54,7 @@ func (v *ArtViewer) Draw(c *ui.Context, e *Env) {
 	w := min(h/CardAspect, ww-viewerSide-viewerGap-2*viewerMargin)
 	h = CardHeight(w)
 
-	look := func(key string) { v.viewed = arts.ParseRef(key) }
+	look := func(key string) { v.viewed = key }
 	step := func(by int) func() {
 		return func() { look(entries[(at+by+len(entries))%len(entries)].key) }
 	}

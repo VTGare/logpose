@@ -352,4 +352,13 @@ var _ = Describe("battlePair", func() {
 		a, t := BattlePair(cards, bt, true)
 		Expect([]int{a, t}).To(Equal([]int{1, 3}))
 	})
+
+	It("keeps every mat it fits inside the box", func() {
+		for _, box := range [][2]float32{{900, 700}, {1400, 900}, {700, 1200}} {
+			m := fitMat(ui.Rect{W: box[0], H: box[1]})
+			Expect(m.W).To(BeNumerically("<=", box[0]))
+			Expect(m.H).To(BeNumerically("<=", box[1]))
+			Expect(newMat(m.W+1).W > box[0] || newMat(m.W+1).H > box[1]).To(BeTrue())
+		}
+	})
 })

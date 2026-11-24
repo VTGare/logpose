@@ -60,7 +60,7 @@ var _ = Describe("view", func() {
 		v, tt := tester(&page.Snapshot{})
 		v.open("decks/build")
 		tt.Frame()
-		v.setSnapshot(guitest.DeckSnapshot(wano))
+		v.Snap = guitest.DeckSnapshot(wano)
 		tt.Frame()
 		Expect(tt.Texts()).To(ContainElement("· Wano/Miracle"))
 
@@ -236,7 +236,7 @@ var _ = Describe("view", func() {
 
 	It("shows the lobby while the sim waits for a game", func() {
 		v, tt := tester(guitest.Snapshot(10))
-		v.setLive(live.State{Phase: live.Lobby, Lobby: "XABCDEF", Hosting: true})
+		v.live = live.State{Phase: live.Lobby, Lobby: "XABCDEF", Hosting: true}
 		tt.Frame()
 		Expect(tt.HasText("Match found")).To(BeTrue())
 		Expect(tt.HasText("Ranked · XABCDEF")).To(BeTrue())
@@ -244,13 +244,13 @@ var _ = Describe("view", func() {
 
 	It("shows the history against the opponent in the sim", func() {
 		v, tt := tester(guitest.Snapshot(10))
-		v.setLive(live.State{
+		v.live = live.State{
 			Phase: live.Playing, Lobby: "QWERTY", First: guitest.Me,
 			Players: []live.Player{
 				{ID: guitest.Me, Leader: "OP13-001", Local: true, Life: 4, Hand: 6},
 				{ID: "Opp#2", Leader: "OP17-058", Life: 5, Hand: 5},
 			},
-		})
+		}
 		tt.Frame()
 		for _, text := range []string{
 			"vs Opp", "With Monkey D. Luffy vs Kaido", "5–5 · 50%", "Going first · 5–5",
@@ -262,9 +262,9 @@ var _ = Describe("view", func() {
 
 	It("says when the sim didn't log the opponent's leader", func() {
 		v, tt := tester(guitest.Snapshot(10))
-		v.setLive(live.State{Phase: live.Playing, Players: []live.Player{
+		v.live = live.State{Phase: live.Playing, Players: []live.Player{
 			{ID: guitest.Me, Local: true}, {ID: "New#3"},
-		}})
+		}}
 		tt.Frame()
 		Expect(tt.HasText("Leader not in the sim's log")).To(BeTrue())
 		Expect(tt.HasText("Against New")).To(BeFalse())

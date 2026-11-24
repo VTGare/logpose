@@ -110,7 +110,7 @@ func (w *Store) Thumb(k Key) (image.Image, error) {
 		return nil, ErrNoPicture
 	}
 	path := w.thumbPath(k)
-	if img, err := Decode(path); err == nil {
+	if img, err := decode(path); err == nil {
 		return img, nil
 	}
 	img, err := w.load(k, false)
@@ -134,7 +134,7 @@ func (w *Store) load(k Key, use bool) (image.Image, error) {
 		return nil, ErrNoPicture
 	}
 	path := w.fullPath(k)
-	if img, err := Decode(path); err == nil {
+	if img, err := decode(path); err == nil {
 		if use {
 			now := time.Now()
 			_ = os.Chtimes(path, now, now)
@@ -422,7 +422,7 @@ func (w *Store) evict(keep string) {
 	w.fullBytes = total
 }
 
-func Decode(path string) (image.Image, error) {
+func decode(path string) (image.Image, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err

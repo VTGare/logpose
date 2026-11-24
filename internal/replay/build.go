@@ -94,7 +94,7 @@ const (
 func newBuilder(g *simlog.Game, power func(string) int) *builder {
 	b := &builder{
 		g: g, owner: make(map[string]int), player: make(map[int]string),
-		checks: make(map[[2]int]simlog.Check), flips: make(map[int]int), power: power, lasts: make(map[string]Duration),
+		checks: make(map[[2]int]simlog.Check), flips: make(map[int]int), power: power,
 	}
 	for _, p := range g.Players {
 		if p.Owner == 1 || p.Owner == 2 {

@@ -126,15 +126,10 @@ func (pg *Page) MatchPage(c *ui.Context, e *page.Env) {
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				from := e.Nav.PageLabel(pg.Detail.From)
-				back := ui.Row(c).Gap(6).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("Back to " + strings.ToLower(from))
-				if back.Clicked() {
+				from := page.PageLabel(pg.Detail.From)
+				if kit.BackLink(c, from, "Back to "+strings.ToLower(from)) {
 					pg.CloseMatch()
 				}
-				back.Children(func() {
-					ui.Icon(c, kit.IconPrevStep).TextColor(t.TextMuted)
-					ui.Text(c, from).TextColor(t.TextMuted)
-				})
 				ui.Text(c, "/").TextColor(kit.FaintColor(t))
 				ui.Text(c, e.Weekday(m.PlayedAt)+", "+m.PlayedAt.Format("15:04")).Bold()
 				pg.bookmarkStar(c, m)
@@ -173,16 +168,16 @@ func faceOff(c *ui.Context, e *page.Env, m stats.Match) {
 	mine, theirs := e.Art.Get(m.Me.Leader, page.ArtFaceMine), e.Art.Get(m.Opp.Leader, page.ArtFaceTheirs)
 	myCols, theirCols := kit.ColorsOf(e.Snap.Card(m.Me.Leader)), kit.ColorsOf(e.Snap.Card(m.Opp.Leader))
 	base := kit.PanelColor(t)
-	you := page.MySide(m)
-	column := func(p store.GamePlayer, s page.Side) {
+	you := mySide(m)
+	column := func(p store.GamePlayer, s side) {
 		align := ui.Start
-		if !s.Mine {
+		if !s.mine {
 			align = ui.End
 		}
 		ui.Column(c).Gap(1).AlignItems(align).Children(func() {
-			ui.Text(c, s.Name()).FontSize(12).Bold().TextColor(s.Color())
+			ui.Text(c, s.name()).FontSize(12).Bold().TextColor(s.color())
 			ui.Text(c, e.Snap.Card(p.Leader).Name).FontSize(26).Bold()
-			ui.Text(c, cards.SetOf(p.Leader)+" · "+orderWord(m, s.Mine)).FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, cards.SetOf(p.Leader)+" · "+orderWord(m, s.mine)).FontSize(12).TextColor(t.TextMuted)
 		})
 	}
 	ui.Row(c).Height(180).Radius(12).Clip().Background(base).Border(1, t.Border.Alpha(0.6)).
@@ -205,7 +200,7 @@ func faceOff(c *ui.Context, e *page.Env, m stats.Match) {
 			ui.Text(c, page.ResultWord(m.Result)).FontSize(44).Bold().TextColor(kit.ResultColor(t, m.Result))
 			ui.Text(c, fmt.Sprintf("%s · %s · %s", kit.Turns(m.Turns), endWord(m), GameType(m))).FontSize(13)
 		})
-		column(m.Opp, you.Other())
+		column(m.Opp, you.other())
 	})
 }
 
@@ -424,4 +419,50 @@ func SimSaveName(e *page.Env, m stats.Match) string {
 		}
 		return r
 	}, name)
+}
+
+func verdict(p store.GamePlayer) string {
+	if p.Mulliganed {
+		return "mulliganed"
+	}
+	return "kept"
+}
+
+func handsTile(c *ui.Context, e *page.Env, m stats.Match) ui.Element {
+	t := c.Theme()
+	col := func(key, who string, p store.GamePlayer) {
+		ui.Column(c.Key(key)).Grow(1).Basis(0).Gap(6).Children(func() {
+			hand, sent := p.Kept()
+			if len(hand) == 0 {
+				ui.Text(c, who).FontSize(12).Bold()
+				ui.Text(c, "The log doesn't show this hand.").FontSize(12).TextColor(t.TextMuted)
+				return
+			}
+			ui.Text(c, who+" "+verdict(p)).FontSize(12).FontWeight(600)
+			thumbRow(c, e, hand, 60, false)
+			if len(sent) > 0 {
+				ui.Text(c, "Sent back").FontSize(11).TextColor(t.TextMuted)
+				thumbRow(c, e, sent, 34, true)
+			}
+		})
+	}
+	you := mySide(m)
+	sum := you.name() + " " + verdict(m.Me) + " · " + you.other().name() + " " + verdict(m.Opp)
+	return e.FoldTile(c, "match.hands", kit.FoldHead{Label: "Opening hands", Summary: sum}, func() {
+		ui.Row(c).Gap(24).AlignItems(ui.Start).Children(func() {
+			col("me", you.name(), m.Me)
+			col("opp", you.other().name(), m.Opp)
+		})
+	})
+}
+
+func thumbRow(c *ui.Context, e *page.Env, codes []string, width float32, dim bool) {
+	ui.Row(c).Gap(4).Wrap().Children(func() {
+		for i, code := range codes {
+			box := ui.Box(c.Key(i)).Label(e.Snap.Card(code).Name).Children(func() { kit.Lift(e.Card(c, code, width), 5) })
+			if dim {
+				box.Grayscale().Opacity(0.85)
+			}
+		}
+	})
 }

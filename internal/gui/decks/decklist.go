@@ -77,10 +77,9 @@ func (pg *Page) scopeList(c *ui.Context, e *page.Env, d *deckData) {
 // dismiss. Groups of fewer than minSuggested games fold away.
 func (pg *Page) suggestionsPanel(c *ui.Context, e *page.Env, d *deckData) {
 	t := c.Theme()
-	s := pg
 	kit.Panel(c).Gap(12).Padding(16).Children(func() {
-		if s.suggesting && d.scope.kind != scopeNoBuild && len(d.builds) > 0 && linkButton(c, "Back to "+d.tag) {
-			s.suggesting = false
+		if pg.suggesting && d.scope.kind != scopeNoBuild && len(d.builds) > 0 && kit.LinkButton(c, nil, "Back to "+d.tag).AlignSelf(ui.Start).Clicked() {
+			pg.suggesting = false
 		}
 		if len(d.split.Suggestions) == 0 {
 			ui.Text(c, "No suggested builds for "+e.Snap.Card(d.leader).Name).FontWeight(600)
@@ -92,18 +91,18 @@ func (pg *Page) suggestionsPanel(c *ui.Context, e *page.Env, d *deckData) {
 		ui.Text(c, "Grouped by the searchers each list runs. Make one a build to see its list, cards and changes.").
 			FontSize(13).TextColor(t.TextMuted).Wrap()
 		for _, sg := range d.split.Suggestions {
-			if smallSuggestion(sg) && !s.showSmall {
+			if smallSuggestion(sg) && !pg.showSmall {
 				continue
 			}
 			pg.suggestionCard(c.Key(sg.Key), e, d.leader, sg)
 		}
-		if n := smallSuggestions(d.leaderDecks); n > 0 && !s.showSmall {
+		if n := smallSuggestions(d.leaderDecks); n > 0 && !pg.showSmall {
 			label := fmt.Sprintf("Show %d small groups", n)
 			if n == 1 {
 				label = "Show 1 small group"
 			}
-			if linkButton(c, label) {
-				s.showSmall = true
+			if kit.LinkButton(c, nil, label).AlignSelf(ui.Start).Clicked() {
+				pg.showSmall = true
 			}
 		}
 	})
@@ -111,7 +110,6 @@ func (pg *Page) suggestionsPanel(c *ui.Context, e *page.Env, d *deckData) {
 
 func (pg *Page) suggestionCard(c *ui.Context, e *page.Env, leader string, sg stats.Suggestion) {
 	t := c.Theme()
-	s := pg
 	key := sg.Key
 	title := sg.Name
 	ui.Column(c).Gap(10).Padding(12, 14).Radius(10).Border(1, t.Border.Alpha(0.6)).Children(func() {
@@ -121,26 +119,26 @@ func (pg *Page) suggestionCard(c *ui.Context, e *page.Env, leader string, sg sta
 			played := kit.Span(e.Date(first), e.Date(last))
 			ui.Text(c, ScopeMeta(len(sg.Games), stats.RecordOf(sg.Games))+" · "+played).FontSize(13).TextColor(t.TextMuted)
 			ui.Spacer(c)
-			if s.naming == key {
+			if pg.naming == key {
 				return
 			}
 			if ui.PrimaryButton(c, "Make this a build").Clicked() {
-				s.naming, s.name = key, title
+				pg.naming, pg.name = key, title
 			}
 			if ui.Button(c, "Not a build").Clicked() {
 				pg.do(func(a Actions) { a.DismissSuggestion(store.Dismissal{Leader: leader, Core: sg.Core}) })
 			}
 		})
-		if s.naming == key {
+		if pg.naming == key {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				in := ui.TextInput(c, &s.name).Grow(1).Label("Build name")
-				if (in.Submitted() || ui.PrimaryButton(c, "Save").Clicked()) && strings.TrimSpace(s.name) != "" {
-					b := store.Build{Leader: leader, Name: strings.TrimSpace(s.name), Core: sg.Core}
+				in := ui.TextInput(c, &pg.name).Grow(1).Label("Build name")
+				if (in.Submitted() || ui.PrimaryButton(c, "Save").Clicked()) && strings.TrimSpace(pg.name) != "" {
+					b := store.Build{Leader: leader, Name: strings.TrimSpace(pg.name), Core: sg.Core}
 					pg.do(func(a Actions) { a.SaveBuild(b, pg.chooseSaved) })
-					s.naming = ""
+					pg.naming = ""
 				}
 				if ui.Button(c, "Cancel").Clicked() {
-					s.naming = ""
+					pg.naming = ""
 				}
 			})
 		}
@@ -165,18 +163,6 @@ func searcherTile(c *ui.Context, e *page.Env, code string) {
 			}
 		})
 	})
-}
-
-// linkButton is text in the accent color that reports a click.
-func linkButton(c *ui.Context, label string) bool {
-	t := c.Theme()
-	b := ui.ButtonBase(c).Label(label).Background(ui.Transparent).Padding(0).AlignSelf(ui.Start)
-	col := t.Accent
-	if b.Hovered() {
-		col = t.AccentHover
-	}
-	b.Children(func() { ui.Text(c, label).FontSize(13).TextColor(col) })
-	return b.Clicked()
 }
 
 func listTitle(e *page.Env, ch stats.Change, latest bool) (heading, short string) {

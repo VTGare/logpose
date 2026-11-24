@@ -21,10 +21,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"github.com/VTGare/logpose/internal/arts"
-	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/live"
-	"github.com/VTGare/logpose/internal/shortcut"
 	"github.com/VTGare/logpose/internal/stats"
 )
 
@@ -38,7 +35,6 @@ const (
 type pageDef struct {
 	id    string
 	icon  *ui.SVG
-	label string
 	group int
 	// games pages show the games in the filters' scope under the filter bar, and a message
 	// instead while there are none. The others show whatever is stored.
@@ -58,11 +54,11 @@ type pageDef struct {
 // and a card's code opens the art viewer on that card, and "matches/" and the start of a
 // game's fingerprint opens that match.
 var pages = []pageDef{
-	{id: page.Overview, icon: kit.IconOverview, label: "Overview", games: true, draw: func(v *view, c *ui.Context) {
+	{id: page.Overview, icon: kit.IconOverview, games: true, draw: func(v *view, c *ui.Context) {
 		overview.Draw(c, &v.Env, func() { v.settings.ShortcutCard(c, &v.Env) })
 	}, head: func(v *view, c *ui.Context) { v.formats.DebutBanner(c, &v.Env) }},
 	{
-		id: page.Matches, icon: kit.IconMatches, label: "Matches", games: true, draw: func(v *view, c *ui.Context) { v.matches.Draw(c, &v.Env) },
+		id: page.Matches, icon: kit.IconMatches, games: true, draw: func(v *view, c *ui.Context) { v.matches.Draw(c, &v.Env) },
 		any: "<fingerprint>", open: func(v *view, fp string) {
 			for _, m := range v.Snap.Matches {
 				if strings.HasPrefix(m.Fingerprint, fp) {
@@ -73,12 +69,12 @@ var pages = []pageDef{
 		},
 	},
 	{
-		id: page.Decks, icon: kit.IconLeaders, label: "Decks", games: true, draw: func(v *view, c *ui.Context) { v.decks.Draw(c, &v.Env) },
+		id: page.Decks, icon: kit.IconLeaders, games: true, draw: func(v *view, c *ui.Context) { v.decks.Draw(c, &v.Env) },
 		subs: deckPageSubs(), open: func(v *view, sub string) { v.decks.Open(&v.Env, sub) },
 	},
-	{id: page.Matchups, icon: kit.IconMatchups, label: "Matchups", games: true, draw: func(v *view, c *ui.Context) { v.matchups.Draw(c, &v.Env) }},
+	{id: page.Matchups, icon: kit.IconMatchups, games: true, draw: func(v *view, c *ui.Context) { v.matchups.Draw(c, &v.Env) }},
 	{
-		id: page.Cards, icon: kit.IconCards, label: "Cards", group: groupRef, draw: func(v *view, c *ui.Context) {
+		id: page.Cards, icon: kit.IconCards, group: groupRef, draw: func(v *view, c *ui.Context) {
 			v.cards.Note = v.settings.NoteOn(settings.NoteCards)
 			v.cards.Draw(c, &v.Env)
 		},
@@ -87,8 +83,8 @@ var pages = []pageDef{
 			v.ViewArt(code)
 		},
 	},
-	{id: page.Formats, icon: kit.IconFormats, label: "Formats", group: groupSetup, draw: func(v *view, c *ui.Context) { v.formats.Draw(c, &v.Env) }},
-	{id: page.Settings, icon: kit.IconSettings, label: "Settings", group: groupSetup, draw: func(v *view, c *ui.Context) { v.settings.Draw(c, &v.Env) }},
+	{id: page.Formats, icon: kit.IconFormats, group: groupSetup, draw: func(v *view, c *ui.Context) { v.formats.Draw(c, &v.Env) }},
+	{id: page.Settings, icon: kit.IconSettings, group: groupSetup, draw: func(v *view, c *ui.Context) { v.settings.Draw(c, &v.Env) }},
 }
 
 func deckPageSubs() []string {
@@ -164,12 +160,10 @@ func (v *view) openSub() {
 // off the main thread and sends a new snapshot.
 type actions interface {
 	page.EnvActions
-	page.ArtActions
 	formats.Actions
 	settings.Actions
 	matches.Actions
 	decks.Actions
-	cardspage.Actions
 	// NewDay runs at midnight, for what the app shows outside the window.
 	NewDay()
 }
@@ -198,28 +192,8 @@ type view struct {
 
 // setActions gives the view, the env and each page the app's actions.
 func (v *view) setActions(a actions) {
-	v.act, v.Act, v.ArtAct, v.formats.Act, v.settings.Act, v.matches.Act, v.decks.Act, v.cards.Act = a, a, a, a, a, a, a, a
+	v.act, v.Act, v.formats.Act, v.settings.Act, v.matches.Act, v.decks.Act = a, a, a, a, a, a
 }
-
-// The setters below are how the app changes what the view shows. It calls them on the main
-// thread.
-
-func (v *view) setSnapshot(s *page.Snapshot)    { v.Snap = s }
-func (v *view) setLive(s live.State)            { v.live = s }
-func (v *view) setArtCache(a *page.ArtCache)    { v.Art = a }
-func (v *view) setArtSync(s cardspage.ArtSync)  { v.cards.ArtSync = s }
-func (v *view) addCardSync(p cards.SetProgress) { v.cards.CardSync.Add(p) }
-func (v *view) endCardSync()                    { v.cards.CardSync = cardspage.CardSync{} }
-func (v *view) setSystem(s settings.System)     { v.settings.System = s }
-func (v *view) setOpenAtLogin(on bool)          { v.settings.System.OpenAtLogin = on }
-func (v *view) setArtUsage(u arts.Usage)        { v.settings.Art = &u }
-func (v *view) queueToast(t ui.Toast)           { v.Toast = &t }
-
-func (v *view) setShortcutMade(place shortcut.Place, on bool) {
-	v.settings.System.Shortcuts[place] = on
-}
-
-func (v *view) setSettingsInfo(info settings.Info) { v.settings.Info = &info }
 
 func newView(art *page.ArtCache) *view {
 	v := &view{Env: page.Env{Snap: &page.Snapshot{}, Clock: time.Now, Art: art, Page: page.Overview}, formats: formats.New()}
@@ -323,7 +297,7 @@ func (v *view) pageBody(c *ui.Context, open bool, shown string) {
 	case !p.games:
 		p.draw(v, c)
 	case len(v.Snap.Matches) == 0 && !v.Snap.SimFound:
-		v.settings.SetupPage(c)
+		v.settings.SetupPage(c, &v.Env)
 	case len(v.Snap.Matches) == 0:
 		v.message(c, "Play a game in the sim", "Every game you finish shows up here on its own.")
 	case open:
@@ -335,20 +309,13 @@ func (v *view) pageBody(c *ui.Context, open bool, shown string) {
 	}
 }
 
-func (*view) PageLabel(id string) string { return pageLabel(id) }
-
-func pageLabel(id string) string {
-	p, _ := pageOf(id)
-	return p.label
-}
-
 // sidebar is the pages as icons, and with their names when it's wider than the rail. The icons
 // sit at the same place either way, so folding it only hides the names.
 func (v *view) sidebar(c *ui.Context) {
 	t := c.Theme()
 	wide := v.Prefs.SideWidth > page.SideRail
 	item := func(p pageDef) {
-		id, label := p.id, p.label
+		id, label := p.id, page.PageLabel(p.id)
 		b := ui.ButtonBase(c.Key(id)).Label(label).Height(40).Radius(8).Background(ui.Transparent)
 		col := t.TextMuted
 		switch {

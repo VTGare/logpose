@@ -106,8 +106,7 @@ var _ = Describe("right-click menus", func() {
 		tt.Frame()
 		Expect(v.Page).To(Equal(page.Cards))
 		Expect(v.cards.State.Selected).To(Equal("OP17-058"))
-		Expect(v.Viewer.IsOpen()).To(BeTrue())
-		Expect(v.Viewer.Code()).To(Equal("OP17-058"))
+		Expect(tt.HasText("OP17-058")).To(BeTrue())
 		Expect(guitest.Labelled(tt, "Close the viewer")).To(BeTrue())
 	})
 

@@ -142,7 +142,7 @@ func Analyze(g *simlog.Game, me, opp string, power func(code string) int) *Analy
 	board := make(map[string][]int, len(g.Players))
 	for _, p := range g.Players {
 		id := p.ID()
-		life[id], hand[id], board[id] = playerCurves(g, r, p, last)
+		life[id], hand[id], board[id] = playerCurves(g, p, last)
 	}
 	out.Me, out.Opp = life[me], life[opp]
 	out.MeHand, out.OppHand = hand[me], hand[opp]
@@ -204,7 +204,7 @@ func Analyze(g *simlog.Game, me, opp string, power func(code string) int) *Analy
 	return out
 }
 
-func playerCurves(g *simlog.Game, r *Replay, p simlog.Player, last int) (life, hand, board []int) {
+func playerCurves(g *simlog.Game, p simlog.Player, last int) (life, hand, board []int) {
 	if len(g.Lines) == 0 {
 		return nil, nil, nil
 	}
@@ -215,9 +215,6 @@ func playerCurves(g *simlog.Game, r *Replay, p simlog.Player, last int) (life, h
 		if life != nil || hand != nil || board != nil {
 			return life, hand, board
 		}
-	}
-	if r != nil && p.Owner != 0 {
-		return curvesFromReplay(r, p.Owner, last)
 	}
 	id := p.ID()
 	return countByTurnPrintouts(g, id, last, "Life"),
@@ -243,25 +240,6 @@ func countByTurnChecks(g *simlog.Game, owner, last int, count func(simlog.Check)
 		out[t], known[t] = n, true
 	}
 	return fillTurns(out, known)
-}
-
-func curvesFromReplay(r *Replay, owner, last int) (life, hand, board []int) {
-	life, hand, board = make([]int, last+1), make([]int, last+1), make([]int, last+1)
-	known := make([]bool, last+1)
-	for _, s := range r.Steps {
-		if s.Turn < 0 || s.Turn > last {
-			continue
-		}
-		side := s.Board.Side(owner)
-		if side == nil {
-			continue
-		}
-		life[s.Turn] = len(side.Life)
-		hand[s.Turn] = len(side.Hand)
-		board[s.Turn] = len(side.Characters)
-		known[s.Turn] = true
-	}
-	return fillTurns(life, known), fillTurns(hand, known), fillTurns(board, known)
 }
 
 func countByTurnPrintouts(g *simlog.Game, id string, last int, zone string) []int {
@@ -474,7 +452,14 @@ func addFromText(g *simlog.Game, ms []Moment, marks *[]Mark, other map[string]st
 		if l.Turn <= 0 || l.Turn > last || ms[l.Turn].Player == "" {
 			continue
 		}
-		tr.applyLine(&ms[l.Turn], i, l, marks)
+		m := &ms[l.Turn]
+		def := tr.other[m.Player]
+		switch l.Player {
+		case m.Player:
+			tr.applyTurnLine(m, l, def)
+		case def:
+			tr.applyDefenderLine(m, i, l, def, marks)
+		}
 	}
 	fillTextTurnEnds(ms, tr.endBoards, last)
 }
@@ -490,16 +475,6 @@ func (tr *textTracker) recordPrintout(l simlog.Line, last int) {
 	tr.boards[l.Player] = l.Shown
 	if l.Turn >= 0 && l.Turn <= last && eb != nil {
 		eb[l.Turn] = l.Shown
-	}
-}
-
-func (tr *textTracker) applyLine(m *Moment, lineIdx int, l simlog.Line, marks *[]Mark) {
-	def := tr.other[m.Player]
-	switch l.Player {
-	case m.Player:
-		tr.applyTurnLine(m, l, def)
-	case def:
-		tr.applyDefenderLine(m, lineIdx, l, def, marks)
 	}
 }
 

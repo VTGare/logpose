@@ -11,13 +11,16 @@ import (
 
 	"github.com/VTGare/logpose/internal/gui/settings"
 
-	"github.com/VTGare/logpose/internal/gui/page"
-
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
 
 const (
+	// keyUpdateChecked is when logpose last asked for a newer version, in Unix ms.
+	keyUpdateChecked = "update_checked"
+	// keyLastVersion is the version of logpose that ran last.
+	keyLastVersion = "last_version"
+
 	// updateFirstCheck waits for the app to settle after it starts.
 	updateFirstCheck = 10 * time.Second
 	updateEvery      = 6 * time.Hour
@@ -52,24 +55,24 @@ func (a *app) startUpdates(ctx context.Context, set map[string]string) {
 	u := &a.upd
 	u.state.Current = Version()
 	u.state.Can = !a.opts.Dev && mygo.Updater.Enabled()
-	if ms, err := strconv.ParseInt(set[page.KeyUpdateChecked], 10, 64); err == nil {
+	if ms, err := strconv.ParseInt(set[keyUpdateChecked], 10, 64); err == nil {
 		u.state.Checked = time.UnixMilli(ms)
 	}
 	a.view.settings.SetUpdate(u.state)
-	if last := set[page.KeyLastVersion]; last != u.state.Current && !a.opts.Dev {
+	if last := set[keyLastVersion]; last != u.state.Current && !a.opts.Dev {
 		if last != "" {
 			ver := u.state.Current
-			a.view.queueToast(ui.Toast{
+			a.view.Toast = &ui.Toast{
 				Title: "Updated to " + ver, Timeout: 10 * time.Second,
 				Action: "What's new", OnAction: func() {
 					if act := a.view.act; act != nil {
 						act.OpenURL(releasesURL + ver)
 					}
 				},
-			})
+			}
 		}
 		go func() {
-			if err := a.opts.Store.SetSetting(ctx, page.KeyLastVersion, u.state.Current); err != nil {
+			if err := a.opts.Store.SetSetting(ctx, keyLastVersion, u.state.Current); err != nil {
 				a.opts.Log.Warn("save version", "err", err)
 			}
 		}()
@@ -117,7 +120,7 @@ func (a *app) checkUpdate(ctx context.Context) {
 	}
 	now := time.Now()
 	if err == nil {
-		if serr := a.opts.Store.SetSetting(ctx, page.KeyUpdateChecked, strconv.FormatInt(now.UnixMilli(), 10)); serr != nil {
+		if serr := a.opts.Store.SetSetting(ctx, keyUpdateChecked, strconv.FormatInt(now.UnixMilli(), 10)); serr != nil {
 			a.opts.Log.Warn("save update check", "err", serr)
 		}
 	}

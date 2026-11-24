@@ -3,13 +3,13 @@ package page
 import (
 	"time"
 
-	"github.com/VTGare/logpose/internal/gui/kit"
-	"github.com/VTGare/logpose/internal/store"
-
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/cards"
+	"github.com/VTGare/logpose/internal/gui/kit"
+	"github.com/VTGare/logpose/internal/sim"
 	"github.com/VTGare/logpose/internal/stats"
+	"github.com/VTGare/logpose/internal/store"
 )
 
 // EnvActions are the changes the env asks the app for.
@@ -20,15 +20,24 @@ type EnvActions interface {
 	After(d time.Duration, fn func())
 	// CopyText writes text to the clipboard and shows toast on success.
 	CopyText(text string, toast ui.Toast)
+	ChooseSimFolder()
+	RefreshCards()
+	LoadSimArt(card cards.Card)
+	LoadArts(card cards.Card, gen int)
+	ScanSimArt()
+	// UseSimArt makes the sim show choice for the card. prev is what it showed, for Undo.
+	UseSimArt(card cards.Card, choice, prev sim.ArtChoice)
+	SaveArt(key string)
+	CopyArt(key string)
+	OpenURL(url string)
 }
 
 // Env is what the frame hands every page: the games, the prefs and the clock.
 type Env struct {
-	Snap   *Snapshot
-	Prefs  Prefs
-	Act    EnvActions
-	ArtAct ArtActions
-	Clock  func() time.Time
+	Snap  *Snapshot
+	Prefs Prefs
+	Act   EnvActions
+	Clock func() time.Time
 	// pending counts the calls to later by key, so only the last one runs.
 	pending map[string]int
 	// Entered is true in a page's first frame, when bars grow from zero and charts draw in.
@@ -61,8 +70,6 @@ type nav interface {
 	GameMenu(m stats.Match) func(*ui.Menu)
 	ShowsHands() bool
 	ShowHands(code string)
-	// PageLabel is the name the sidebar gives the page with the id.
-	PageLabel(id string) string
 }
 
 func (e *Env) Now() time.Time { return e.Clock() }
@@ -164,6 +171,30 @@ const (
 	Settings = "settings"
 	Cards    = "cards"
 )
+
+// PageIDs are the pages in sidebar order.
+var PageIDs = []string{Overview, Matches, Decks, Matchups, Cards, Formats, Settings}
+
+// PageLabel is the name the sidebar gives the page with the id.
+func PageLabel(id string) string {
+	switch id {
+	case Overview:
+		return "Overview"
+	case Matches:
+		return "Matches"
+	case Decks:
+		return "Decks"
+	case Matchups:
+		return "Matchups"
+	case Cards:
+		return "Cards"
+	case Formats:
+		return "Formats"
+	case Settings:
+		return "Settings"
+	}
+	return ""
+}
 
 // PaneDrag follows a drag of a split's edge. The split moves the edge a few DIPs a frame from
 // where it shows it, so the drag's own position is kept apart from the snapped width, or each

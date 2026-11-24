@@ -206,7 +206,6 @@ func (d leaderDecks) scopeName(s deckScope) string {
 // build and a link to the suggestions. Without builds, the suggestions get a chip of their own.
 func (pg *Page) buildRow(c *ui.Context, e *page.Env, d leaderDecks) {
 	t := c.Theme()
-	s := pg
 	ui.Row(c).Gap(16).AlignItems(ui.Center).Children(func() {
 		ui.Row(c).Grow(1).Basis(0).Gap(8).AlignItems(ui.Center).Wrap().Children(func() { pg.buildChips(c, e, d) })
 		if len(d.games) == 0 {
@@ -218,13 +217,13 @@ func (pg *Page) buildRow(c *ui.Context, e *page.Env, d leaderDecks) {
 				return
 			}
 			if len(d.split.Suggestions) > 0 {
-				if linkButton(c, fmt.Sprintf("%d suggested", shownSuggestions(d))) {
-					s.suggesting, s.Tab, s.Edit = true, tabList, nil
+				if kit.LinkButton(c, nil, fmt.Sprintf("%d suggested", shownSuggestions(d))).Clicked() {
+					pg.suggesting, pg.Tab, pg.Edit = true, tabList, nil
 				}
 			}
 		})
 	})
-	if b, ok := d.chosen(s.scope.build); ok && s.scope.kind == scopeBuild {
+	if b, ok := d.chosen(pg.scope.build); ok && pg.scope.kind == scopeBuild {
 		pg.renameBar(c, b)
 	}
 }
@@ -233,11 +232,10 @@ func (pg *Page) buildRow(c *ui.Context, e *page.Env, d leaderDecks) {
 // the chosen one on its ⋯ too. Without builds, one chip opens List on the suggestions.
 func (pg *Page) buildChips(c *ui.Context, e *page.Env, d leaderDecks) {
 	t := c.Theme()
-	s := pg
 	if len(d.builds) > 0 {
 		overall := deckScope{}
-		if buildChip(c.Key("overall"), "Overall", matchesMeta(d.matches), false, s.scope == overall) {
-			s.scope, s.suggesting = overall, false
+		if buildChip(c.Key("overall"), "Overall", matchesMeta(d.matches), false, pg.scope == overall) {
+			pg.scope, pg.suggesting = overall, false
 		}
 		ui.Box(c).Size(1, 34).Background(t.Border).Margin(0, 4)
 	}
@@ -245,15 +243,15 @@ func (pg *Page) buildChips(c *ui.Context, e *page.Env, d leaderDecks) {
 		pg.savedBuildChip(c.Key(fmt.Sprint("b", b.ID)), e, d, b)
 	}
 	none := deckScope{kind: scopeNoBuild}
-	if len(d.builds) > 0 && (d.unbuilt > 0 || s.scope == none) {
-		if buildChip(c.Key("none"), noBuild, matchesMeta(d.scopedMatches(none, d.matches)), false, s.scope == none) {
-			s.scope, s.suggesting = none, false
+	if len(d.builds) > 0 && (d.unbuilt > 0 || pg.scope == none) {
+		if buildChip(c.Key("none"), noBuild, matchesMeta(d.scopedMatches(none, d.matches)), false, pg.scope == none) {
+			pg.scope, pg.suggesting = none, false
 		}
 	}
 	if len(d.builds) == 0 && len(d.split.Suggestions) > 0 {
 		if buildChip(c.Key("suggested"), fmt.Sprintf("%d suggested", shownSuggestions(d)), "Builds to make", true,
-			s.Tab == tabList && s.Edit == nil) {
-			s.Tab, s.Edit = tabList, nil
+			pg.Tab == tabList && pg.Edit == nil) {
+			pg.Tab, pg.Edit = tabList, nil
 		}
 	}
 	if len(d.games) > 0 && buildChip(c.Key("new"), "New build", "Pick its core", true, false) {
@@ -263,8 +261,7 @@ func (pg *Page) buildChips(c *ui.Context, e *page.Env, d leaderDecks) {
 
 func (pg *Page) savedBuildChip(c *ui.Context, e *page.Env, d leaderDecks, b store.Build) {
 	t := c.Theme()
-	s := pg
-	on := s.scope == buildScope(b.ID)
+	on := pg.scope == buildScope(b.ID)
 	menu := func(m *ui.Menu) { pg.buildMenu(e, m, d, b) }
 	group := ui.Row(c).AlignItems(ui.Stretch).Radius(10).Clip().Border(1, t.Border.Alpha(0.6))
 	if on {
@@ -277,7 +274,7 @@ func (pg *Page) savedBuildChip(c *ui.Context, e *page.Env, d leaderDecks, b stor
 			chip.Background(t.SurfaceHover)
 		}
 		if chip.Clicked() {
-			s.scope, s.version, s.suggesting = buildScope(b.ID), time.Time{}, false
+			pg.scope, pg.version, pg.suggesting = buildScope(b.ID), time.Time{}, false
 		}
 		chip.Children(func() {
 			ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
@@ -308,15 +305,14 @@ func coreText(e *page.Env, b store.Build) string {
 }
 
 func (pg *Page) buildMenu(e *page.Env, m *ui.Menu, d leaderDecks, b store.Build) {
-	s := pg
 	m.Item(coreText(e, b)).Disabled(true)
 	m.Separator()
 	if m.Item("Edit core").Chosen() {
-		s.scope = buildScope(b.ID)
+		pg.scope = buildScope(b.ID)
 		pg.startEdit(b)
 	}
 	if m.Item("Rename").Chosen() {
-		s.scope, s.renaming, s.rename = buildScope(b.ID), true, b.Name
+		pg.scope, pg.renaming, pg.rename = buildScope(b.ID), true, b.Name
 	}
 	m.Separator()
 	if m.Item("Delete build").Chosen() {
@@ -325,20 +321,19 @@ func (pg *Page) buildMenu(e *page.Env, m *ui.Menu, d leaderDecks, b store.Build)
 }
 
 func (pg *Page) renameBar(c *ui.Context, b store.Build) {
-	s := pg
-	if !s.renaming {
+	if !pg.renaming {
 		return
 	}
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-		in := ui.TextInput(c, &s.rename).Width(280).Label("Build name")
-		if (in.Submitted() || ui.PrimaryButton(c, "Save").Clicked()) && strings.TrimSpace(s.rename) != "" {
+		in := ui.TextInput(c, &pg.rename).Width(280).Label("Build name")
+		if (in.Submitted() || ui.PrimaryButton(c, "Save").Clicked()) && strings.TrimSpace(pg.rename) != "" {
 			nb := b
-			nb.Name = strings.TrimSpace(s.rename)
+			nb.Name = strings.TrimSpace(pg.rename)
 			pg.do(func(a Actions) { a.SaveBuild(nb, nil) })
-			s.renaming = false
+			pg.renaming = false
 		}
 		if ui.Button(c, "Cancel").Clicked() {
-			s.renaming = false
+			pg.renaming = false
 		}
 	})
 }
@@ -367,18 +362,17 @@ func (pg *Page) chooseSaved(id int64) { pg.saved = id }
 // chooseBuild keeps the chosen build to the leader's, chooses the first when none is, and
 // chooses a build just saved once it's in.
 func (pg *Page) chooseBuild(d leaderDecks) {
-	s := pg
-	if _, ok := d.chosen(s.saved); ok {
-		s.scope, s.saved, s.Tab, s.suggesting = buildScope(s.saved), 0, tabList, false
+	if _, ok := d.chosen(pg.saved); ok {
+		pg.scope, pg.saved, pg.Tab, pg.suggesting = buildScope(pg.saved), 0, tabList, false
 	}
-	if _, ok := d.chosen(s.scope.build); s.scope.kind == scopeBuild && !ok {
-		s.scope = deckScope{}
+	if _, ok := d.chosen(pg.scope.build); pg.scope.kind == scopeBuild && !ok {
+		pg.scope = deckScope{}
 	}
 	if len(d.builds) == 0 {
-		s.scope = deckScope{}
+		pg.scope = deckScope{}
 	}
-	if s.Edit != nil {
-		s.Tab = tabList
+	if pg.Edit != nil {
+		pg.Tab = tabList
 	}
 }
 
@@ -449,28 +443,18 @@ func buildChip(c *ui.Context, name, meta string, suggested, on bool) bool {
 	return chip.Clicked()
 }
 
+var deckTabLabels = func() []string {
+	out := make([]string, len(DeckPageTabs))
+	for i, dt := range DeckPageTabs {
+		out[i] = dt.label
+	}
+	return out
+}()
+
 func (pg *Page) pageTabs(c *ui.Context) {
-	t := c.Theme()
-	s := pg
 	ui.Column(c).Children(func() {
-		tabs := ui.TabsBase(c, &s.Tab, len(DeckPageTabs))
-		tabs.List.Gap(4).Children(func() {
-			for i, dt := range DeckPageTabs {
-				tab := tabs.Tab(i).Column().Gap(6).Padding(7, 4, 0, 4)
-				col, bar := t.TextMuted, ui.Transparent
-				switch {
-				case i == s.Tab:
-					col, bar = t.Text, t.Accent
-				case tab.Hovered():
-					col = t.Text
-				}
-				tab.Children(func() {
-					ui.Text(c, dt.label).FontSize(13).TextColor(col).Padding(0, 8)
-					ui.Box(c).Height(2).Radius(1).Background(bar).AlignSelf(ui.Stretch)
-				})
-			}
-		})
-		ui.Box(c).Height(1).Background(t.Border)
+		kit.UnderlineTabs(c, &pg.Tab, deckTabLabels)
+		ui.Box(c).Height(1).Background(c.Theme().Border)
 	})
 }
 

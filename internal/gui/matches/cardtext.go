@@ -47,7 +47,7 @@ func logPieces(sv *stepView, l simlog.Line, text ui.Color) []textPiece {
 	w.cardCol, w.cardWeight = kit.CardGold, 600
 	if l.Player != "" {
 		s := sv.side(l.Player)
-		w.out = append(w.out, textPiece{text: s.Name() + "  ", weight: 700, color: s.Color()})
+		w.out = append(w.out, textPiece{text: s.name() + "  ", weight: 700, color: s.color()})
 	}
 	w.linked(l.Text)
 	return w.out

@@ -184,31 +184,6 @@ func fileHash(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func (s *SimArt) Current(code string) (ArtChoice, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.current(code)
-}
-
-func (s *SimArt) current(code string) (ArtChoice, error) {
-	path := s.Install.Override(code)
-	if path == "" {
-		return ArtChoice{Kind: ArtOwn}, nil
-	}
-	r, err := s.load()
-	if err != nil {
-		return ArtChoice{}, err
-	}
-	sum, err := fileHash(path)
-	if err != nil {
-		return ArtChoice{}, err
-	}
-	if key, _, known := r.lookup(sum); known {
-		return ArtChoice{Kind: ArtPrint, Key: key}, nil
-	}
-	return ArtChoice{Kind: ArtFile}, nil
-}
-
 // Inspect reads the card's current choice, override file, override hash and any kept user file
 // in one pass.
 func (s *SimArt) Inspect(code string) (ArtState, error) {
@@ -259,36 +234,6 @@ func (s *SimArt) keptOwnFile(code string, r *artRecord) string {
 	return p
 }
 
-// OwnFile is the user's own file for the card: the override the sim shows when logpose didn't
-// write it, or else the newest copy logpose kept. It's "" when there's none, or when the file
-// is known to show a printing.
-func (s *SimArt) OwnFile(code string) string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	r, err := s.load()
-	if err != nil {
-		return ""
-	}
-	candidates := []string{s.Install.Override(code), s.keptFile(code)}
-	for _, p := range candidates {
-		if p == "" {
-			continue
-		}
-		sum, err := fileHash(p)
-		if err != nil {
-			continue
-		}
-		switch _, ours, known := r.lookup(sum); {
-		case ours:
-			continue
-		case known:
-			return ""
-		}
-		return p
-	}
-	return ""
-}
-
 // keptFile is the full image kept last for the card, or "".
 func (s *SimArt) keptFile(code string) string {
 	var newest string
@@ -302,30 +247,10 @@ func (s *SimArt) keptFile(code string) string {
 	return newest
 }
 
-// Matched records that the override the sim shows for the card is the printing key. Current
-// then reports that printing.
-func (s *SimArt) Matched(code, key string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	path := s.Install.Override(code)
-	if path == "" {
-		return nil
-	}
-	sum, err := fileHash(path)
-	if err != nil {
-		return err
-	}
-	return s.recordMatch(sum, key)
-}
-
 // RecordMatch records that the file with SHA-256 sum is the printing key.
 func (s *SimArt) RecordMatch(sum, key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.recordMatch(sum, key)
-}
-
-func (s *SimArt) recordMatch(sum, key string) error {
 	if sum == "" {
 		return nil
 	}

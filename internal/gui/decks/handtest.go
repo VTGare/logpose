@@ -97,23 +97,22 @@ const (
 // record from the games it was dealt in.
 func (pg *Page) handTester(c *ui.Context, e *page.Env, gs []stats.DeckGame, dealt []stats.DealtCard) {
 	t := c.Theme()
-	s := pg
 	if len(gs) == 0 {
 		return
 	}
 	list := gs[0].Facts.List
-	if s.rng == nil {
-		s.rng = rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
+	if pg.rng == nil {
+		pg.rng = rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
 	}
-	h := &s.tester
+	h := &pg.tester
 	if h.list != listKey(list) {
-		h.deal(list, s.rng)
+		h.deal(list, pg.rng)
 	}
 	if c.Shortcut(0, ui.KeyN) {
-		h.deal(list, s.rng)
+		h.deal(list, pg.rng)
 	}
 	if c.Shortcut(0, ui.KeyM) {
-		h.mulligan(s.rng)
+		h.mulligan(pg.rng)
 	}
 	if c.Shortcut(0, ui.KeyT) {
 		h.next()
@@ -143,7 +142,7 @@ func (pg *Page) handTester(c *ui.Context, e *page.Env, gs []stats.DeckGame, deal
 		if len(h.hand) > testerWide {
 			w = testerSmallW
 		}
-		hide := s.hideNumbers && !h.mulliganed && h.turn == 0
+		hide := pg.hideNumbers && !h.mulliganed && h.turn == 0
 		ui.Row(c).Gap(10).Wrap().Children(func() {
 			for i, code := range h.hand {
 				testerCard(c.Key(i), e, code, byCard[code], w, hide, h.turn > 0 && e.Snap.Card(code).PaidCost() <= h.don())
@@ -162,8 +161,7 @@ func (pg *Page) handTester(c *ui.Context, e *page.Env, gs []stats.DeckGame, deal
 
 func (pg *Page) testerControls(c *ui.Context, list map[string]int) {
 	t := c.Theme()
-	s := pg
-	h := &s.tester
+	h := &pg.tester
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Wrap().Children(func() {
 		order := 0
 		if h.second {
@@ -171,13 +169,13 @@ func (pg *Page) testerControls(c *ui.Context, list map[string]int) {
 		}
 		if ui.Segmented(c, &order, "Going first", "Going second").Changed() {
 			h.second = order == 1
-			h.deal(list, s.rng)
+			h.deal(list, pg.rng)
 		}
 		if ui.Button(c, "New hand").Tooltip("N").Clicked() {
-			h.deal(list, s.rng)
+			h.deal(list, pg.rng)
 		}
 		if ui.Button(c, "Mulligan").Tooltip("M").Disabled(!h.canMulligan()).Clicked() {
-			h.mulligan(s.rng)
+			h.mulligan(pg.rng)
 		}
 		next := "Next turn"
 		if h.turn == 0 {
@@ -186,7 +184,7 @@ func (pg *Page) testerControls(c *ui.Context, list map[string]int) {
 		if ui.Button(c, next).Tooltip("T").Disabled(h.turn >= lastTurn).Clicked() {
 			h.next()
 		}
-		ui.Checkbox(c, &s.hideNumbers, "Hide numbers until I choose")
+		ui.Checkbox(c, &pg.hideNumbers, "Hide numbers until I choose")
 		ui.Spacer(c)
 		turn := "Before your first turn"
 		if h.turn > 0 {

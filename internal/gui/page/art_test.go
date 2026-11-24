@@ -35,27 +35,12 @@ var _ = Describe("art", func() {
 		Expect(alpha(99)).To(BeNumerically("<", 30))
 	})
 
-	It("makes a small dark backdrop the banner's shape", func() {
-		out := backdrop(solid(400, 300, color.RGBA{220, 220, 220, 255}))
-		Expect(out.Bounds()).To(Equal(image.Rect(0, 0, backdropW, backdropH)))
-		left, right := out.RGBAAt(0, 20), out.RGBAAt(backdropW-1, 20)
-		Expect(left.R).To(BeNumerically("<", 110))
-		Expect(right.R).To(BeNumerically(">", left.R))
-	})
-
-	It("blurs a sharp edge into a ramp", func() {
-		img := solid(40, 4, color.RGBA{0, 0, 0, 255})
-		for y := range 4 {
-			for x := 20; x < 40; x++ {
-				img.SetRGBA(x, y, color.RGBA{255, 255, 255, 255})
-			}
-		}
-		boxBlur(img, 3)
-		Expect(img.RGBAAt(0, 2).R).To(BeZero())
-		Expect(img.RGBAAt(39, 2).R).To(Equal(uint8(255)))
-		mid := img.RGBAAt(19, 2).R
-		Expect(mid).To(BeNumerically(">", 0))
-		Expect(mid).To(BeNumerically("<", 255))
+	It("draws a card from the smallest image that covers it at the scaling the sizes assume", func() {
+		Expect(CardKind(22)).To(Equal(ArtFull))
+		Expect(CardKind(WebSmallWidth / ArtScale)).To(Equal(ArtFull))
+		Expect(CardKind(WebSmallWidth/ArtScale + 1)).To(Equal(ArtCard))
+		Expect(CardKind(CardArtWidth / ArtScale)).To(Equal(ArtCard))
+		Expect(CardKind(CardArtWidth/ArtScale + 1)).To(Equal(ArtLarge))
 	})
 })
 

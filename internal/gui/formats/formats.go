@@ -175,7 +175,11 @@ func (pg *Page) formatRow(c *ui.Context, e *page.Env, f stats.FormatRange) {
 	}
 	current := f.End.IsZero()
 	ui.Row(c).Gap(14).Padding(8, 0).AlignItems(ui.Center).Children(func() {
-		ui.Box(c).Size(6, 36).Radius(3).Background(map[bool]ui.Color{true: t.Accent, false: t.Border}[current])
+		barCol := t.Border
+		if current {
+			barCol = t.Accent
+		}
+		ui.Box(c).Size(6, 36).Radius(3).Background(barCol)
 		ui.Column(c).Grow(1).Gap(2).Children(func() {
 			if pg.editing == f.ID {
 				ui.Row(c).Gap(8).Children(func() {

@@ -51,13 +51,13 @@ func testCards() map[string]cards.Card {
 
 // cardsPage opens the Cards page on a pool. The page lists only cards with a name, a code and
 // Detailed set.
-func cardsWith(pool map[string]cards.Card) (*view, *ui.Tester, *fakeActions) {
+func cardsWith(pool map[string]cards.Card) (*view, *ui.Tester, *guitest.EnvActions) {
 	db := cards.NewDB()
 	(&cards.Library{Cards: pool}).Apply(db)
 	s := guitest.Snapshot(4)
 	s.Cards = db
 	v, tt := tester(s)
-	fa := &fakeActions{}
+	fa := &guitest.EnvActions{}
 	v.setActions(fa)
 	v.Page = page.Cards
 	// More filters reaches below a window of the usual height.
@@ -68,7 +68,7 @@ func cardsWith(pool map[string]cards.Card) (*view, *ui.Tester, *fakeActions) {
 	return v, tt, fa
 }
 
-func cardsTester() (*view, *ui.Tester, *fakeActions) { return cardsWith(testCards()) }
+func cardsTester() (*view, *ui.Tester, *guitest.EnvActions) { return cardsWith(testCards()) }
 
 // shownCards is the codes of the pool's cards the page shows, in reading order.
 func shownCards(tt *ui.Tester, pool map[string]cards.Card) []string {
@@ -125,7 +125,7 @@ var _ = Describe("powerRange", func() {
 var _ = Describe("Cards page", func() {
 	var (
 		tt *ui.Tester
-		fa *fakeActions
+		fa *guitest.EnvActions
 		v  *view
 	)
 	pool := testCards()
@@ -803,7 +803,6 @@ var _ = Describe("Cards page", func() {
 			Expect(tt.RightClick("Urouge OP14-002")).To(Succeed())
 			Expect(guitest.Choose(tt, "View art")).To(Succeed())
 			Expect(guitest.Labelled(tt, "Close the viewer")).To(BeTrue())
-			Expect(v.Viewer.Code()).To(Equal("OP14-002"))
 			Expect(tt.Texts()).To(ContainElement("OP14-002 · Red Character"))
 			Expect(v.cards.State.Selected).To(Equal("OP01-024"))
 
@@ -818,7 +817,7 @@ var _ = Describe("Cards page", func() {
 var _ = Describe("Card sort", func() {
 	var (
 		tt *ui.Tester
-		fa *fakeActions
+		fa *guitest.EnvActions
 		v  *view
 	)
 	pool := testCards()

@@ -60,7 +60,7 @@ func (x *appActions) SetShortcut(place shortcut.Place, on bool) {
 			x.a.opts.Log.Warn("shortcut", "place", place, "on", on, "err", err)
 		}
 		now := shortcut.Exists(place, link.Name)
-		x.a.win.Update(func() { x.a.view.setShortcutMade(place, now) })
+		x.a.win.Update(func() { x.a.view.settings.System.Shortcuts[place] = now })
 		if err != nil {
 			x.toast(ui.Toast{Title: "Windows didn't take the " + settings.ShortcutNames[place] + " shortcut change.", Type: "error"})
 		}

@@ -39,7 +39,7 @@ const (
 	LargeWidth = 600
 )
 
-// Size selects which resolution Resolve returns.
+// Size selects which resolution resolve returns.
 type Size int
 
 const (
@@ -74,8 +74,6 @@ func ParseRef(s string) Ref {
 	return Ref{kind: refPrint, code: s}
 }
 
-func PrintRef(key string) Ref { return Ref{kind: refPrint, code: key} }
-
 // ExactPrintRef keeps a printing key on its own art even when mirroring sim overrides.
 // Non-print references and empty keys are returned as parsed.
 func ExactPrintRef(key string) Ref {
@@ -89,12 +87,6 @@ func ExactPrintRef(key string) Ref {
 func SimOwnRef(code string) Ref { return Ref{kind: refSimOwn, code: code} }
 
 func FileRef(path string) Ref { return Ref{kind: refFile, code: path} }
-
-func DonRef() Ref { return Ref{kind: refDon} }
-
-func DonBackRef() Ref { return Ref{kind: refDonBack} }
-
-func (r Ref) IsExact() bool { return r.kind == refExactPrint }
 
 func (r Ref) String() string {
 	switch r.kind {
@@ -140,9 +132,9 @@ func (r Ref) FileName() string {
 	return r.String() + ".png"
 }
 
-// Resolve loads ref at size. When mirror is true, plain card codes use the sim's override first.
+// resolve loads ref at size. When mirror is true, plain card codes use the sim's override first.
 // When simFallback is true, printing lookups fall back to the sim's own image if web art fails.
-func Resolve(in *sim.Install, web *Store, ref Ref, size Size, mirror, simFallback bool) (image.Image, error) {
+func resolve(in *sim.Install, web *Store, ref Ref, size Size, mirror, simFallback bool) (image.Image, error) {
 	if mirror && in != nil && ref.kind == refPrint && ref.code != "" {
 		if img, ok := resolveMirror(in, ref.code, size); ok {
 			return img, nil
@@ -154,9 +146,9 @@ func Resolve(in *sim.Install, web *Store, ref Ref, size Size, mirror, simFallbac
 		if in == nil {
 			return nil, sim.ErrNotFound
 		}
-		return Decode(in.CardImage(ref.code, small))
+		return decode(in.CardImage(ref.code, small))
 	case refFile:
-		img, err := Decode(ref.code)
+		img, err := decode(ref.code)
 		if err == nil && small {
 			img = ScaleToWidth(img, SmallWidth)
 		}
@@ -166,12 +158,12 @@ func Resolve(in *sim.Install, web *Store, ref Ref, size Size, mirror, simFallbac
 			return nil, ErrNoPicture
 		}
 		// DON!! cards have no small image.
-		return Decode(in.DonImage())
+		return decode(in.DonImage())
 	case refDonBack:
 		if in == nil {
 			return nil, ErrNoPicture
 		}
-		return Decode(in.DonBack())
+		return decode(in.DonBack())
 	case refPrint, refExactPrint:
 		img, err := readWeb(web, ref.code, size != SizeFull)
 		if err == nil {
@@ -187,7 +179,7 @@ func Resolve(in *sim.Install, web *Store, ref Ref, size Size, mirror, simFallbac
 	if in == nil {
 		return nil, ErrNoPicture
 	}
-	return Decode(in.CardImage(ref.code, small))
+	return decode(in.CardImage(ref.code, small))
 }
 
 func resolveMirror(in *sim.Install, code string, size Size) (image.Image, bool) {
@@ -195,7 +187,7 @@ func resolveMirror(in *sim.Install, code string, size Size) (image.Image, bool) 
 	if path == "" {
 		return nil, false
 	}
-	img, err := Decode(path)
+	img, err := decode(path)
 	if err != nil {
 		return nil, false
 	}

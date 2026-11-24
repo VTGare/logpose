@@ -47,15 +47,10 @@ func (pg *Page) deckArtPage(c *ui.Context, e *page.Env) {
 	items, changed, noSim := loadDeckArtItems(e, ap)
 
 	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-		back := ui.Row(c).Gap(6).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("Back to " + leaderName)
-		if back.Clicked() {
+		if kit.BackLink(c, leaderName, "Back to "+leaderName) {
 			pg.artPick = nil
 			return
 		}
-		back.Children(func() {
-			ui.Icon(c, kit.IconPrevStep).TextColor(t.TextMuted)
-			ui.Text(c, leaderName).TextColor(t.TextMuted)
-		})
 		ui.Text(c, "/").TextColor(kit.FaintColor(t))
 		ui.Text(c, "Deck art · "+ap.title).Bold()
 		if !noSim {

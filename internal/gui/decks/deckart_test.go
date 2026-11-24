@@ -107,7 +107,7 @@ var _ = Describe("Deck art picker", func() {
 	})
 
 	It("opens the art viewer on the clicked printing", func() {
-		v, tt, _ := openArt()
+		v, tt, act := openArt()
 		v.SimArt.Set("OP13-001", page.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
 		v.SimArt.Set("OTA", page.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
 		v.SimArt.Set("GARP", page.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtOwn}})
@@ -115,10 +115,10 @@ var _ = Describe("Deck art picker", func() {
 		tt.Frame()
 
 		guitest.Click(tt, "Show Otama Alt art")
-		Expect(v.Viewer.IsOpen()).To(BeTrue())
-		Expect(v.Viewer.Code()).To(Equal("OTA"))
-		Expect(v.Viewer.Viewed()).To(Equal(arts.ParseRef("OTA_p1")))
 		Expect(guitest.Labelled(tt, "Close the viewer")).To(BeTrue())
+		Expect(tt.HasText("OTA ·")).To(BeTrue())
+		guitest.Click(tt, "Save image…")
+		Expect(act.Calls).To(ContainElement("save art OTA_p1"))
 	})
 
 	It("opens the version popover for multi-stamp arts and lets you pick or view one", func() {
@@ -144,10 +144,10 @@ var _ = Describe("Deck art picker", func() {
 		guitest.Click(tt, "Use Online champion, Online Regional 2025 in the sim")
 		Expect(act.Calls).To(ContainElement("use art GARP GARP_p2_bd"))
 		guitest.Click(tt, "Show Offline finalist, Offline Regional 2025")
-		Expect(v.Viewer.IsOpen()).To(BeTrue())
-		Expect(v.Viewer.Code()).To(Equal("GARP"))
-		Expect(v.Viewer.Viewed()).To(Equal(arts.ParseRef("GARP_p1_bd")))
 		Expect(guitest.Labelled(tt, "Close the viewer")).To(BeTrue())
+		Expect(tt.HasText("GARP ·")).To(BeTrue())
+		guitest.Click(tt, "Save image…")
+		Expect(act.Calls).To(ContainElement("save art GARP_p1_bd"))
 	})
 
 	It("opens an older list from the version rail right-click menu", func() {

@@ -42,9 +42,9 @@ func newStepView(m stats.Match, rs *replayState) *stepView {
 	return sv
 }
 
-func (sv *stepView) side(id string) page.Side { return page.SideOf(sv.m, id) }
+func (sv *stepView) side(id string) side { return sideOf(sv.m, id) }
 
-func (sv *stepView) seat(mine bool) page.Side { return page.Side{Mine: mine, Opp: sv.m.Opp.Name} }
+func (sv *stepView) seat(mine bool) side { return side{mine: mine, opp: sv.m.Opp.Name} }
 
 // sameBattleBefore reports whether the step before showed this step's attack, as a counter
 // step does after the attack.
@@ -56,8 +56,8 @@ func (sv *stepView) sameBattleBefore() bool {
 	return a != nil && b != nil && a.AttackerID == b.AttackerID && a.DefenderID == b.DefenderID
 }
 
-// attacker is the page.Side of the step's attack. The step has to have a battle.
-func (sv *stepView) attacker() page.Side { return sv.seat(sv.me.Owner == sv.step.Battle.AttackerOwner) }
+// attacker is the side of the step's attack. The step has to have a battle.
+func (sv *stepView) attacker() side { return sv.seat(sv.me.Owner == sv.step.Battle.AttackerOwner) }
 
 func (pg *Page) replayPage(c *ui.Context, e *page.Env, m stats.Match) {
 	rs := pg.Detail.Replay
@@ -134,20 +134,14 @@ const noMovesText = "This game's log comes from a sim version without the move s
 // replayLeft returns the stand-ins for the opponent's hand and the user's, which take the room
 // the fans need.
 func (pg *Page) replayLeft(c *ui.Context, e *page.Env, sv *stepView, side float32) (hands [2]ui.Element) {
-	t := c.Theme()
 	fw := fanWidth(side)
 	stand := func(s *replay.Side) ui.Element {
 		return ui.Box(c).Size(side, shapeFan(len(s.Hand), side, fw).h)
 	}
 	ui.Column(c).Width(side).Gap(8).Children(func() {
-		back := ui.Row(c).Gap(6).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("Back to match")
-		if back.Clicked() {
+		if kit.BackLink(c, "Back to match", "Back to match") {
 			pg.closeReplay()
 		}
-		back.Children(func() {
-			ui.Icon(c, kit.IconPrevStep).TextColor(t.TextMuted)
-			ui.Text(c, "Back to match").TextColor(t.TextMuted)
-		})
 		replaySideName(c, e, sv, sv.them)
 		hands[0] = stand(sv.them)
 		kit.Panel(c).Grow(1).Basis(0).Padding(12).Clip().Children(func() { inspector(c, e, sv, side-24) })
@@ -160,8 +154,8 @@ func (pg *Page) replayLeft(c *ui.Context, e *page.Env, sv *stepView, side float3
 func replaySideName(c *ui.Context, e *page.Env, sv *stepView, s *replay.Side) {
 	t := c.Theme()
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Box(c).Size(8, 8).Radius(4).Background(sv.side(s.Player).Color())
-		ui.Text(c, sv.side(s.Player).Name()).Bold().FontSize(13)
+		ui.Box(c).Size(8, 8).Radius(4).Background(sv.side(s.Player).color())
+		ui.Text(c, sv.side(s.Player).name()).Bold().FontSize(13)
 		ui.Text(c, fmt.Sprintf("%s · %d in hand", e.Snap.Card(s.Leader.Code).Name, len(s.Hand))).FontSize(12).TextColor(t.TextMuted).SingleLine()
 	})
 }
@@ -296,7 +290,7 @@ func replayRight(c *ui.Context, e *page.Env, sv *stepView, side float32, moved b
 				ui.Text(c, turn).FontSize(12).TextColor(t.TextMuted)
 				// A block or counter is the defender's step, but the turn stays the attacker's.
 				if p := sv.g.TurnPlayer(s.Turn); p != "" {
-					ui.Text(c, "· "+sv.side(p).Possessive()+" turn").FontSize(12).FontWeight(600).TextColor(sv.side(p).Color())
+					ui.Text(c, "· "+sv.side(p).possessive()+" turn").FontSize(12).FontWeight(600).TextColor(sv.side(p).color())
 				}
 				ui.Spacer(c)
 				ui.Text(c, fmt.Sprintf("Step %d of %d", rs.step+1, len(rs.r.Steps))).FontSize(12).TextColor(kit.FaintColor(t))
@@ -438,7 +432,7 @@ func scrubber(c *ui.Context, sv *stepView) {
 			x0, x1 := r.X+float32(sg.first)*unit+1, r.X+float32(sg.last+1)*unit-1
 			col := t.Border
 			if sg.turn > 0 {
-				col = sv.side(sg.player).Color()
+				col = sv.side(sg.player).color()
 			}
 			if sg.first > rs.step {
 				col = col.Alpha(0.35)
@@ -467,7 +461,7 @@ func actionList(c *ui.Context, e *page.Env, sv *stepView, moved bool) {
 			}
 			if s.Turn != last {
 				last = s.Turn
-				ui.Text(c.Key(-i-1), fmt.Sprintf("Turn %d · %s", s.Turn, sv.side(s.Player).Name())).FontSize(11).Bold().
+				ui.Text(c.Key(-i-1), fmt.Sprintf("Turn %d · %s", s.Turn, sv.side(s.Player).name())).FontSize(11).Bold().
 					TextColor(t.TextMuted).Margin(8, 0, 2, 4)
 			}
 			stepRow(c, e, sv, i, moved)
@@ -504,7 +498,7 @@ func stepRow(c *ui.Context, e *page.Env, sv *stepView, i int, moved bool) {
 		row.Background(t.Surface).BorderStartWidth(2).BorderColor(t.Accent)
 	}
 	row.Children(func() {
-		ui.Box(c).Size(3, 18).Radius(2).Background(sv.side(s.Player).Color())
+		ui.Box(c).Size(3, 18).Radius(2).Background(sv.side(s.Player).color())
 		for j, code := range s.Cards {
 			ui.Box(c.Key(j)).Children(func() { e.Card(c, code, 22) })
 		}

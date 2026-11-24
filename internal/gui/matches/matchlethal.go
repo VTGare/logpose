@@ -20,7 +20,7 @@ const (
 // lethalTurn lays out the attacks of the turn that ended the game, with what the attacking
 // player did between them.
 func lethalTurn(c *ui.Context, e *page.Env, m stats.Match, player string, attacks []replay.TurnAttack) {
-	s := page.SideOf(m, player)
+	s := sideOf(m, player)
 	ui.Row(c).Gap(8).Wrap().AlignItems(ui.Stretch).Children(func() {
 		for i, a := range attacks {
 			for j, act := range a.Before {
@@ -31,7 +31,7 @@ func lethalTurn(c *ui.Context, e *page.Env, m stats.Match, player string, attack
 	})
 }
 
-func lethalAttack(c *ui.Context, e *page.Env, s page.Side, n int, a replay.TurnAttack) {
+func lethalAttack(c *ui.Context, e *page.Env, s side, n int, a replay.TurnAttack) {
 	t := c.Theme()
 	ui.Column(c).Width(lethalStepWidth).Gap(6).Padding(8, 9).Radius(10).Background(t.Surface).Children(func() {
 		ui.Column(c).Children(func() {
@@ -57,24 +57,24 @@ func lethalAttack(c *ui.Context, e *page.Env, s page.Side, n int, a replay.TurnA
 		word, color := "Stopped", t.TextMuted
 		switch {
 		case a.Lethal:
-			word, color = "Lethal", s.Color()
+			word, color = "Lethal", s.color()
 		case a.Outcome == replay.OutcomeHit:
-			word, color = "Hit", s.Color()
+			word, color = "Hit", s.color()
 		case a.Outcome == replay.OutcomeKO:
 			word = "K.O."
 		}
 		ui.Text(c, word).FontSize(14).Bold().TextColor(color)
 		if a.Outcome == replay.OutcomeHit && !a.Lethal {
-			ui.Text(c, fmt.Sprintf("%s at %d", isAt(s.Other()), a.Life)).FontSize(11).TextColor(t.TextMuted)
+			ui.Text(c, fmt.Sprintf("%s at %d", isAt(s.other()), a.Life)).FontSize(11).TextColor(t.TextMuted)
 		}
 	})
 }
 
-func isAt(s page.Side) string {
-	if s.Mine {
+func isAt(s side) string {
+	if s.mine {
 		return "You're"
 	}
-	return s.Name() + " is"
+	return s.name() + " is"
 }
 
 // answerText says how the defender met an attack, as "Saint Gunko blocks +2k" or "Countered

@@ -1,8 +1,6 @@
 package page
 
 import (
-	"time"
-
 	"github.com/egoist/mygo/ui"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -11,13 +9,11 @@ import (
 )
 
 type copyStub struct {
+	EnvActions
 	copied []string
 	toasts []ui.Toast
 }
 
-func (*copyStub) SetSetting(string, string)   {}
-func (*copyStub) ApplyPrefs(Prefs)            {}
-func (*copyStub) After(time.Duration, func()) {}
 func (c *copyStub) CopyText(text string, toast ui.Toast) {
 	c.copied = append(c.copied, text)
 	c.toasts = append(c.toasts, toast)

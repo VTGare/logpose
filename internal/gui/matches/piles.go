@@ -24,7 +24,7 @@ func (sv *stepView) pileName(p pileRef) string {
 	case pileLife:
 		what = "life"
 	}
-	return sv.seat(p.Mine).Possessive() + " " + what
+	return sv.seat(p.Mine).possessive() + " " + what
 }
 
 func (sv *stepView) pileSide(p pileRef) *replay.Side {
@@ -54,7 +54,7 @@ func pileView(c *ui.Context, e *page.Env, sv *stepView, width float32) {
 		ui.Column(c).Gap(2).Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Baseline).Children(func() {
 				ui.Text(c, sv.pileName(rs.pile)).FontSize(15).FontWeight(700)
-				ui.Text(c, kit.CardCount(len(cards))).FontSize(12).TextColor(t.TextMuted)
+				ui.Text(c, kit.Cards(len(cards))).FontSize(12).TextColor(t.TextMuted)
 				ui.Spacer(c)
 				if ui.Text(c, "Show this step").FontSize(12).TextColor(t.Accent).Cursor(ui.CursorPointer).Clicked() {
 					rs.pile = pileRef{}
@@ -104,7 +104,7 @@ func pileSwitches(c *ui.Context, sv *stepView) {
 	kind := slices.Index(kinds, rs.pile.kind)
 	s := sv.pileSide(rs.pile)
 	ui.Row(c).Gap(8).Wrap().Children(func() {
-		ui.Segmented(c, &whose, sv.seat(true).Name(), sv.seat(false).Name()).Label("Whose pile")
+		ui.Segmented(c, &whose, sv.seat(true).name(), sv.seat(false).name()).Label("Whose pile")
 		ui.Segmented(c, &kind, fmt.Sprintf("Deck %d", len(s.Deck())), fmt.Sprintf("Trash %d", len(s.Trash)),
 			fmt.Sprintf("Life %d", len(s.Life))).Label("Pile")
 	})

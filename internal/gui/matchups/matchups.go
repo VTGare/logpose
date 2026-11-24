@@ -134,8 +134,11 @@ func matchupCols(e *page.Env, t *ui.Theme, n int, open string) []kit.TableCol[st
 					} else {
 						ui.Text(c, page.TooFew).TextColor(kit.FaintColor(t)).Width(muRateW).TextAlign(ui.End)
 					}
-					few := !mu.Record.Enough()
-					ui.Box(c).Grow(1).Basis(0).Opacity(map[bool]float32{true: 0.35, false: 1}[few]).Children(func() {
+					op := float32(1)
+					if !mu.Record.Enough() {
+						op = 0.35
+					}
+					ui.Box(c).Grow(1).Basis(0).Opacity(op).Children(func() {
 						e.SplitBar(c, mu.Record.Share())
 					})
 				})
@@ -215,28 +218,14 @@ func matchupOpen(c *ui.Context, e *page.Env, deck string, mu stats.Matchup) {
 			})
 		})
 		ui.Row(c).Gap(24).AlignItems(ui.Center).Children(func() {
-			if iconLink(c.Key("show"), kit.IconMatches, "Show in Matches") {
+			if kit.LinkButton(c.Key("show"), kit.IconMatches, "Show in Matches").Padding(2, 0).Clicked() {
 				e.ShowOpponentGames(deck, mu.Leader)
 			}
-			if iconLink(c.Key("filter"), kit.IconFilter, "Filter to games vs "+name) {
+			if kit.LinkButton(c.Key("filter"), kit.IconFilter, "Filter to games vs "+name).Padding(2, 0).Clicked() {
 				e.FilterOpponent(mu.Leader)
 			}
 		})
 	})
-}
-
-func iconLink(c *ui.Context, icon *ui.SVG, label string) bool {
-	t := c.Theme()
-	b := ui.ButtonBase(c).Label(label).Background(ui.Transparent).Padding(2, 0).Gap(6).AlignItems(ui.Center)
-	col := t.Accent
-	if b.Hovered() {
-		col = t.AccentHover
-	}
-	b.Children(func() {
-		ui.Icon(c, icon).Size(14, 14).TextColor(col)
-		ui.Text(c, label).FontSize(13).TextColor(col).SingleLine()
-	})
-	return b.Clicked()
 }
 
 // howGamesWent is the average turns of the wins and of the losses, and how many games ended by

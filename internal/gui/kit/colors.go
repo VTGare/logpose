@@ -1,6 +1,8 @@
 package kit
 
 import (
+	"embed"
+	"fmt"
 	"slices"
 
 	"github.com/egoist/mygo/ui"
@@ -8,6 +10,27 @@ import (
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/stats"
 )
+
+// fontFamily is Inter, bundled under the SIL Open Font License (fonts/OFL.txt), so the
+// app looks the same on every Windows install.
+const fontFamily = "Inter"
+
+//go:embed fonts/*.ttf
+var fontFiles embed.FS
+
+// RegisterFonts adds Inter's weights. Without them the app falls back to the system font.
+func RegisterFonts() error {
+	for _, name := range []string{"Regular", "Medium", "SemiBold", "Bold"} {
+		data, err := fontFiles.ReadFile("fonts/Inter-" + name + ".ttf")
+		if err != nil {
+			return err
+		}
+		if err := ui.RegisterFont(data, fontFamily); err != nil {
+			return fmt.Errorf("register Inter %s: %w", name, err)
+		}
+	}
+	return nil
+}
 
 // LeaderColor is one of OPTCG's card colors. Card is the color of the card frame, measured
 // from the sim's card images. Glow lights the banner's dark panel: the card color, except black,

@@ -49,12 +49,9 @@ func SearchTargets(effect string) []string {
 	clause := otherThan.ReplaceAllString(m[1], "")
 	var out []string
 	add := func(s string) {
-		for _, o := range out {
-			if o == s {
-				return
-			}
+		if !slices.Contains(out, s) {
+			out = append(out, s)
 		}
-		out = append(out, s)
 	}
 	for _, x := range braceType.FindAllStringSubmatch(clause, -1) {
 		add(x[1])

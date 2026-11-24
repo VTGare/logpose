@@ -46,9 +46,9 @@ func inspector(c *ui.Context, e *page.Env, sv *stepView, width float32) {
 				})
 			}
 			attacker := sv.attacker()
-			side(bt.Attacker, bt.Attack, attacker.Color())
+			side(bt.Attacker, bt.Attack, attacker.color())
 			ui.Text(c, "vs").FontWeight(600).TextColor(kit.FaintColor(t)).Margin(60, 0, 0, 0)
-			side(bt.Defender(), bt.Defense, attacker.Other().Color())
+			side(bt.Defender(), bt.Defense, attacker.other().color())
 		})
 	} else if len(sv.step.Cards) > 0 {
 		ui.Row(c).Gap(8).Justify(ui.Center).Margin(8, 0, 0, 0).Children(func() {

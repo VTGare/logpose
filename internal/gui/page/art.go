@@ -2,12 +2,10 @@ package page
 
 import (
 	"image"
-	"image/color"
 	"image/draw"
 	"sync"
 
 	"github.com/egoist/mygo/ui"
-	xdraw "golang.org/x/image/draw"
 
 	"github.com/VTGare/logpose/internal/arts"
 )
@@ -20,15 +18,13 @@ const (
 	// artPortrait is the art area of the full-size card, for banners, with its right edge
 	// faded out so it melts into the backdrop.
 	artPortrait
-	// artBackdrop is the art blurred and darkened, which fills the banner behind everything.
-	artBackdrop
 	// artCrop is the top of the art of the full-size card, for deck thumbnails.
 	artCrop
 	// ArtLarge is the whole full-size card, for the preview of a small one.
 	ArtLarge
 	// ArtCard is the whole card scaled to cardArtWidth, for cards drawn larger than artFull.
 	ArtCard
-	// ArtFaceMine and artFaceTheirs are the art area for the two ends of the match face-off,
+	// ArtFaceMine and ArtFaceTheirs are the art area for the two ends of the match face-off,
 	// fading out toward the middle.
 	ArtFaceMine
 	ArtFaceTheirs
@@ -159,8 +155,6 @@ func (a *ArtCache) load(k artKey, ver int) {
 		img = nil
 	case k.kind == artPortrait:
 		img = fadeRight(portrait(img), 0.3)
-	case k.kind == artBackdrop:
-		img = backdrop(portrait(img))
 	case k.kind == ArtFaceMine:
 		img = fadeRight(portrait(img), faceFade)
 	case k.kind == ArtFaceTheirs:
@@ -242,64 +236,4 @@ func fadeRight(img image.Image, part float64) *image.NRGBA {
 		}
 	}
 	return out
-}
-
-// Backdrop size: a small image the banner's shape. Blurred, it stays smooth when the window
-// scales it up, and it costs little to make.
-const backdropW, backdropH = 288, 45
-
-var backdropDark = color.RGBA{14, 14, 14, 255}
-
-// backdrop blurs the art and darkens it, a little less toward the right, where no text is.
-func backdrop(art image.Image) *image.RGBA {
-	out := image.NewRGBA(image.Rect(0, 0, backdropW, backdropH))
-	cover(out, art)
-	for range 3 {
-		boxBlur(out, 7)
-	}
-	for y := range backdropH {
-		for x := range backdropW {
-			fx := float64(x) / backdropW
-			out.SetRGBA(x, y, mix(out.RGBAAt(x, y), backdropDark, 0.62-0.12*fx))
-		}
-	}
-	return out
-}
-
-// cover scales src to fill dst, cropping the overflow evenly.
-func cover(dst *image.RGBA, src image.Image) {
-	sb, db := src.Bounds(), dst.Bounds()
-	scale := max(float64(db.Dx())/float64(sb.Dx()), float64(db.Dy())/float64(sb.Dy()))
-	cw, ch := int(float64(db.Dx())/scale), int(float64(db.Dy())/scale)
-	sx, sy := sb.Min.X+(sb.Dx()-cw)/2, sb.Min.Y+(sb.Dy()-ch)/2
-	xdraw.ApproxBiLinear.Scale(dst, db, src, image.Rect(sx, sy, sx+cw, sy+ch), xdraw.Src, nil)
-}
-
-// boxBlur averages each pixel with its neighbors r away, across then down. Three passes come
-// close to a Gaussian blur.
-func boxBlur(img *image.RGBA, r int) {
-	b := img.Bounds()
-	tmp := image.NewRGBA(b)
-	pass := func(src, dst *image.RGBA, dx, dy int) {
-		for y := b.Min.Y; y < b.Max.Y; y++ {
-			for x := b.Min.X; x < b.Max.X; x++ {
-				var rr, gg, bb, n int
-				for k := -r; k <= r; k++ {
-					sx := min(max(x+k*dx, b.Min.X), b.Max.X-1)
-					sy := min(max(y+k*dy, b.Min.Y), b.Max.Y-1)
-					c := src.RGBAAt(sx, sy)
-					rr, gg, bb, n = rr+int(c.R), gg+int(c.G), bb+int(c.B), n+1
-				}
-				dst.SetRGBA(x, y, color.RGBA{uint8(rr / n), uint8(gg / n), uint8(bb / n), 255})
-			}
-		}
-	}
-	pass(img, tmp, 1, 0)
-	pass(tmp, img, 0, 1)
-}
-
-func mix(a, b color.RGBA, t float64) color.RGBA {
-	t = min(max(t, 0), 1)
-	l := func(x, y uint8) uint8 { return uint8(float64(x)*(1-t) + float64(y)*t) }
-	return color.RGBA{l(a.R, b.R), l(a.G, b.G), l(a.B, b.B), 255}
 }

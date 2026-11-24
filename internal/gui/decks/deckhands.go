@@ -201,9 +201,8 @@ func dealtCols(e *page.Env, t *ui.Theme, avg float64) []kit.TableCol[stats.Dealt
 
 func (pg *Page) dealtRow(c *ui.Context, e *page.Env, tv kit.TableView[stats.DealtCard], d stats.DealtCard) {
 	t := c.Theme()
-	s := pg
 	card := e.Snap.Card(d.Card)
-	open := s.handsCard == d.Card
+	open := pg.handsCard == d.Card
 	verb := "Show"
 	if open {
 		verb = "Hide"
@@ -220,9 +219,9 @@ func (pg *Page) dealtRow(c *ui.Context, e *page.Env, tv kit.TableView[stats.Deal
 	}
 	if row.Clicked() {
 		if open {
-			s.handsCard = ""
+			pg.handsCard = ""
 		} else {
-			s.handsCard, s.AllHands = d.Card, false
+			pg.handsCard, pg.AllHands = d.Card, false
 		}
 	}
 	row.Children(func() {
@@ -243,10 +242,9 @@ func (pg *Page) dealtRow(c *ui.Context, e *page.Env, tv kit.TableView[stats.Deal
 // before the five kept, and the card outlined.
 func (pg *Page) dealtHands(c *ui.Context, e *page.Env, d stats.DealtCard) {
 	t := c.Theme()
-	s := pg
 	card, ms := d.Card, d.Games
 	shown := ms
-	if !s.AllHands && len(ms) > shownHands {
+	if !pg.AllHands && len(ms) > shownHands {
 		shown = ms[:shownHands]
 	}
 	ui.Column(c).Gap(2).Padding(4, 16, 12, 16).Background(t.Accent.Alpha(0.06)).Children(func() {
@@ -255,8 +253,8 @@ func (pg *Page) dealtHands(c *ui.Context, e *page.Env, d stats.DealtCard) {
 		for _, m := range shown {
 			handLine(c.Key(m.Fingerprint), e, m, card)
 		}
-		if len(shown) < len(ms) && linkButton(c, fmt.Sprintf("Show all %d", len(ms))) {
-			s.AllHands = true
+		if len(shown) < len(ms) && kit.LinkButton(c, nil, fmt.Sprintf("Show all %d", len(ms))).AlignSelf(ui.Start).Clicked() {
+			pg.AllHands = true
 		}
 	})
 }
@@ -287,7 +285,11 @@ func handLine(c *ui.Context, e *page.Env, m stats.Match, card string) {
 			}
 			handCards(c, e, sent, card, sentThumbW, true)
 		})
-		ui.Icon(c, kit.IconNextStep).FontSize(12).TextColor(kit.FaintColor(t)).Opacity(map[bool]float32{true: 1, false: 0}[len(sent) > 0])
+		arrowOp := float32(0)
+		if len(sent) > 0 {
+			arrowOp = 1
+		}
+		ui.Icon(c, kit.IconNextStep).FontSize(12).TextColor(kit.FaintColor(t)).Opacity(arrowOp)
 		handCards(c.Key("kept"), e, kept, card, keptThumbW, false)
 	})
 }

@@ -33,8 +33,8 @@ func (pg *Page) flowTile(c *ui.Context, e *page.Env, m stats.Match) ui.Element {
 	t := c.Theme()
 	sum := ""
 	if l := pg.Detail.timeline; l != nil && len(l.Me) > 0 && len(l.Opp) == len(l.Me) {
-		you := page.MySide(m)
-		sum = fmt.Sprintf("Life at the end: %s %d, %s %d", you.Object(), l.Me[len(l.Me)-1], you.Other().Object(), l.Opp[len(l.Opp)-1])
+		you := mySide(m)
+		sum = fmt.Sprintf("Life at the end: %s %d, %s %d", you.object(), l.Me[len(l.Me)-1], you.other().object(), l.Opp[len(l.Opp)-1])
 	}
 	return e.FoldTile(c, "match.flow", kit.FoldHead{Label: "Turn by turn", Summary: sum}, func() {
 		l := pg.Detail.timeline
@@ -83,23 +83,23 @@ func turnLines(e *page.Env, m stats.Match, l *MatchTimeline, turn int) (moment, 
 // flowSummary is a turn's counts for both players, as "End of turn 9 · You: life 2, hand 7,
 // board 3 · emog: …".
 func flowSummary(m stats.Match, rows []flowSeries, i int) string {
-	line := func(s page.Side) string {
+	line := func(s side) string {
 		parts := make([]string, 0, len(rows))
 		for _, r := range rows {
 			n := r.opp[i]
-			if s.Mine {
+			if s.mine {
 				n = r.me[i]
 			}
 			parts = append(parts, fmt.Sprintf("%s %d", strings.ToLower(r.label), n))
 		}
-		return s.Name() + ": " + strings.Join(parts, ", ")
+		return s.name() + ": " + strings.Join(parts, ", ")
 	}
 	when := fmt.Sprintf("End of turn %d", i)
 	if i == 0 {
 		when = "Start"
 	}
-	you := page.MySide(m)
-	return when + "\n" + line(you) + "\n" + line(you.Other())
+	you := mySide(m)
+	return when + "\n" + line(you) + "\n" + line(you.other())
 }
 
 func markLines(e *page.Env, m stats.Match, marks []replay.Mark, turn int, skipRemoved bool) []string {
@@ -109,8 +109,8 @@ func markLines(e *page.Env, m stats.Match, marks []replay.Mark, turn int, skipRe
 			continue
 		}
 		name := e.Snap.Card(mk.Card).Name
-		if s := page.SideOf(m, mk.Player); !s.Mine {
-			name += " (" + s.Name() + ")"
+		if s := sideOf(m, mk.Player); !s.mine {
+			name += " (" + s.name() + ")"
 		}
 		if mk.Kind == replay.MarkRemoved {
 			removed = append(removed, name)
@@ -160,7 +160,7 @@ func newPipPlot(t *ui.Theme, m stats.Match, l *MatchTimeline, r flowSeries) pipP
 	}
 	for _, mk := range l.Marks {
 		if r.marks == replay.MarkTrigger && mk.Kind == replay.MarkTrigger {
-			pp.triggers[fmt.Sprint(page.SideOf(m, mk.Player).Mine, mk.Turn)] = true
+			pp.triggers[fmt.Sprint(sideOf(m, mk.Player).mine, mk.Turn)] = true
 		}
 	}
 	for _, mo := range l.Moments {
@@ -173,15 +173,15 @@ func (pp pipPlot) height() float32 { return 2*pp.half + pipSpine }
 
 func (pp pipPlot) Draw(p *ui.Painter, rect ui.Rect, sel int) {
 	colW := rect.W / float32(pp.n)
-	you := page.MySide(pp.m)
+	you := mySide(pp.m)
 	for i := 1; i < pp.n; i++ {
 		if mineTurn(pp.m, pp.g, i) {
-			p.Fill(ui.Rect{X: rect.X + float32(i)*colW + 1, Y: rect.Y, W: colW - 2, H: rect.H}, you.Color().Alpha(0.07), 4)
+			p.Fill(ui.Rect{X: rect.X + float32(i)*colW + 1, Y: rect.Y, W: colW - 2, H: rect.H}, you.color().Alpha(0.07), 4)
 		}
 	}
 	for i := range pp.n {
 		cx := rect.X + (float32(i)+0.5)*colW
-		pp.column(p, rect, cx, pp.r.opp, i, you.Other())
+		pp.column(p, rect, cx, pp.r.opp, i, you.other())
 		pp.column(p, rect, cx, pp.r.me, i, you)
 		if !pp.pinned[i] {
 			label := fmt.Sprint(i)
@@ -196,9 +196,9 @@ func (pp pipPlot) Draw(p *ui.Painter, rect ui.Rect, sel int) {
 	}
 }
 
-func (pp pipPlot) column(p *ui.Painter, rect ui.Rect, cx float32, counts []int, i int, s page.Side) {
+func (pp pipPlot) column(p *ui.Painter, rect ui.Rect, cx float32, counts []int, i int, s side) {
 	v, prev := counts[i], counts[max(i-1, 0)]
-	col, mine := s.Color(), s.Mine
+	col, mine := s.color(), s.mine
 	if !pp.r.pips {
 		y := rect.Y + pp.half/2
 		if mine {
@@ -239,16 +239,16 @@ func (pg *Page) pips(c *ui.Context, e *page.Env, m stats.Match, l *MatchTimeline
 	for i := range xs {
 		xs[i] = (float32(i) + 0.5) / float32(pp.n)
 	}
-	you := page.MySide(m)
+	you := mySide(m)
 	ticks := []chart.Tick{
-		{At: 1 - pp.half/2/h, Label: you.Other().Name()},
-		{At: pp.half / 2 / h, Label: you.Name()},
+		{At: 1 - pp.half/2/h, Label: you.other().name()},
+		{At: pp.half / 2 / h, Label: you.name()},
 	}
 	sel := &pg.Detail.lifePoint
 	label := func(_ chart.Side, tick chart.Tick) {
-		col := you.Other().Color()
+		col := you.other().color()
 		if tick.At == ticks[1].At {
-			col = you.Color()
+			col = you.color()
 		}
 		ui.Text(c, tick.Label).SingleLine().Width(flowAxisWidth).TextAlign(ui.End).FontWeight(600).TextColor(col).Tooltip(tick.Label)
 	}
@@ -308,7 +308,7 @@ func pipLegend(c *ui.Context, r flowSeries, m stats.Match) {
 			ui.Text(c, label).FontSize(12).TextColor(t.TextMuted)
 		})
 	}
-	you := page.MySide(m).Color()
+	you := mySide(m).color()
 	if r.pips {
 		item(func() { ui.Box(c).Size(10, 10).Radius(5).Background(you) }, r.label)
 		taken, col := "Taken that turn", you

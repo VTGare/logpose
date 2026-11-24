@@ -13,19 +13,6 @@ import (
 	"github.com/VTGare/logpose/internal/sim"
 )
 
-// ArtActions are the sim-art, gallery and card-image actions the env asks the app for.
-type ArtActions interface {
-	ChooseSimFolder()
-	LoadSimArt(card cards.Card)
-	LoadArts(card cards.Card, gen int)
-	ScanSimArt()
-	// UseSimArt makes the sim show choice for the card. prev is what it showed, for Undo.
-	UseSimArt(card cards.Card, choice, prev sim.ArtChoice)
-	SaveArt(key string)
-	CopyArt(key string)
-	OpenURL(url string)
-}
-
 // simArtToastTime is how long the message after a change shows, with its Undo.
 const simArtToastTime = 10 * time.Second
 
@@ -61,8 +48,8 @@ func (s *SimArtState) For(e *Env, card cards.Card) (SimArtInfo, bool) {
 	}
 	if !s.loading[card.Code] {
 		s.loading[card.Code] = true
-		if e.ArtAct != nil {
-			e.ArtAct.LoadSimArt(card)
+		if e.Act != nil {
+			e.Act.LoadSimArt(card)
 		}
 	}
 	return SimArtInfo{}, false
@@ -73,8 +60,8 @@ func (s *SimArtState) Scan(e *Env) {
 		return
 	}
 	s.scanned = true
-	if e.ArtAct != nil {
-		e.ArtAct.ScanSimArt()
+	if e.Act != nil {
+		e.Act.ScanSimArt()
 	}
 }
 
@@ -110,8 +97,8 @@ func (s *SimArtState) Use(e *Env, card cards.Card, choice sim.ArtChoice) {
 	info.busy, info.Err = true, ""
 	s.Set(card.Code, info)
 	prev := info.Cur
-	if e.ArtAct != nil {
-		e.ArtAct.UseSimArt(card, choice, prev)
+	if e.Act != nil {
+		e.Act.UseSimArt(card, choice, prev)
 	}
 }
 
@@ -160,8 +147,8 @@ func (s *ArtsState) For(e *Env, card cards.Card) (arts.CardArts, bool) {
 	if !s.loading[card.Code] {
 		s.loading[card.Code] = true
 		gen := s.gen
-		if e.ArtAct != nil {
-			e.ArtAct.LoadArts(card, gen)
+		if e.Act != nil {
+			e.Act.LoadArts(card, gen)
 		}
 	}
 	return arts.LimitlessArts(card), false
@@ -518,7 +505,11 @@ func useDot(c *ui.Context, name string, on, usable, showText bool) bool {
 				}
 			})
 		if showText {
-			ui.Text(c, text).FontSize(11).TextColor(tc.Alpha(alpha)).FontWeight(map[bool]int{true: 600, false: 400}[on])
+			weight := 400
+			if on {
+				weight = 600
+			}
+			ui.Text(c, text).FontSize(11).TextColor(tc.Alpha(alpha)).FontWeight(weight)
 		}
 	})
 	return clicked
@@ -604,17 +595,13 @@ func artNote(c *ui.Context, e *Env, info SimArtInfo) {
 }
 
 func noSimBanner(c *ui.Context, e *Env) {
-	t := c.Theme()
 	ui.Row(c).Gap(10).Padding(10, 12).Radius(10).Background(kit.WarnColor.Alpha(0.10)).Border(1, kit.WarnColor.Alpha(0.35)).
 		AlignItems(ui.Start).Children(func() {
 		ui.Icon(c, kit.IconWarn).Size(16, 16).TextColor(kit.WarnColor)
 		ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
 			ui.Text(c, "logpose can't find the sim, so it can't change the sim's art.").FontSize(13).Wrap()
-			if ui.ButtonBase(c).Label("Choose the sim's folder").Background(ui.Transparent).Padding(0).
-				Children(func() { ui.Text(c, "Choose the sim's folder").FontSize(13).TextColor(t.Accent) }).Clicked() {
-				if e.ArtAct != nil {
-					e.ArtAct.ChooseSimFolder()
-				}
+			if kit.LinkButton(c, nil, "Choose the sim's folder").AlignSelf(ui.Start).Clicked() && e.Act != nil {
+				e.Act.ChooseSimFolder()
 			}
 		})
 	})
@@ -639,11 +626,11 @@ func SmallButton(c *ui.Context, label string, icon *ui.SVG, text bool) ui.Elemen
 }
 
 func ArtButtons(c *ui.Context, e *Env, key string) {
-	if SmallButton(c, "Save image…", kit.IconSave, true).Clicked() && e.ArtAct != nil {
-		e.ArtAct.SaveArt(key)
+	if SmallButton(c, "Save image…", kit.IconSave, true).Clicked() && e.Act != nil {
+		e.Act.SaveArt(key)
 	}
-	if SmallButton(c, "Copy image", kit.IconCopy, false).Clicked() && e.ArtAct != nil {
-		e.ArtAct.CopyArt(key)
+	if SmallButton(c, "Copy image", kit.IconCopy, false).Clicked() && e.Act != nil {
+		e.Act.CopyArt(key)
 	}
 }
 
@@ -668,15 +655,15 @@ func (e *Env) CardMenu(card cards.Card) func(m *ui.Menu) {
 				e.ViewArt(card.Code)
 			}
 		}
-		if m.Item("Save image…").Chosen() && e.ArtAct != nil {
-			e.ArtAct.SaveArt(key)
+		if m.Item("Save image…").Chosen() && e.Act != nil {
+			e.Act.SaveArt(key)
 		}
-		if m.Item("Copy image").Chosen() && e.ArtAct != nil {
-			e.ArtAct.CopyArt(key)
+		if m.Item("Copy image").Chosen() && e.Act != nil {
+			e.Act.CopyArt(key)
 		}
 		m.Separator()
-		if m.Item("Open on Limitless").Chosen() && e.ArtAct != nil {
-			e.ArtAct.OpenURL(cards.LimitlessBase + "/cards/" + card.Code)
+		if m.Item("Open on Limitless").Chosen() && e.Act != nil {
+			e.Act.OpenURL(cards.LimitlessBase + "/cards/" + card.Code)
 		}
 	}
 }

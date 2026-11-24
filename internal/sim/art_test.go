@@ -33,11 +33,11 @@ var _ = Describe("SimArt", func() {
 		_, err := os.Stat(path(name))
 		return err == nil
 	}
-	current := func() sim.ArtChoice {
+	inspect := func() sim.ArtState {
 		GinkgoHelper()
-		c, err := art.Current("OP07-019")
+		st, err := art.Inspect("OP07-019")
 		Expect(err).NotTo(HaveOccurred())
-		return c
+		return st
 	}
 
 	BeforeEach(func() {
@@ -49,9 +49,13 @@ var _ = Describe("SimArt", func() {
 	})
 
 	It("shows the sim's own art until a printing is used", func() {
-		Expect(current()).To(Equal(sim.ArtChoice{Kind: sim.ArtOwn}))
+		Expect(inspect()).To(Equal(sim.ArtState{Choice: sim.ArtChoice{Kind: sim.ArtOwn}}))
 		Expect(art.UsePrint("OP07-019", "OP07-019_p1", card(color.White))).To(Succeed())
-		Expect(current()).To(Equal(sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP07-019_p1"}))
+		st := inspect()
+		Expect(st.Choice).To(Equal(sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP07-019_p1"}))
+		Expect(st.Override).To(Equal(path("OP07-019_OVERRIDE.png")))
+		Expect(st.OverrideHash).To(HaveLen(64))
+		Expect(st.OwnFile).To(BeEmpty())
 		Expect(art.Install.Override("OP07-019")).To(Equal(path("OP07-019_OVERRIDE.png")))
 		Expect(art.Install.Overrides()).To(Equal([]string{"OP07-019"}))
 
@@ -63,26 +67,31 @@ var _ = Describe("SimArt", func() {
 		Expect(small.Bounds().Size()).To(Equal(image.Pt(120, 167)))
 
 		Expect(art.UseOwn("OP07-019")).To(Succeed())
-		Expect(current()).To(Equal(sim.ArtChoice{Kind: sim.ArtOwn}))
+		Expect(inspect()).To(Equal(sim.ArtState{Choice: sim.ArtChoice{Kind: sim.ArtOwn}}))
 		Expect(exists("OP07-019_OVERRIDE.png")).To(BeFalse())
 		Expect(exists("OP07-019_small_OVERRIDE.jpg")).To(BeFalse())
 		Expect(exists("OP07-019.png")).To(BeTrue())
-		Expect(art.OwnFile("OP07-019")).To(BeEmpty())
 	})
 
 	It("keeps the user's own file before replacing it, and puts it back", func() {
 		Expect(os.WriteFile(path("OP07-019_OVERRIDE.jpg"), []byte("mine"), 0o600)).To(Succeed())
-		Expect(current()).To(Equal(sim.ArtChoice{Kind: sim.ArtFile}))
-		Expect(art.OwnFile("OP07-019")).To(Equal(path("OP07-019_OVERRIDE.jpg")))
+		st := inspect()
+		Expect(st.Choice).To(Equal(sim.ArtChoice{Kind: sim.ArtFile}))
+		Expect(st.OwnFile).To(Equal(path("OP07-019_OVERRIDE.jpg")))
+		Expect(st.Override).To(Equal(path("OP07-019_OVERRIDE.jpg")))
+		Expect(st.OverrideHash).To(HaveLen(64))
 
 		Expect(art.UsePrint("OP07-019", "OP07-019", card(color.Black))).To(Succeed())
 		Expect(exists("OP07-019_OVERRIDE.jpg")).To(BeFalse())
-		kept := art.OwnFile("OP07-019")
-		Expect(filepath.Base(kept)).To(Equal("OP07-019_OVERRIDE.jpg"))
-		Expect(os.ReadFile(kept)).To(Equal([]byte("mine")))
+		st = inspect()
+		Expect(st.Choice).To(Equal(sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP07-019"}))
+		Expect(filepath.Base(st.OwnFile)).To(Equal("OP07-019_OVERRIDE.jpg"))
+		Expect(os.ReadFile(st.OwnFile)).To(Equal([]byte("mine")))
 
 		Expect(art.UseFile("OP07-019")).To(Succeed())
-		Expect(current()).To(Equal(sim.ArtChoice{Kind: sim.ArtFile}))
+		st = inspect()
+		Expect(st.Choice).To(Equal(sim.ArtChoice{Kind: sim.ArtFile}))
+		Expect(st.OwnFile).To(Equal(path("OP07-019_OVERRIDE.jpg")))
 		Expect(os.ReadFile(path("OP07-019_OVERRIDE.jpg"))).To(Equal([]byte("mine")))
 		Expect(exists("OP07-019_OVERRIDE.png")).To(BeFalse())
 		Expect(exists("OP07-019_small_OVERRIDE.jpg")).To(BeFalse())
@@ -96,7 +105,7 @@ var _ = Describe("SimArt", func() {
 		kept, err := filepath.Glob(filepath.Join(art.Dir, "kept", "OP07-019_OVERRIDE*.png"))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(kept).To(HaveLen(2))
-		Expect(os.ReadFile(art.OwnFile("OP07-019"))).To(Equal([]byte("second")))
+		Expect(os.ReadFile(inspect().OwnFile)).To(Equal([]byte("second")))
 	})
 
 	It("offers the user's file kept last when a JPEG and a PNG were kept", func() {
@@ -108,46 +117,18 @@ var _ = Describe("SimArt", func() {
 		png := filepath.Join(art.Dir, "kept", "OP07-019_OVERRIDE.png")
 		old := time.Now().Add(-time.Hour)
 		Expect(os.Chtimes(jpg, old, old)).To(Succeed())
-		Expect(art.OwnFile("OP07-019")).To(Equal(png))
+		Expect(inspect().OwnFile).To(Equal(png))
 
 		Expect(os.Chtimes(png, old.Add(-time.Hour), old.Add(-time.Hour))).To(Succeed())
-		Expect(art.OwnFile("OP07-019")).To(Equal(jpg))
+		Expect(inspect().OwnFile).To(Equal(jpg))
 	})
 
-	It("reports a user's file as the printing it was matched to", func() {
+	It("reports a user's file as the printing it was matched to by hash", func() {
 		Expect(os.WriteFile(path("OP07-019_OVERRIDE.png"), []byte("alt art"), 0o600)).To(Succeed())
-		Expect(art.Matched("OP07-019", "OP07-019_p1")).To(Succeed())
-		Expect(current()).To(Equal(sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP07-019_p1"}))
-		Expect(art.OwnFile("OP07-019")).To(BeEmpty())
-	})
-
-	It("inspects override, hash and kept file in one pass and records matches by hash", func() {
-		st, err := art.Inspect("OP07-019")
-		Expect(err).NotTo(HaveOccurred())
-		Expect(st).To(Equal(sim.ArtState{Choice: sim.ArtChoice{Kind: sim.ArtOwn}}))
-
-		Expect(os.WriteFile(path("OP07-019_OVERRIDE.png"), []byte("custom art"), 0o600)).To(Succeed())
-		st, err = art.Inspect("OP07-019")
-		Expect(err).NotTo(HaveOccurred())
-		Expect(st.Choice).To(Equal(sim.ArtChoice{Kind: sim.ArtFile}))
-		Expect(st.OwnFile).To(Equal(path("OP07-019_OVERRIDE.png")))
-		Expect(st.Override).To(Equal(path("OP07-019_OVERRIDE.png")))
-		Expect(st.OverrideHash).To(HaveLen(64))
-
-		Expect(art.UsePrint("OP07-019", "OP07-019_p1", card(color.White))).To(Succeed())
-		st, err = art.Inspect("OP07-019")
-		Expect(err).NotTo(HaveOccurred())
+		st := inspect()
+		Expect(art.RecordMatch(st.OverrideHash, "OP07-019_p1")).To(Succeed())
+		st = inspect()
 		Expect(st.Choice).To(Equal(sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP07-019_p1"}))
-		Expect(filepath.Base(st.OwnFile)).To(Equal("OP07-019_OVERRIDE.png"))
-
-		Expect(art.UseFile("OP07-019")).To(Succeed())
-		st, err = art.Inspect("OP07-019")
-		Expect(err).NotTo(HaveOccurred())
-		Expect(art.RecordMatch(st.OverrideHash, "OP07-019_p2")).To(Succeed())
-
-		st, err = art.Inspect("OP07-019")
-		Expect(err).NotTo(HaveOccurred())
-		Expect(st.Choice).To(Equal(sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP07-019_p2"}))
 		Expect(st.OwnFile).To(BeEmpty())
 	})
 })

@@ -49,7 +49,7 @@ func tester(s *page.Snapshot) (*view, *ui.Tester) {
 
 func (v *view) setSnapshot(s *page.Snapshot) { v.Snap = s }
 func (v *view) setPrefs(p page.Prefs)        { v.SetPrefs(p) }
-func (v *view) setActions(f *fakeActions)    { v.Act, v.ArtAct, v.decks.Act = f, f, f }
+func (v *view) setActions(f *fakeActions)    { v.Act, v.decks.Act = f, f }
 
 // open shows what -page decks/<sub> opens.
 func (v *view) open(id string) {

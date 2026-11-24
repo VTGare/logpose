@@ -28,9 +28,8 @@ type buildEdit struct {
 }
 
 func (pg *Page) startEdit(b store.Build) {
-	s := pg
-	s.Edit = &buildEdit{build: b, core: slices.Clone(b.Core), name: b.Name}
-	s.Tab, s.renaming, s.suggesting = tabList, false, false
+	pg.Edit = &buildEdit{build: b, core: slices.Clone(b.Core), name: b.Name}
+	pg.Tab, pg.renaming, pg.suggesting = tabList, false, false
 }
 
 // editPreview is where the leader's games go now and with the edited core. base is the list the

@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"cmp"
 	"math"
 	"slices"
 	"time"
@@ -578,25 +579,14 @@ func SortMatchups(lrs []LeaderRecord, by MatchupOrder) []LeaderRecord {
 		ra, rb := a.Record.Share(), b.Record.Share()
 		switch {
 		case by == BestFirst && ra != rb:
-			return cmpFloat(rb, ra)
+			return cmp.Compare(rb, ra)
 		case by == WorstFirst && ra != rb:
-			return cmpFloat(ra, rb)
+			return cmp.Compare(ra, rb)
 		default:
 			return b.Record.Games() - a.Record.Games()
 		}
 	})
 	return out
-}
-
-func cmpFloat(a, b float64) int {
-	switch {
-	case a < b:
-		return -1
-	case a > b:
-		return 1
-	default:
-		return 0
-	}
 }
 
 // Versus is the local player's history for a game about to be played.

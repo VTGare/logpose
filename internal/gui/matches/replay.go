@@ -208,20 +208,18 @@ func (pg *Page) togglePlay(e *page.Env) {
 func (pg *Page) schedule(e *page.Env) {
 	rs := pg.Detail.Replay
 	rs.ticks++
-	if !rs.playing {
+	if !rs.playing || e.Act == nil {
 		return
 	}
 	tick := rs.ticks
-	pg.do(func(a Actions) {
-		a.After(replaySpeeds[rs.speed].tick, func() {
-			if pg.Detail.Replay != rs || !rs.playing || rs.ticks != tick {
-				return
-			}
-			rs.jump(rs.step + 1)
-			if rs.step == len(rs.r.Steps)-1 {
-				rs.playing = false
-			}
-			pg.schedule(e)
-		})
+	e.Act.After(replaySpeeds[rs.speed].tick, func() {
+		if pg.Detail.Replay != rs || !rs.playing || rs.ticks != tick {
+			return
+		}
+		rs.jump(rs.step + 1)
+		if rs.step == len(rs.r.Steps)-1 {
+			rs.playing = false
+		}
+		pg.schedule(e)
 	})
 }

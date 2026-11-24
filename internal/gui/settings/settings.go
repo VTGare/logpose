@@ -32,11 +32,8 @@ type Actions interface {
 	CheckUpdate()
 	InstallUpdate()
 	RestartToUpdate()
-	SetSetting(key, value string)
 	SetOpenAtLogin(on bool)
 	SetShortcut(place shortcut.Place, on bool)
-	// ChooseSimFolder asks for the sim's folder and switches to it.
-	ChooseSimFolder()
 	// FindSim forgets the chosen folder and finds the sim on its own.
 	FindSim()
 	OpenPath(path string)
@@ -46,9 +43,8 @@ type Actions interface {
 	ChooseFolder(title, start string, picked func(path string))
 	// ImportAgain reads every log in the sim's folder and adds what's missing.
 	ImportAgain()
-	RefreshCards()
 	Backup()
-	// LoadSettings reads what the Settings page shows and shows it with view.setSettingsInfo.
+	// LoadSettings reads what the Settings page shows.
 	LoadSettings()
 	LoadArtUsage()
 	ClearArt()
@@ -118,14 +114,14 @@ func (pg *Page) Draw(c *ui.Context, e *page.Env) {
 		ui.Column(c).Padding(20).Gap(16).Children(func() {
 			ui.Text(c, "Settings").FontSize(20).FontWeight(600)
 			ui.Row(c).Gap(12).AlignItems(ui.Stretch).Children(func() {
-				pg.simTile(c)
+				pg.simTile(c, e)
 				pg.logsTile(c)
 				pg.cardsTile(c, e)
 				pg.dataTile(c, e)
 			})
 			ui.Row(c).Gap(16).AlignItems(ui.Start).Children(func() {
 				ui.Column(c).Grow(1).Basis(0).Gap(16).Children(func() {
-					kit.Panel(c).Padding(14, 16).Gap(4).Children(func() { pg.youSettings(c) })
+					kit.Panel(c).Padding(14, 16).Gap(4).Children(func() { pg.youSettings(c, e) })
 					kit.Panel(c).Padding(14, 16).Gap(4).Children(func() { pg.simSavesSettings(c, e) })
 					kit.Panel(c).Padding(14, 16).Gap(4).Children(func() { pg.artSettings(c, e) })
 				})
@@ -167,12 +163,12 @@ func (pg *Page) statusTile(c *ui.Context, part, label string, ok bool, value, su
 	})
 }
 
-func (pg *Page) simTile(c *ui.Context) {
+func (pg *Page) simTile(c *ui.Context, e *page.Env) {
 	s := pg.Info
 	if s.SimDir == "" {
 		pg.statusTile(c, NoteSim, "OPTCGSim", false, "Not found", "Start the sim, or choose its folder", "", func() {
-			if ui.Button(c, "Choose folder…").Clicked() {
-				pg.do(func(a Actions) { a.ChooseSimFolder() })
+			if ui.Button(c, "Choose folder…").Clicked() && e.Act != nil {
+				e.Act.ChooseSimFolder()
 			}
 		})
 		return
@@ -191,8 +187,8 @@ func (pg *Page) simTile(c *ui.Context) {
 		sub += " · chosen by you"
 	}
 	pg.statusTile(c, NoteSim, "OPTCGSim", s.SimExe, value, sub, "", func() {
-		if ui.Button(c, "Change…").Label("Change the sim's folder").Clicked() {
-			pg.do(func(a Actions) { a.ChooseSimFolder() })
+		if ui.Button(c, "Change…").Label("Change the sim's folder").Clicked() && e.Act != nil {
+			e.Act.ChooseSimFolder()
 		}
 		if ui.Button(c, "Open").Label("Open the sim's folder").Clicked() {
 			pg.do(func(a Actions) { a.OpenPath(s.SimDir) })
@@ -231,8 +227,8 @@ func (pg *Page) cardsTile(c *ui.Context, e *page.Env) {
 		sub = "Refreshed " + kit.DayAndTime(e.Now(), s.Fetched)
 	}
 	pg.statusTile(c, NoteCards, "Card data", ok, fmt.Sprintf("%s cards", kit.Thousands(count)), sub, cardDataHelp, func() {
-		if ui.Button(c, "Refresh now").Label("Refresh card data").Clicked() {
-			pg.do(func(a Actions) { a.RefreshCards() })
+		if ui.Button(c, "Refresh now").Label("Refresh card data").Clicked() && e.Act != nil {
+			e.Act.RefreshCards()
 		}
 	})
 }
@@ -250,7 +246,7 @@ func (pg *Page) dataTile(c *ui.Context, e *page.Env) {
 	})
 }
 
-func (pg *Page) youSettings(c *ui.Context) {
+func (pg *Page) youSettings(c *ui.Context, e *page.Env) {
 	t := c.Theme()
 	s := pg.Info
 	ui.Text(c, "You").FontSize(13).FontWeight(600)
@@ -259,9 +255,9 @@ func (pg *Page) youSettings(c *ui.Context) {
 	if switchRow(c, "Pick automatically", "The name in the most games", &auto, false) {
 		switch {
 		case auto:
-			pg.setYou(nil)
+			pg.setYou(e, nil)
 		case len(s.Players) > 0:
-			pg.setYou([]string{s.Players[0].ID})
+			pg.setYou(e, []string{s.Players[0].ID})
 		}
 	}
 	picked := s.You
@@ -293,9 +289,9 @@ func (pg *Page) youSettings(c *ui.Context) {
 			switch {
 			case auto || on == was:
 			case on:
-				pg.setYou(append(slices.Clone(picked), p.ID))
+				pg.setYou(e, append(slices.Clone(picked), p.ID))
 			case len(picked) > 1:
-				pg.setYou(slices.DeleteFunc(slices.Clone(picked), func(n string) bool { return n == p.ID }))
+				pg.setYou(e, slices.DeleteFunc(slices.Clone(picked), func(n string) bool { return n == p.ID }))
 			}
 		}
 	})
@@ -311,9 +307,11 @@ func (pg *Page) youSettings(c *ui.Context) {
 }
 
 // setYou saves the user's names. The page shows them before the new snapshot arrives.
-func (pg *Page) setYou(names []string) {
+func (pg *Page) setYou(e *page.Env, names []string) {
 	pg.Info.You = names
-	pg.do(func(a Actions) { a.SetSetting(store.SettingYou, store.JoinNames(names)) })
+	if e.Act != nil {
+		e.Act.SetSetting(store.SettingYou, store.JoinNames(names))
+	}
 }
 
 var themes = []string{"", "dark", "light"}
@@ -459,7 +457,7 @@ func (pg *Page) simSavesSettings(c *ui.Context, e *page.Env) {
 // whether the switch changed.
 func switchRow(c *ui.Context, label, sub string, on *bool, disabled bool) bool {
 	was := *on
-	row := prefRowElement(c, label, sub, func() { ui.Switch(c, on).Label(label).Disabled(disabled) })
+	row := prefRow(c, label, sub, func() { ui.Switch(c, on).Label(label).Disabled(disabled) })
 	if !disabled {
 		row.Cursor(ui.CursorPointer)
 		if row.Clicked() {
@@ -470,11 +468,7 @@ func switchRow(c *ui.Context, label, sub string, on *bool, disabled bool) bool {
 }
 
 // prefRow is a setting's name, with an optional line under it, and its control at the right.
-func prefRow(c *ui.Context, label, sub string, control func()) {
-	prefRowElement(c, label, sub, control)
-}
-
-func prefRowElement(c *ui.Context, label, sub string, control func()) ui.Element {
+func prefRow(c *ui.Context, label, sub string, control func()) ui.Element {
 	t := c.Theme()
 	return ui.Row(c).Gap(12).AlignItems(ui.Center).Padding(6, 0).Children(func() {
 		ui.Column(c).Grow(1).Basis(0).Children(func() {
@@ -492,7 +486,7 @@ func divider(c *ui.Context) {
 }
 
 // SetupPage asks for the sim's folder when logpose can't find the sim and has no games yet.
-func (pg *Page) SetupPage(c *ui.Context) {
+func (pg *Page) SetupPage(c *ui.Context, e *page.Env) {
 	t := c.Theme()
 	ui.Column(c).Fill().Center().Padding(32).Children(func() {
 		kit.Panel(c).Width(560).Padding(24, 26).Gap(8).Children(func() {
@@ -500,8 +494,8 @@ func (pg *Page) SetupPage(c *ui.Context) {
 			ui.Text(c, "logpose reads the games the sim saves. Start the sim and logpose finds it, or choose the folder with OPTCGSim.exe in it.").
 				TextColor(t.TextMuted).Wrap()
 			ui.Row(c).Gap(12).AlignItems(ui.Center).Margin(8, 0, 0, 0).Children(func() {
-				if ui.PrimaryButton(c, "Choose folder…").Clicked() {
-					pg.do(func(a Actions) { a.ChooseSimFolder() })
+				if ui.PrimaryButton(c, "Choose folder…").Clicked() && e.Act != nil {
+					e.Act.ChooseSimFolder()
 				}
 				ui.Box(c).Size(8, 8).Radius(4).Background(t.Accent.Alpha(0.8))
 				ui.Text(c, "Looking for a running sim").FontSize(13).TextColor(kit.FaintColor(t))

@@ -17,7 +17,7 @@ const decksWideMin = 720
 func (pg *Page) decksTile(c *ui.Context, e *page.Env, m stats.Match) ui.Element {
 	t := c.Theme()
 	l := pg.Detail.timeline
-	you := page.MySide(m)
+	you := mySide(m)
 	oppList, myList := deckLists(l)
 	oppTotal, myTotal := deck.Count(oppList), deck.Count(myList)
 	sum := decksSummary(you, oppTotal, myTotal)
@@ -88,7 +88,7 @@ func (pg *Page) decksTile(c *ui.Context, e *page.Env, m stats.Match) ui.Element 
 	})
 }
 
-func (pg *Page) deckSideSwitcher(c *ui.Context, you page.Side, oppLeader, myLeader string, oppEmpty, myEmpty bool) {
+func (pg *Page) deckSideSwitcher(c *ui.Context, you side, oppLeader, myLeader string, oppEmpty, myEmpty bool) {
 	t := c.Theme()
 	items := [2]struct {
 		mine  bool
@@ -96,8 +96,8 @@ func (pg *Page) deckSideSwitcher(c *ui.Context, you page.Side, oppLeader, myLead
 		color ui.Color
 		empty bool
 	}{
-		{mine: false, label: you.Other().Name() + " · " + oppLeader, color: you.Other().Color(), empty: oppEmpty},
-		{mine: true, label: you.Name() + " · " + myLeader, color: you.Color(), empty: myEmpty},
+		{mine: false, label: you.other().name() + " · " + oppLeader, color: you.other().color(), empty: oppEmpty},
+		{mine: true, label: you.name() + " · " + myLeader, color: you.color(), empty: myEmpty},
 	}
 	ui.Row(c).Background(t.Background).Border(1, t.Border).Radius(8).Padding(3).Gap(2).Children(func() {
 		for i, item := range items {
@@ -141,13 +141,13 @@ func deckLists(l *MatchTimeline) (opp, mine map[string]int) {
 	return l.OppList, l.MyList
 }
 
-func decksSummary(you page.Side, oppTotal, myTotal int) string {
+func decksSummary(you side, oppTotal, myTotal int) string {
 	var parts []string
 	if oppTotal > 0 {
-		parts = append(parts, fmt.Sprintf("%s: %s", you.Other().Name(), deckCountText(oppTotal)))
+		parts = append(parts, fmt.Sprintf("%s: %s", you.other().name(), deckCountText(oppTotal)))
 	}
 	if myTotal > 0 {
-		parts = append(parts, fmt.Sprintf("%s: %s", you.Name(), deckCountText(myTotal)))
+		parts = append(parts, fmt.Sprintf("%s: %s", you.name(), deckCountText(myTotal)))
 	}
 	return strings.Join(parts, " · ")
 }
@@ -159,8 +159,8 @@ func deckCountText(n int) string {
 	return kit.Cards(n)
 }
 
-func oppCopyLabel(you page.Side, leader string) string {
-	if name := you.Other().Name(); name != "" {
+func oppCopyLabel(you side, leader string) string {
+	if name := you.other().name(); name != "" {
 		return name + " · " + leader
 	}
 	return leader

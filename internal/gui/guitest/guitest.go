@@ -215,35 +215,16 @@ func (h *Host) ShowHands(code string) {
 	}
 }
 
-var pageLabels = []struct{ id, label string }{
-	{page.Overview, "Overview"},
-	{page.Matches, "Matches"},
-	{page.Decks, "Decks"},
-	{page.Matchups, "Matchups"},
-	{page.Cards, "Cards"},
-	{page.Formats, "Formats"},
-	{page.Settings, "Settings"},
-}
-
 // sidebar is a button per page, named as the window's sidebar names them. Picking one changes
 // the page's id. The host goes on drawing its own page.
 func (h *Host) sidebar(c *ui.Context) {
 	ui.Column(c).Children(func() {
-		for _, p := range pageLabels {
-			if ui.Button(c, p.label).Clicked() {
-				h.Page = p.id
+		for _, id := range page.PageIDs {
+			if ui.Button(c, page.PageLabel(id)).Clicked() {
+				h.Page = id
 			}
 		}
 	})
-}
-
-func (*Host) PageLabel(id string) string {
-	for _, p := range pageLabels {
-		if p.id == id {
-			return p.label
-		}
-	}
-	return ""
 }
 
 // EnvActions records what the env asks the app for. A page's fake embeds it.
@@ -269,6 +250,7 @@ func (f *EnvActions) CopyText(text string, toast ui.Toast) {
 }
 
 func (f *EnvActions) ChooseSimFolder()           { f.Calls = append(f.Calls, "choose sim") }
+func (f *EnvActions) RefreshCards()              { f.Calls = append(f.Calls, "refresh cards") }
 func (f *EnvActions) LoadSimArt(card cards.Card) { f.Calls = append(f.Calls, "load art "+card.Code) }
 
 func (f *EnvActions) LoadArts(card cards.Card, gen int) {

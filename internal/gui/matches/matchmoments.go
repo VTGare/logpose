@@ -35,7 +35,7 @@ func (pg *Page) momentsTile(c *ui.Context, e *page.Env, m stats.Match) ui.Elemen
 
 func (pg *Page) momentRow(c *ui.Context, e *page.Env, m stats.Match, l *MatchTimeline, i int, mo replay.Moment, last bool) {
 	t := c.Theme()
-	s := page.SideOf(m, mo.Player)
+	s := sideOf(m, mo.Player)
 	row := ui.Row(c).Gap(12).AlignItems(ui.Stretch).Cursor(ui.CursorPointer).Tooltip("Watch from here")
 	defer func() {
 		if row.Clicked() {
@@ -55,7 +55,7 @@ func (pg *Page) momentRow(c *ui.Context, e *page.Env, m stats.Match, l *MatchTim
 					ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 						ui.Text(c, fmt.Sprintf("Turn %d", mo.Turn)).Bold()
 						if mo.Player != "" {
-							ui.Text(c, s.Name()).FontSize(12).TextColor(s.Color())
+							ui.Text(c, s.name()).FontSize(12).TextColor(s.color())
 						}
 						for j, k := range momentKinds(m, mo) {
 							ui.Text(c.Key(j), k).FontSize(11).FontWeight(600).TextColor(t.TextMuted).Padding(1, 8).Radius(9).
@@ -83,7 +83,7 @@ const momentCardWidth = 44
 
 func momentStrip(c *ui.Context, e *page.Env, m stats.Match, mo replay.Moment) {
 	t := c.Theme()
-	s := page.SideOf(m, mo.Player)
+	s := sideOf(m, mo.Player)
 	is := func(k replay.ReasonKind) bool {
 		for _, r := range mo.Reasons {
 			if r.Kind == k {
@@ -135,20 +135,20 @@ func momentStrip(c *ui.Context, e *page.Env, m stats.Match, mo replay.Moment) {
 		return out
 	}
 	removed := func() {
-		group("removed", "Removed from "+s.Other().Object(), plain(mo.Removed, true))
-		group("back", "Came back", ringed(mo.CameBack, s.Other().Color()))
+		group("removed", "Removed from "+s.other().object(), plain(mo.Removed, true))
+		group("back", "Came back", ringed(mo.CameBack, s.other().color()))
 	}
 	battles := func() {
 		if is(replay.ReasonHandDrain) {
-			group("countered", s.Other().Name()+" countered with", plain(mo.Countered, false))
-			group("blocked", s.Other().Name()+" blocked with", plain(mo.Blocked, true))
+			group("countered", s.other().name()+" countered with", plain(mo.Countered, false))
+			group("blocked", s.other().name()+" blocked with", plain(mo.Blocked, true))
 		}
 		for k, lk := range mo.Locks {
 			label := "Can't attack"
 			if lk.Rested {
 				label = "Can't attack or block"
 			}
-			group(fmt.Sprintf("lock%d", k), label, ringed(lk.Cards, s.Color()))
+			group(fmt.Sprintf("lock%d", k), label, ringed(lk.Cards, s.color()))
 		}
 	}
 	ui.Row(c).Gap(18).Wrap().Children(func() {
@@ -156,13 +156,13 @@ func momentStrip(c *ui.Context, e *page.Env, m stats.Match, mo replay.Moment) {
 		case is(replay.ReasonBoard):
 			board := make([]card, len(mo.Board))
 			for k, code := range mo.Board {
-				board[k] = card{code: code, ring: k >= len(mo.Board)-mo.New, ringColor: s.Color()}
+				board[k] = card{code: code, ring: k >= len(mo.Board)-mo.New, ringColor: s.color()}
 			}
-			group("board", s.Possessive()+" board after the turn", board)
+			group("board", s.possessive()+" board after the turn", board)
 			group("gone", "Also played", plain(mo.Gone, false))
 			removed()
 		default:
-			group("played", s.Name()+" played", plain(mo.Played, false))
+			group("played", s.name()+" played", plain(mo.Played, false))
 			removed()
 		}
 		battles()
@@ -171,7 +171,7 @@ func momentStrip(c *ui.Context, e *page.Env, m stats.Match, mo replay.Moment) {
 
 func (pg *Page) momentPin(c *ui.Context, e *page.Env, m stats.Match, i int, mo replay.Moment) {
 	p := ui.Text(c, fmt.Sprint(i+1)).FontSize(11).Bold().TextColor(ui.Hex("#FFFFFF")).Size(18, 18).Radius(9).
-		Background(page.SideOf(m, mo.Player).Color()).TextAlign(ui.Center).Label(fmt.Sprintf("Replay moment %d", i+1)).
+		Background(sideOf(m, mo.Player).color()).TextAlign(ui.Center).Label(fmt.Sprintf("Replay moment %d", i+1)).
 		Tooltip("Watch from here").Cursor(ui.CursorPointer)
 	if p.Clicked() {
 		pg.openReplay(e, m, mo.Line)
@@ -181,10 +181,10 @@ func (pg *Page) momentPin(c *ui.Context, e *page.Env, m stats.Match, i int, mo r
 // momentLines words a moment's reasons as table talk, as in "emog removed Garp, Oden and Law"
 // or "emog took 2 life · You're at 1". Life lost and life left share a line.
 func momentLines(e *page.Env, m stats.Match, mo replay.Moment, l *MatchTimeline) []string {
-	name := func(id string) string { return page.SideOf(m, id).Name() }
+	name := func(id string) string { return sideOf(m, id).name() }
 	at := func(id string, n int) string {
-		if s := page.SideOf(m, id); !s.Mine {
-			return fmt.Sprintf("%s is at %d", s.Name(), n)
+		if s := sideOf(m, id); !s.mine {
+			return fmt.Sprintf("%s is at %d", s.name(), n)
 		}
 		return fmt.Sprintf("You're at %d", n)
 	}
@@ -211,8 +211,8 @@ func momentLines(e *page.Env, m stats.Match, mo replay.Moment, l *MatchTimeline)
 		case replay.ReasonAtZero:
 			addLife(r.Player, at(r.Player, 0))
 		case replay.ReasonFinish:
-			loser := page.SideOf(m, r.Player)
-			finish = finishText(m, loser.Name(), loser.Other().Name())
+			loser := sideOf(m, r.Player)
+			finish = finishText(m, loser.name(), loser.other().name())
 		case replay.ReasonHandDrain:
 			lines = append(lines, drainText(m, mo, r, l))
 		}
@@ -229,8 +229,8 @@ func momentLines(e *page.Env, m stats.Match, mo replay.Moment, l *MatchTimeline)
 // hitText words life lost from the attacker's side, as "You hit emog for 2" or "emog hit you
 // for 2".
 func hitText(m stats.Match, r replay.Reason) string {
-	hit := page.SideOf(m, r.Player)
-	return fmt.Sprintf("%s hit %s for %d", hit.Other().Name(), hit.Object(), r.N)
+	hit := sideOf(m, r.Player)
+	return fmt.Sprintf("%s hit %s for %d", hit.other().name(), hit.object(), r.N)
 }
 
 // cardList names cards as "Garp, Oden ×2 and Law".
@@ -305,12 +305,12 @@ func momentKinds(m stats.Match, mo replay.Moment) []string {
 
 // drainText words a hand drain, as "Zeta spent 4 cards to stay at 4 life".
 func drainText(m stats.Match, mo replay.Moment, r replay.Reason, l *MatchTimeline) string {
-	d := page.SideOf(m, r.Player)
+	d := sideOf(m, r.Player)
 	life := l.Opp
-	if d.Mine {
+	if d.mine {
 		life = l.Me
 	}
-	text := fmt.Sprintf("%s spent %s", d.Name(), kit.Cards(r.N))
+	text := fmt.Sprintf("%s spent %s", d.name(), kit.Cards(r.N))
 	if t := mo.Turn; t < len(life) && life[t] == life[t-1] {
 		text += fmt.Sprintf(" to stay at %d life", life[t])
 	}
@@ -319,9 +319,9 @@ func drainText(m stats.Match, mo replay.Moment, r replay.Reason, l *MatchTimelin
 
 // handsText is who holds what after a hand drain, as "Zeta holds 3 cards, you hold 5".
 func handsText(m stats.Match, mo replay.Moment, r replay.Reason, l *MatchTimeline) string {
-	d := page.SideOf(m, r.Player)
+	d := sideOf(m, r.Player)
 	hand, other := l.OppHand, l.MeHand
-	if d.Mine {
+	if d.mine {
 		hand, other = l.MeHand, l.OppHand
 	}
 	t := mo.Turn
@@ -329,10 +329,10 @@ func handsText(m stats.Match, mo replay.Moment, r replay.Reason, l *MatchTimelin
 		return ""
 	}
 	first, second := "holds", "hold"
-	if d.Mine {
+	if d.mine {
 		first, second = "hold", "holds"
 	}
-	return fmt.Sprintf("%s %s %s, %s %s %d", d.Name(), first, kit.Cards(hand[t]), d.Other().Object(), second, other[t])
+	return fmt.Sprintf("%s %s %s, %s %s %d", d.name(), first, kit.Cards(hand[t]), d.other().object(), second, other[t])
 }
 
 // momentNotes are the smaller things a moment's turn did: locks, cards that came back and
@@ -357,8 +357,8 @@ func momentNotes(e *page.Env, m stats.Match, mo replay.Moment, l *MatchTimeline)
 		out = append(out, cardList(e, mo.CameBack)+" came back from the trash")
 	}
 	for _, d := range mo.Defended {
-		owner := page.SideOf(m, mo.Player).Other()
-		out = append(out, fmt.Sprintf("%s spent %s on %s and lost it", owner.Name(), kit.Cards(d.Cards), e.Snap.Card(d.Card).Name))
+		owner := sideOf(m, mo.Player).other()
+		out = append(out, fmt.Sprintf("%s spent %s on %s and lost it", owner.name(), kit.Cards(d.Cards), e.Snap.Card(d.Card).Name))
 	}
 	return out
 }

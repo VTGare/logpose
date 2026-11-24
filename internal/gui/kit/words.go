@@ -29,7 +29,12 @@ func Games(n int) string { return count(n, "game", "games") }
 
 func Turns(n int) string { return count(n, "turn", "turns") }
 
-func Cards(n int) string { return count(n, "card", "cards") }
+func Cards(n int) string {
+	if n == 1 {
+		return "1 card"
+	}
+	return Thousands(n) + " cards"
+}
 
 // DateText is "Oct 25", with the year when it isn't now's.
 func DateText(now, t time.Time) string {
@@ -103,13 +108,6 @@ func Thousands(n int) string {
 		s = s[:i] + "," + s[i:]
 	}
 	return s
-}
-
-func CardCount(n int) string {
-	if n == 1 {
-		return "1 card"
-	}
-	return Thousands(n) + " cards"
 }
 
 // TypeRank orders cards as a decklist does, with types the card data lacks last.

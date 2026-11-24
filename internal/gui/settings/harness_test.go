@@ -35,7 +35,6 @@ func (f *fakeActions) SetShortcut(place shortcut.Place, on bool) {
 func (f *fakeActions) CheckUpdate()         { f.call("check update") }
 func (f *fakeActions) InstallUpdate()       { f.call("install update") }
 func (f *fakeActions) RestartToUpdate()     { f.call("restart to update") }
-func (f *fakeActions) ChooseSimFolder()     { f.call("choose sim") }
 func (f *fakeActions) FindSim()             { f.call("find sim") }
 func (f *fakeActions) OpenPath(path string) { f.call("open " + path) }
 func (f *fakeActions) ShowFile(path string) { f.call("show " + path) }
@@ -48,7 +47,6 @@ func (f *fakeActions) ChooseFolder(_, start string, picked func(string)) {
 	}
 }
 func (f *fakeActions) ImportAgain()  { f.call("import") }
-func (f *fakeActions) RefreshCards() { f.call("refresh cards") }
 func (f *fakeActions) Backup()       { f.call("backup") }
 func (f *fakeActions) LoadArtUsage() { f.usageLoads++ }
 func (f *fakeActions) LoadSettings() { f.settingsLoads++ }
@@ -66,7 +64,7 @@ func (v *view) draw(c *ui.Context, e *page.Env) {
 	v.settings.UpdateBox(c, e.Prefs.SideWidth > page.SideRail)
 	switch {
 	case len(e.Snap.Matches) == 0 && !e.Snap.SimFound && e.Page != page.Settings:
-		v.settings.SetupPage(c)
+		v.settings.SetupPage(c, e)
 	case e.Page == page.Settings:
 		v.settings.Draw(c, e)
 	default:
@@ -85,4 +83,4 @@ func (v *view) setSnapshot(s *page.Snapshot) { v.Snap = s }
 func (v *view) setSystem(s System)           { v.settings.System = s }
 func (v *view) setArtUsage(u arts.Usage)     { v.settings.Art = &u }
 func (v *view) setSettingsInfo(info Info)    { v.settings.Info = &info }
-func (v *view) setActions(f *fakeActions)    { v.Act, v.ArtAct, v.settings.Act = f, f, f }
+func (v *view) setActions(f *fakeActions)    { v.Act, v.settings.Act = f, f }

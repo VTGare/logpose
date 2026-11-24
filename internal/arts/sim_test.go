@@ -51,17 +51,15 @@ var _ = Describe("Ref", func() {
 			"OP07-021_p3_bd",
 			SimOwnRef("OP07-021").String(),
 			FileRef(`C:\art\zoro.jpg`).String(),
-			DonRef().String(),
-			DonBackRef().String(),
+			DonCode,
+			DonBackCode,
 		}
 		for _, s := range cases {
 			Expect(ParseRef(s).String()).To(Equal(s))
 		}
-		Expect(ExactPrintRef("OP07-021").IsExact()).To(BeTrue())
-		Expect(PrintRef("OP07-021").IsExact()).To(BeFalse())
 		Expect(ExactPrintRef(SimOwnRef("OP07-021").String())).To(Equal(SimOwnRef("OP07-021")))
 		Expect(ExactPrintRef(FileRef("/art/zoro.jpg").String())).To(Equal(FileRef("/art/zoro.jpg")))
-		Expect(ExactPrintRef("")).To(Equal(PrintRef("")))
+		Expect(ExactPrintRef("")).To(Equal(ParseRef("")))
 	})
 
 	It("reports the card code and default saved file name", func() {
@@ -69,13 +67,12 @@ var _ = Describe("Ref", func() {
 		Expect(ExactPrintRef("OP07-021").Card()).To(Equal("OP07-021"))
 		Expect(SimOwnRef("OP07-021").Card()).To(Equal("OP07-021"))
 		Expect(FileRef("/art/zoro.jpg").Card()).To(BeEmpty())
-		Expect(DonRef().Card()).To(BeEmpty())
-		Expect(DonBackRef().Card()).To(BeEmpty())
+		Expect(ParseRef(DonCode).Card()).To(BeEmpty())
 
 		Expect(ExactPrintRef("OP07-021").FileName()).To(Equal("OP07-021.png"))
 		Expect(SimOwnRef("OP07-021").FileName()).To(Equal("OP07-021_sim.png"))
 		Expect(FileRef("/art/zoro.jpg").FileName()).To(Equal("zoro.png"))
-		Expect(PrintRef("OP07-021_p1").FileName()).To(Equal("OP07-021_p1.png"))
+		Expect(ParseRef("OP07-021_p1").FileName()).To(Equal("OP07-021_p1.png"))
 	})
 })
 
@@ -240,19 +237,19 @@ var _ = Describe("SimManager", func() {
 			mgr := NewSimManager(&sim.Install{Root: simRoot}, simDir, store, nil)
 
 			// mirror=true uses override, capped at LargeWidth for SizeFull and SmallWidth for SizeSmall.
-			img, err := mgr.Resolve(PrintRef("OP07-021"), SizeFull, true, true)
+			img, err := mgr.Resolve(ParseRef("OP07-021"), SizeFull, true, true)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(img.Bounds().Dx()).To(Equal(LargeWidth))
 			r, g, b, _ := img.At(5, 5).RGBA()
 			Expect(g).To(BeNumerically(">", r))
 			Expect(g).To(BeNumerically(">", b))
 
-			small, err := mgr.Resolve(PrintRef("OP07-021"), SizeSmall, true, true)
+			small, err := mgr.Resolve(ParseRef("OP07-021"), SizeSmall, true, true)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(small.Bounds().Dx()).To(Equal(SmallWidth))
 
 			// mirror=false ignores override and returns web art (blue).
-			noMirror, err := mgr.Resolve(PrintRef("OP07-021"), SizeFull, false, true)
+			noMirror, err := mgr.Resolve(ParseRef("OP07-021"), SizeFull, false, true)
 			Expect(err).NotTo(HaveOccurred())
 			_, g, b, _ = noMirror.At(5, 5).RGBA()
 			Expect(b).To(BeNumerically(">", g))
@@ -279,29 +276,29 @@ var _ = Describe("SimManager", func() {
 			Expect(fileSmall.Bounds().Dx()).To(Equal(SmallWidth))
 
 			// DON!! cards resolve regardless of simFallback.
-			don, err := mgr.Resolve(DonRef(), SizeThumb, false, false)
+			don, err := mgr.Resolve(ParseRef(DonCode), SizeThumb, false, false)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(don.Bounds().Dx()).To(Equal(60))
-			donBack, err := mgr.Resolve(DonBackRef(), SizeThumb, false, false)
+			donBack, err := mgr.Resolve(ParseRef(DonBackCode), SizeThumb, false, false)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(donBack.Bounds().Dx()).To(Equal(60))
 
 			// simFallback=true falls back to sim on missing web art and corrupt override;
 			// simFallback=false returns an error when web downloads are off.
 			store.SetOff(true)
-			fb, err := mgr.Resolve(PrintRef("OP07-022"), SizeFull, true, true)
+			fb, err := mgr.Resolve(ParseRef("OP07-022"), SizeFull, true, true)
 			Expect(err).NotTo(HaveOccurred())
 			r, g, _, _ = fb.At(5, 5).RGBA()
 			Expect(r).To(BeNumerically(">", g))
 
-			_, err = mgr.Resolve(PrintRef("OP07-022"), SizeFull, false, false)
+			_, err = mgr.Resolve(ParseRef("OP07-022"), SizeFull, false, false)
 			Expect(err).To(MatchError(ErrNoPicture))
 
-			// Without an install, SimOwnRef fails with sim.ErrNotFound and DonRef fails with ErrNoPicture.
+			// Without an install, SimOwnRef fails with sim.ErrNotFound and DON fails with ErrNoPicture.
 			mgr.SetInstall(nil)
 			_, err = mgr.Resolve(SimOwnRef("OP07-021"), SizeFull, false, false)
 			Expect(err).To(MatchError(sim.ErrNotFound))
-			_, err = mgr.Resolve(DonRef(), SizeFull, false, false)
+			_, err = mgr.Resolve(ParseRef(DonCode), SizeFull, false, false)
 			Expect(err).To(MatchError(ErrNoPicture))
 		})
 	})
@@ -326,7 +323,7 @@ var _ = Describe("SimManager", func() {
 					defer GinkgoRecover()
 					st := mgr.Inspect(context.Background(), card)
 					Expect(st.Err).NotTo(HaveOccurred())
-					img, err := mgr.Resolve(PrintRef("OP07-021"), SizeFull, true, true)
+					img, err := mgr.Resolve(ParseRef("OP07-021"), SizeFull, true, true)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(img).NotTo(BeNil())
 				})

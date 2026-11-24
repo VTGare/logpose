@@ -128,11 +128,11 @@ func cardCols(e *page.Env, t *ui.Theme, latest map[string]int, total int, avg fl
 			},
 			Few: func(cs stats.CardStats) bool { return cs.Shown == 0 },
 			Cell: func(c *ui.Context, cs stats.CardStats) {
-				search := "–"
+				search, col := "–", kit.FaintColor(t)
 				if cs.Shown > 0 {
-					search = fmt.Sprintf("%d of %d", cs.Taken, cs.Shown)
+					search, col = fmt.Sprintf("%d of %d", cs.Taken, cs.Shown), t.Text
 				}
-				ui.Text(c, search).FontSize(13).TextColor(map[bool]ui.Color{true: t.Text, false: kit.FaintColor(t)}[cs.Shown > 0])
+				ui.Text(c, search).FontSize(13).TextColor(col)
 			},
 		},
 	}

@@ -46,13 +46,6 @@ const (
 	// KeySimSaves is the folder Export to sim writes to. Empty is sim-saves next to the
 	// database.
 	KeySimSaves = "sim_saves_dir"
-
-	// KeyUpdateChecked is when logpose last asked for a newer version, in Unix ms.
-	KeyUpdateChecked = "update_checked"
-	// KeyLastVersion is the version of logpose that ran last.
-	KeyLastVersion = "last_version"
-	// KeyDismissedSets is the sets whose new-format suggestion the user dismissed, a list.
-	KeyDismissedSets = "dismissed_sets"
 )
 
 const (
@@ -102,12 +95,12 @@ type pref interface {
 type prefEntry[T any] struct {
 	key   string
 	field func(*Prefs) *T
-	Read  func(string) T
+	read  func(string) T
 	write func(T) string
 }
 
 func (e prefEntry[T]) prefKey() string              { return e.key }
-func (e prefEntry[T]) load(p *Prefs, stored string) { *e.field(p) = e.Read(stored) }
+func (e prefEntry[T]) load(p *Prefs, stored string) { *e.field(p) = e.read(stored) }
 func (e prefEntry[T]) text(p *Prefs) string         { return e.write(*e.field(p)) }
 
 // Set changes the pref and saves it.
