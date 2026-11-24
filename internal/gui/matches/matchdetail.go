@@ -51,15 +51,16 @@ type detailState struct {
 
 type MatchTimeline struct {
 	Fingerprint string
-	// Me and Opp are life by turn, as simlog.Game.LifeByTurn gives it, and the rest hand and
-	// board sizes the same way.
+	// Me and Opp are life by turn, and the rest hand and board sizes the same way.
 	Me, Opp           []int
 	MeHand, OppHand   []int
 	MeBoard, OppBoard []int
-	Moments           []simlog.Moment
-	Marks             []simlog.Mark
+	Moments           []replay.Moment
+	Marks             []replay.Mark
 	// Finish is the attacks of the turn a game ended in lethal, or nil.
 	Finish []replay.TurnAttack
+	// Replay is the built replay when available, reused when opening the replay view.
+	Replay *replay.Replay
 	// OppList and MyList are the main-deck cards named in the log for each player.
 	OppList, MyList map[string]int
 	// Replayable is false for logs from sim versions without the RZ1 move stream.

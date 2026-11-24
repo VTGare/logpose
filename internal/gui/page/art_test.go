@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/VTGare/logpose/internal/arts"
 	"github.com/VTGare/logpose/internal/cards"
 	"github.com/VTGare/logpose/internal/sim"
 )
@@ -58,26 +59,7 @@ var _ = Describe("art", func() {
 	})
 })
 
-var _ = Describe("artRef", func() {
-	It("reads back every kind of picture from its string form", func() {
-		for _, s := range []string{"OP07-021", ExactPrintRef("OP07-021"), "OP07-021_p3_bd", SimOwnRef("OP07-021"), FileRef(`C:\\art\\zoro.jpg`), DonCode, DonBackCode} {
-			Expect(ParseArtRef(s).String()).To(Equal(s))
-		}
-		Expect(ExactPrintRef(SimOwnRef("OP07-021"))).To(Equal(SimOwnRef("OP07-021")))
-		Expect(ExactPrintRef(FileRef("/art/zoro.jpg"))).To(Equal(FileRef("/art/zoro.jpg")))
-	})
-
-	It("knows the card a picture shows and names its saved file", func() {
-		Expect(ParseArtRef("OP07-021_p3_bd").Card()).To(Equal("OP07-021"))
-		Expect(ParseArtRef(ExactPrintRef("OP07-021")).Card()).To(Equal("OP07-021"))
-		Expect(ParseArtRef(SimOwnRef("OP07-021")).Card()).To(Equal("OP07-021"))
-		Expect(ParseArtRef(FileRef("/art/zoro.jpg")).Card()).To(BeEmpty())
-		Expect(ParseArtRef(ExactPrintRef("OP07-021")).FileName()).To(Equal("OP07-021.png"))
-		Expect(ParseArtRef(SimOwnRef("OP07-021")).FileName()).To(Equal("OP07-021_sim.png"))
-		Expect(ParseArtRef(FileRef("/art/zoro.jpg")).FileName()).To(Equal("zoro.png"))
-		Expect(ParseArtRef("OP07-021_p1").FileName()).To(Equal("OP07-021_p1.png"))
-	})
-
+var _ = Describe("ArtCache", func() {
 	It("mirrors sim overrides for plain codes while keeping ExactPrintRef on base art", func() {
 		root := GinkgoT().TempDir()
 		cardDir := filepath.Join(root, "OPTCGSim_Data", "StreamingAssets", "Cards", "OP13")
@@ -92,8 +74,8 @@ var _ = Describe("artRef", func() {
 		writePNG("OP13-001.png", color.RGBA{200, 0, 0, 255})
 		writePNG("OP13-001_OVERRIDE.png", color.RGBA{0, 200, 0, 255})
 
-		in := &sim.Install{Root: root}
-		cache := NewArtCache(in, nil, func(fn func()) { fn() })
+		mgr := arts.NewSimManager(&sim.Install{Root: root}, GinkgoT().TempDir(), nil, nil)
+		cache := NewArtCache(mgr, func(fn func()) { fn() })
 		cache.SetMirror(true)
 
 		img, err := cache.source(artKey{code: "OP13-001", kind: ArtLarge})
@@ -101,7 +83,7 @@ var _ = Describe("artRef", func() {
 		r, g, _, _ := img.At(5, 5).RGBA()
 		Expect(g).To(BeNumerically(">", r))
 
-		exact, err := cache.source(artKey{code: ExactPrintRef("OP13-001"), kind: ArtLarge})
+		exact, err := cache.source(artKey{code: arts.ExactPrintRef("OP13-001").String(), kind: ArtLarge})
 		Expect(err).NotTo(HaveOccurred())
 		er, eg, _, _ := exact.At(5, 5).RGBA()
 		Expect(er).To(BeNumerically(">", eg))
@@ -129,7 +111,8 @@ var _ = Describe("artRef", func() {
 		writePNG("OP13-002.png", 100, 140, color.RGBA{200, 0, 0, 255})
 		Expect(os.WriteFile(filepath.Join(cardDir, "OP13-002_OVERRIDE.png"), []byte("not a png"), 0o600)).To(Succeed())
 
-		cache := NewArtCache(&sim.Install{Root: root}, nil, func(fn func()) { fn() })
+		mgr := arts.NewSimManager(&sim.Install{Root: root}, GinkgoT().TempDir(), nil, nil)
+		cache := NewArtCache(mgr, func(fn func()) { fn() })
 		cache.SetMirror(true)
 
 		fullImg, err := cache.source(artKey{code: "OP13-001", kind: ArtFull})
@@ -138,7 +121,7 @@ var _ = Describe("artRef", func() {
 
 		largeImg, err := cache.source(artKey{code: "OP13-001", kind: ArtLarge})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(largeImg.Bounds().Dx()).To(Equal(largeArtWidth))
+		Expect(largeImg.Bounds().Dx()).To(Equal(arts.LargeWidth))
 
 		fallback, err := cache.source(artKey{code: "OP13-002", kind: ArtLarge})
 		Expect(err).NotTo(HaveOccurred())
@@ -155,7 +138,8 @@ var _ = Describe("artRef", func() {
 		Expect(png.Encode(f, solid(20, 28, color.RGBA{200, 0, 0, 255}))).To(Succeed())
 		Expect(f.Close()).To(Succeed())
 
-		cache := NewArtCache(&sim.Install{Root: root}, nil, func(fn func()) { fn() })
+		mgr := arts.NewSimManager(&sim.Install{Root: root}, GinkgoT().TempDir(), nil, nil)
+		cache := NewArtCache(mgr, func(fn func()) { fn() })
 		kFull := artKey{code: "OP13-001", kind: ArtFull}
 		kLarge := artKey{code: "OP13-001", kind: ArtLarge}
 		kOther := artKey{code: "OP13-002", kind: ArtFull}

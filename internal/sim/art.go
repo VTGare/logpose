@@ -57,7 +57,14 @@ func (i Install) Overrides() []string {
 	for _, suffix := range fullSuffixes {
 		paths, _ := filepath.Glob(filepath.Join(i.streamingAssets(), "Cards", "*", "*"+suffix))
 		for _, p := range paths {
-			codes = append(codes, strings.TrimSuffix(filepath.Base(p), suffix))
+			base := filepath.Base(p)
+			if strings.HasSuffix(base, overrideSmall) {
+				continue
+			}
+			code := strings.TrimSuffix(base, suffix)
+			if !slices.Contains(codes, code) {
+				codes = append(codes, code)
+			}
 		}
 	}
 	return codes
@@ -80,6 +87,14 @@ type ArtChoice struct {
 	Key  string
 }
 
+// ArtState is what the sim shows for a card and any kept file of the user's.
+type ArtState struct {
+	Choice       ArtChoice
+	OwnFile      string
+	Override     string
+	OverrideHash string
+}
+
 // SimArt changes which picture the sim shows for a card, through the sim's override files.
 // Before it replaces or removes an override it didn't write, it keeps a copy in Dir.
 type SimArt struct {
@@ -87,7 +102,9 @@ type SimArt struct {
 	// Dir holds the record of what logpose wrote and the user's own files it kept.
 	Dir string
 
-	mu sync.Mutex
+	mu        sync.Mutex
+	record    *artRecord
+	loadedDir string
 }
 
 // artRecord maps a file's SHA-256 to the printing it shows.
@@ -111,17 +128,21 @@ func (r artRecord) lookup(sum string) (key string, ours, known bool) {
 func (s *SimArt) recordPath() string { return filepath.Join(s.Dir, "sim-art.json") }
 func (s *SimArt) keptDir() string    { return filepath.Join(s.Dir, "kept") }
 
-func (s *SimArt) load() (artRecord, error) {
+func (s *SimArt) load() (*artRecord, error) {
+	if s.record != nil && s.loadedDir == s.Dir {
+		return s.record, nil
+	}
 	r := artRecord{Written: make(map[string]string), Matches: make(map[string]string)}
 	data, err := os.ReadFile(s.recordPath())
 	if errors.Is(err, os.ErrNotExist) {
-		return r, nil
+		s.record, s.loadedDir = &r, s.Dir
+		return s.record, nil
 	}
 	if err != nil {
-		return r, err
+		return nil, err
 	}
 	if err := json.Unmarshal(data, &r); err != nil {
-		return r, err
+		return nil, err
 	}
 	if r.Written == nil {
 		r.Written = make(map[string]string)
@@ -129,18 +150,25 @@ func (s *SimArt) load() (artRecord, error) {
 	if r.Matches == nil {
 		r.Matches = make(map[string]string)
 	}
-	return r, nil
+	s.record, s.loadedDir = &r, s.Dir
+	return s.record, nil
 }
 
-func (s *SimArt) save(r artRecord) error {
+func (s *SimArt) save(r *artRecord) error {
 	data, err := json.Marshal(r)
 	if err != nil {
+		s.record = nil
 		return err
 	}
-	return writeFile(s.recordPath(), func(w io.Writer) error {
+	if err := writeFile(s.recordPath(), func(w io.Writer) error {
 		_, err := w.Write(data)
 		return err
-	})
+	}); err != nil {
+		s.record = nil
+		return err
+	}
+	s.record, s.loadedDir = r, s.Dir
+	return nil
 }
 
 func fileHash(path string) (string, error) {
@@ -179,6 +207,56 @@ func (s *SimArt) current(code string) (ArtChoice, error) {
 		return ArtChoice{Kind: ArtPrint, Key: key}, nil
 	}
 	return ArtChoice{Kind: ArtFile}, nil
+}
+
+// Inspect reads the card's current choice, override file, override hash and any kept user file
+// in one pass.
+func (s *SimArt) Inspect(code string) (ArtState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.load()
+	if err != nil {
+		return ArtState{}, err
+	}
+	override := s.Install.Override(code)
+	if override == "" {
+		return ArtState{
+			Choice:  ArtChoice{Kind: ArtOwn},
+			OwnFile: s.keptOwnFile(code, r),
+		}, nil
+	}
+	sum, err := fileHash(override)
+	if err != nil {
+		return ArtState{}, err
+	}
+	st := ArtState{Override: override, OverrideHash: sum}
+	key, ours, known := r.lookup(sum)
+	switch {
+	case ours:
+		st.Choice = ArtChoice{Kind: ArtPrint, Key: key}
+		st.OwnFile = s.keptOwnFile(code, r)
+	case known:
+		st.Choice = ArtChoice{Kind: ArtPrint, Key: key}
+	default:
+		st.Choice = ArtChoice{Kind: ArtFile}
+		st.OwnFile = override
+	}
+	return st, nil
+}
+
+func (s *SimArt) keptOwnFile(code string, r *artRecord) string {
+	p := s.keptFile(code)
+	if p == "" {
+		return ""
+	}
+	sum, err := fileHash(p)
+	if err != nil {
+		return ""
+	}
+	if _, _, known := r.lookup(sum); known {
+		return ""
+	}
+	return p
 }
 
 // OwnFile is the user's own file for the card: the override the sim shows when logpose didn't
@@ -233,15 +311,32 @@ func (s *SimArt) Matched(code, key string) error {
 	if path == "" {
 		return nil
 	}
-	r, err := s.load()
-	if err != nil {
-		return err
-	}
 	sum, err := fileHash(path)
 	if err != nil {
 		return err
 	}
+	return s.recordMatch(sum, key)
+}
+
+// RecordMatch records that the file with SHA-256 sum is the printing key.
+func (s *SimArt) RecordMatch(sum, key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.recordMatch(sum, key)
+}
+
+func (s *SimArt) recordMatch(sum, key string) error {
+	if sum == "" {
+		return nil
+	}
+	r, err := s.load()
+	if err != nil {
+		return err
+	}
 	if _, ours, _ := r.lookup(sum); ours {
+		return nil
+	}
+	if r.Matches[sum] == key {
 		return nil
 	}
 	r.Matches[sum] = key
@@ -262,22 +357,19 @@ func (s *SimArt) UsePrint(code, key string, img image.Image) error {
 	}
 	dir := s.Install.cardDir(code)
 	full := filepath.Join(dir, code+overridePNG)
-	if err := writeFile(full, func(w io.Writer) error { return png.Encode(w, img) }); err != nil {
+	fullSum, err := writeHashed(full, func(w io.Writer) error { return png.Encode(w, img) })
+	if err != nil {
 		return err
 	}
 	small := filepath.Join(dir, code+overrideSmall)
-	if err := writeFile(small, func(w io.Writer) error {
+	smallSum, err := writeHashed(small, func(w io.Writer) error {
 		return jpeg.Encode(w, smallImage(img), &jpeg.Options{Quality: 90})
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
-	for _, p := range []string{full, small} {
-		sum, err := fileHash(p)
-		if err != nil {
-			return err
-		}
-		r.Written[sum] = key
-	}
+	r.Written[fullSum] = key
+	r.Written[smallSum] = key
 	return s.save(r)
 }
 
@@ -321,7 +413,7 @@ func (s *SimArt) UseFile(code string) error {
 }
 
 // keepAll removes the card's override files. Each one logpose didn't write is kept first.
-func (s *SimArt) keepAll(code string, r artRecord) error {
+func (s *SimArt) keepAll(code string, r *artRecord) error {
 	dir := s.Install.cardDir(code)
 	for _, suffix := range append(slices.Clone(fullSuffixes), overrideSmall) {
 		path := filepath.Join(dir, code+suffix)
@@ -384,6 +476,16 @@ func copyFile(from, to string) error {
 		_, err := io.Copy(w, src)
 		return err
 	})
+}
+
+func writeHashed(path string, write func(io.Writer) error) (string, error) {
+	h := sha256.New()
+	if err := writeFile(path, func(w io.Writer) error {
+		return write(io.MultiWriter(w, h))
+	}); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // writeFile writes through a temporary file in the same folder, so a reader never sees half a

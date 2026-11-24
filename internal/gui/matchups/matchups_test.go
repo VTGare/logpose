@@ -75,7 +75,7 @@ type view struct {
 
 func (v *view) setPrefs(p page.Prefs) { v.SetPrefs(p) }
 
-func (v *view) setActions(f *guitest.EnvActions) { v.Act = f }
+func (v *view) setActions(f *guitest.EnvActions) { v.Act, v.ArtAct = f, f }
 
 func matchupsTester(s *page.Snapshot) (*view, *ui.Tester) {
 	pg := &Page{}

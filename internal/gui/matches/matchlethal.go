@@ -2,7 +2,6 @@ package matches
 
 import (
 	"fmt"
-	"regexp"
 
 	"github.com/egoist/mygo/ui"
 
@@ -98,8 +97,6 @@ func answerText(e *page.Env, a replay.TurnAttack) string {
 	return "No answer"
 }
 
-var cardCode = regexp.MustCompile(`\s*\[[A-Z0-9-]+\]`)
-
 func lethalAction(c *ui.Context, e *page.Env, act replay.Action) {
 	t := c.Theme()
 	ui.Column(c).Width(84).Gap(6).Padding(8, 6).Radius(10).Border(1, t.Border).AlignItems(ui.Center).
@@ -109,7 +106,7 @@ func lethalAction(c *ui.Context, e *page.Env, act replay.Action) {
 			ui.Text(c, "Played").FontSize(11).TextColor(t.TextMuted)
 		}
 		for k, eff := range act.Effects {
-			ui.Text(c.Key(k), cardCode.ReplaceAllString(eff, "")).FontSize(12).TextAlign(ui.Center).Wrap()
+			ui.Text(c.Key(k), eff.Text).FontSize(12).TextAlign(ui.Center).Wrap()
 		}
 	})
 }

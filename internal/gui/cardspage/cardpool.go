@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/cards"
+	"github.com/VTGare/logpose/internal/gui/page"
 )
 
 // cardsState is the Cards page: its search, filters and the card shown. It resets like the
@@ -28,11 +29,9 @@ type cardsState struct {
 	every map[*chipField]bool
 	// Selected is the card shown on the right, and viewed the key of the picture it shows
 	// large: an art's version, or a sim: or file: key. Empty is the first art.
-	Selected string
-	Viewed   string
-	// Versions is the head key of the art whose version list is open.
-	Versions  string
-	Viewer    bool
+	Selected  string
+	Viewed    string
+	artStrip  page.ArtStripState
 	more      bool
 	powerOpen bool
 	wall      ui.ListState

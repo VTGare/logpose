@@ -123,7 +123,10 @@ func (pg *Page) buildReplay() {
 		rs.err = l.Err
 		return
 	}
-	pg.do(func(a Actions) { a.OpenReplay(rs.Fingerprint, l.Game) })
+	if l.Replay != nil {
+		pg.SetReplay(LoadedReplay{Fingerprint: rs.Fingerprint, Game: l.Game, Replay: l.Replay})
+	}
+	pg.do(func(a Actions) { a.OpenReplay(rs.Fingerprint, l.Game, l.Replay) })
 }
 
 func (pg *Page) closeReplay() { pg.Detail.Replay = nil }

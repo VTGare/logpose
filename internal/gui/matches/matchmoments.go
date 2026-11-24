@@ -10,6 +10,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"github.com/VTGare/logpose/internal/replay"
 	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
 )
@@ -32,7 +33,7 @@ func (pg *Page) momentsTile(c *ui.Context, e *page.Env, m stats.Match) ui.Elemen
 	})
 }
 
-func (pg *Page) momentRow(c *ui.Context, e *page.Env, m stats.Match, l *MatchTimeline, i int, mo simlog.Moment, last bool) {
+func (pg *Page) momentRow(c *ui.Context, e *page.Env, m stats.Match, l *MatchTimeline, i int, mo replay.Moment, last bool) {
 	t := c.Theme()
 	s := page.SideOf(m, mo.Player)
 	row := ui.Row(c).Gap(12).AlignItems(ui.Stretch).Cursor(ui.CursorPointer).Tooltip("Watch from here")
@@ -80,10 +81,10 @@ func (pg *Page) momentRow(c *ui.Context, e *page.Env, m stats.Match, l *MatchTim
 // momentCardWidth keeps a strip of 8 cards beside the text at the default window size.
 const momentCardWidth = 44
 
-func momentStrip(c *ui.Context, e *page.Env, m stats.Match, mo simlog.Moment) {
+func momentStrip(c *ui.Context, e *page.Env, m stats.Match, mo replay.Moment) {
 	t := c.Theme()
 	s := page.SideOf(m, mo.Player)
-	is := func(k simlog.ReasonKind) bool {
+	is := func(k replay.ReasonKind) bool {
 		for _, r := range mo.Reasons {
 			if r.Kind == k {
 				return true
@@ -138,7 +139,7 @@ func momentStrip(c *ui.Context, e *page.Env, m stats.Match, mo simlog.Moment) {
 		group("back", "Came back", ringed(mo.CameBack, s.Other().Color()))
 	}
 	battles := func() {
-		if is(simlog.ReasonHandDrain) {
+		if is(replay.ReasonHandDrain) {
 			group("countered", s.Other().Name()+" countered with", plain(mo.Countered, false))
 			group("blocked", s.Other().Name()+" blocked with", plain(mo.Blocked, true))
 		}
@@ -152,7 +153,7 @@ func momentStrip(c *ui.Context, e *page.Env, m stats.Match, mo simlog.Moment) {
 	}
 	ui.Row(c).Gap(18).Wrap().Children(func() {
 		switch {
-		case is(simlog.ReasonBoard):
+		case is(replay.ReasonBoard):
 			board := make([]card, len(mo.Board))
 			for k, code := range mo.Board {
 				board[k] = card{code: code, ring: k >= len(mo.Board)-mo.New, ringColor: s.Color()}
@@ -168,7 +169,7 @@ func momentStrip(c *ui.Context, e *page.Env, m stats.Match, mo simlog.Moment) {
 	})
 }
 
-func (pg *Page) momentPin(c *ui.Context, e *page.Env, m stats.Match, i int, mo simlog.Moment) {
+func (pg *Page) momentPin(c *ui.Context, e *page.Env, m stats.Match, i int, mo replay.Moment) {
 	p := ui.Text(c, fmt.Sprint(i+1)).FontSize(11).Bold().TextColor(ui.Hex("#FFFFFF")).Size(18, 18).Radius(9).
 		Background(page.SideOf(m, mo.Player).Color()).TextAlign(ui.Center).Label(fmt.Sprintf("Replay moment %d", i+1)).
 		Tooltip("Watch from here").Cursor(ui.CursorPointer)
@@ -179,7 +180,7 @@ func (pg *Page) momentPin(c *ui.Context, e *page.Env, m stats.Match, i int, mo s
 
 // momentLines words a moment's reasons as table talk, as in "emog removed Garp, Oden and Law"
 // or "emog took 2 life · You're at 1". Life lost and life left share a line.
-func momentLines(e *page.Env, m stats.Match, mo simlog.Moment, l *MatchTimeline) []string {
+func momentLines(e *page.Env, m stats.Match, mo replay.Moment, l *MatchTimeline) []string {
 	name := func(id string) string { return page.SideOf(m, id).Name() }
 	at := func(id string, n int) string {
 		if s := page.SideOf(m, id); !s.Mine {
@@ -199,20 +200,20 @@ func momentLines(e *page.Env, m stats.Match, mo simlog.Moment, l *MatchTimeline)
 	var finish string
 	for _, r := range mo.Reasons {
 		switch r.Kind {
-		case simlog.ReasonRemoved:
+		case replay.ReasonRemoved:
 			lines = append(lines, name(r.Player)+" removed "+cardList(e, mo.Removed))
-		case simlog.ReasonBoard:
+		case replay.ReasonBoard:
 			lines = append(lines, fmt.Sprintf("%s played %s", name(r.Player), cardList(e, mo.Characters)))
-		case simlog.ReasonLifeLost:
+		case replay.ReasonLifeLost:
 			addLife(r.Player, hitText(m, r))
-		case simlog.ReasonAtOne:
+		case replay.ReasonAtOne:
 			addLife(r.Player, at(r.Player, 1))
-		case simlog.ReasonAtZero:
+		case replay.ReasonAtZero:
 			addLife(r.Player, at(r.Player, 0))
-		case simlog.ReasonFinish:
+		case replay.ReasonFinish:
 			loser := page.SideOf(m, r.Player)
 			finish = finishText(m, loser.Name(), loser.Other().Name())
-		case simlog.ReasonHandDrain:
+		case replay.ReasonHandDrain:
 			lines = append(lines, drainText(m, mo, r, l))
 		}
 	}
@@ -227,7 +228,7 @@ func momentLines(e *page.Env, m stats.Match, mo simlog.Moment, l *MatchTimeline)
 
 // hitText words life lost from the attacker's side, as "You hit emog for 2" or "emog hit you
 // for 2".
-func hitText(m stats.Match, r simlog.Reason) string {
+func hitText(m stats.Match, r replay.Reason) string {
 	hit := page.SideOf(m, r.Player)
 	return fmt.Sprintf("%s hit %s for %d", hit.Other().Name(), hit.Object(), r.N)
 }
@@ -269,9 +270,9 @@ func finishText(m stats.Match, loser, winner string) string {
 	return "The game ended"
 }
 
-func finished(mo simlog.Moment) bool {
+func finished(mo replay.Moment) bool {
 	for _, r := range mo.Reasons {
-		if r.Kind == simlog.ReasonFinish {
+		if r.Kind == replay.ReasonFinish {
 			return true
 		}
 	}
@@ -280,10 +281,10 @@ func finished(mo simlog.Moment) bool {
 
 // momentKinds labels what kind of moment a turn is, for the moments the reasons' words don't
 // name.
-func momentKinds(m stats.Match, mo simlog.Moment) []string {
+func momentKinds(m stats.Match, mo replay.Moment) []string {
 	var out []string
 	for _, r := range mo.Reasons {
-		if r.Kind == simlog.ReasonHandDrain {
+		if r.Kind == replay.ReasonHandDrain {
 			out = append(out, "Hand drain")
 		}
 	}
@@ -303,7 +304,7 @@ func momentKinds(m stats.Match, mo simlog.Moment) []string {
 }
 
 // drainText words a hand drain, as "Zeta spent 4 cards to stay at 4 life".
-func drainText(m stats.Match, mo simlog.Moment, r simlog.Reason, l *MatchTimeline) string {
+func drainText(m stats.Match, mo replay.Moment, r replay.Reason, l *MatchTimeline) string {
 	d := page.SideOf(m, r.Player)
 	life := l.Opp
 	if d.Mine {
@@ -317,7 +318,7 @@ func drainText(m stats.Match, mo simlog.Moment, r simlog.Reason, l *MatchTimelin
 }
 
 // handsText is who holds what after a hand drain, as "Zeta holds 3 cards, you hold 5".
-func handsText(m stats.Match, mo simlog.Moment, r simlog.Reason, l *MatchTimeline) string {
+func handsText(m stats.Match, mo replay.Moment, r replay.Reason, l *MatchTimeline) string {
 	d := page.SideOf(m, r.Player)
 	hand, other := l.OppHand, l.MeHand
 	if d.Mine {
@@ -336,10 +337,10 @@ func handsText(m stats.Match, mo simlog.Moment, r simlog.Reason, l *MatchTimelin
 
 // momentNotes are the smaller things a moment's turn did: locks, cards that came back and
 // characters defended and lost anyway.
-func momentNotes(e *page.Env, m stats.Match, mo simlog.Moment, l *MatchTimeline) []string {
+func momentNotes(e *page.Env, m stats.Match, mo replay.Moment, l *MatchTimeline) []string {
 	var out []string
 	for _, r := range mo.Reasons {
-		if r.Kind == simlog.ReasonHandDrain {
+		if r.Kind == replay.ReasonHandDrain {
 			if h := handsText(m, mo, r, l); h != "" {
 				out = append(out, h)
 			}

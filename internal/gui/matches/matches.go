@@ -14,6 +14,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/cards"
+	"github.com/VTGare/logpose/internal/replay"
 	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
@@ -29,8 +30,8 @@ type Actions interface {
 	// choice away.
 	SetGameResult(fingerprint, loser string)
 	SetBookmark(fingerprint string, on bool)
-	// OpenReplay builds a match's replay from its parsed game and shows it with view.setReplay.
-	OpenReplay(fingerprint string, g *simlog.Game)
+	// OpenReplay opens a match's replay, reusing r when already built or building from g.
+	OpenReplay(fingerprint string, g *simlog.Game, r *replay.Replay)
 	// ExportToSim writes the match as a save state for the sim's LoadState From File, named
 	// name, into the export folder. g is the parsed game, or nil to read it from the store.
 	ExportToSim(fingerprint, name string, g *simlog.Game)

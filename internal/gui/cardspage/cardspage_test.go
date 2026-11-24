@@ -798,29 +798,19 @@ var _ = Describe("Cards page", func() {
 			Expect(guitest.Labelled(tt, "Close the viewer")).To(BeFalse())
 		})
 
-		It("opens on the card whose menu asked for it", func() {
+		It("opens on the card whose menu asked for it without changing the selected card", func() {
 			guitest.Click(tt, "Monkey D. Luffy OP01-024")
 			Expect(tt.RightClick("Urouge OP14-002")).To(Succeed())
 			Expect(guitest.Choose(tt, "View art")).To(Succeed())
 			Expect(guitest.Labelled(tt, "Close the viewer")).To(BeTrue())
+			Expect(v.Viewer.Code()).To(Equal("OP14-002"))
 			Expect(tt.Texts()).To(ContainElement("OP14-002 · Red Character"))
-			Expect(tt.Texts()).NotTo(ContainElement("OP01-024 · Red Character"))
-		})
+			Expect(v.cards.State.Selected).To(Equal("OP01-024"))
 
-		It("resolves mirrored sim art for right-click actions off the Cards page only", func() {
-			card := v.Snap.Card("OP01-024")
-			printInfo := page.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP01-024_p1"}}
-			fileInfo := page.SimArtInfo{Cur: sim.ArtChoice{Kind: sim.ArtFile}, OwnFile: `C:\sim\OP01-024_OVERRIDE.png`}
-
-			v.Page = page.Cards
-			Expect(shownArtKey(&v.Env, card, printInfo, true)).To(Equal("OP01-024"))
-
-			v.Page = page.Decks
-			Expect(shownArtKey(&v.Env, card, printInfo, true)).To(Equal("OP01-024_p1"))
-			Expect(shownArtKey(&v.Env, card, fileInfo, true)).To(Equal(page.FileRef(fileInfo.OwnFile)))
-
-			v.setPrefs(page.PrefsFrom(map[string]string{page.KeySimArtOff: "1"}))
-			Expect(shownArtKey(&v.Env, card, printInfo, true)).To(Equal("OP01-024"))
+			tt.Key(0, ui.KeyEscape)
+			Expect(guitest.Labelled(tt, "Close the viewer")).To(BeFalse())
+			Expect(tt.Texts()).NotTo(ContainElement("OP14-002 · Red Character"))
+			Expect(tt.Texts()).To(ContainElement("OP01-024 · Red Character"))
 		})
 	})
 })

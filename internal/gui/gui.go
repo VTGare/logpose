@@ -99,14 +99,10 @@ type app struct {
 	// gallery groups each card's printings from Limitless and Bandai into arts. Nil without an
 	// art folder.
 	gallery *arts.Gallery
+	simArt  *arts.SimManager
 	// catalogMu lets one card data refresh run at a time. stopCatalog cancels the one running.
 	catalogMu   sync.Mutex
 	stopCatalog atomic.Pointer[context.CancelFunc]
-
-	simArtMu  sync.Mutex
-	simArtObj *sim.SimArt
-	// matched holds the cards whose own file was compared with their printings this run.
-	matched map[string]bool
 }
 
 // Claim makes this the only running logpose. It returns false when another one is running,
@@ -128,6 +124,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	a := &app{opts: opts, inst: opts.Install, web: arts.NewStore(opts.ArtDir)}
 	a.gallery = openGallery(opts, a.web)
+	a.simArt = arts.NewSimManager(opts.Install, opts.SimArtDir, a.web, a.gallery)
 	if err := kit.RegisterFonts(); err != nil {
 		opts.Log.Warn("fonts", "err", err)
 	}
@@ -236,6 +233,7 @@ func (a *app) setInstall(ctx context.Context, in sim.Install, chosen bool) error
 	a.simMu.Lock()
 	a.inst = &in
 	a.simMu.Unlock()
+	a.simArt.SetInstall(&in)
 	a.cardsMu.Lock()
 	a.pack, a.cards = nil, nil
 	a.cardsMu.Unlock()
@@ -573,10 +571,10 @@ func (a *app) quit() {
 
 // resetArtCache drops the card images decoded so far, for another sim folder or art source.
 func (a *app) resetArtCache() {
-	in := a.install()
+	mirror := !a.applied().SimArtOff
 	a.win.Update(func() {
-		cache := page.NewArtCache(in, a.web, a.win.Update)
-		cache.SetMirror(!a.view.Prefs.SimArtOff)
+		cache := page.NewArtCache(a.simArt, a.win.Update)
+		cache.SetMirror(mirror)
 		a.view.setArtCache(cache)
 	})
 }
@@ -662,20 +660,17 @@ func (x *appActions) LoadTimeline(fingerprint, me, opp string) {
 			x.a.opts.Log.Warn("read match log", "err", err)
 			l.Err = err
 		} else {
-			l.Game = g
-			l.Me, l.Opp = g.LifeByTurn(me), g.LifeByTurn(opp)
-			l.MeHand, l.OppHand = g.HandByTurn(me), g.HandByTurn(opp)
-			l.MeBoard, l.OppBoard = g.CharactersByTurn(me), g.CharactersByTurn(opp)
 			db := x.a.cardDB().DB
-			power := func(code string) int { return db.Card(code).Power }
-			l.Moments = g.Moments(power)
-			l.Marks = g.Marks()
-			if g.End.Kind == simlog.EndLethal && len(l.Moments) > 0 {
-				if r, err := replay.Build(g, power); err == nil {
-					l.Finish = r.Attacks(g, l.Moments[len(l.Moments)-1].Turn)
-				}
-			}
-			l.Replayable = g.HasRZ()
+			a := replay.Analyze(g, me, opp, func(code string) int { return db.Card(code).Power })
+			l.Game = g
+			l.Me, l.Opp = a.Me, a.Opp
+			l.MeHand, l.OppHand = a.MeHand, a.OppHand
+			l.MeBoard, l.OppBoard = a.MeBoard, a.OppBoard
+			l.Moments = a.Moments
+			l.Marks = a.Marks
+			l.Finish = a.Finish
+			l.Replay = a.Replay
+			l.Replayable = a.Replay != nil
 		}
 		if list, err := x.a.opts.Store.DeckList(x.ctx, fingerprint, opp); err != nil {
 			x.a.opts.Log.Warn("read opponent decklist", "err", err)
@@ -691,10 +686,14 @@ func (x *appActions) LoadTimeline(fingerprint, me, opp string) {
 	}()
 }
 
-// OpenReplay maximizes the window, since the board needs the room, and builds the replay.
-func (x *appActions) OpenReplay(fingerprint string, g *simlog.Game) {
+// OpenReplay maximizes the window, since the board needs the room, and builds the replay
+// when it wasn't already built with the timeline.
+func (x *appActions) OpenReplay(fingerprint string, g *simlog.Game, r *replay.Replay) {
 	if !x.a.opts.Offscreen {
 		x.a.win.Maximize()
+	}
+	if r != nil {
+		return
 	}
 	go func() {
 		l := matches.LoadedReplay{Fingerprint: fingerprint, Game: g}

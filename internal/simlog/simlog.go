@@ -184,6 +184,46 @@ func (g *Game) Player(id string) (Player, bool) {
 
 func (g *Game) HasRZ() bool { return len(g.Moves) > 0 }
 
+// LastTurn is the last turn present in Lines, or 0 when Lines is empty.
+func (g *Game) LastTurn() int {
+	if len(g.Lines) == 0 {
+		return 0
+	}
+	return g.Lines[len(g.Lines)-1].Turn
+}
+
+// TurnOf is the turn of the line at index i in Lines, as Move.Line and Check.Line give it. An
+// index past the last line is in the last line's turn.
+func (g *Game) TurnOf(i int) int {
+	if i < len(g.Lines) {
+		return g.Lines[i].Turn
+	}
+	return g.LastTurn()
+}
+
+// TurnPlayer is the ID of whoever ended turn t, or by turn order when the game ended in it.
+func (g *Game) TurnPlayer(t int) string {
+	for _, l := range g.Lines {
+		if l.Turn == t && l.Kind == LineEndTurn && l.Player != "" {
+			return l.Player
+		}
+	}
+	if g.First == "" || t == 0 {
+		return ""
+	}
+	if FirstPlayersTurn(t) {
+		return g.First
+	}
+	for _, p := range g.Players {
+		if p.ID() != g.First {
+			return p.ID()
+		}
+	}
+	return ""
+}
+
+func FirstPlayersTurn(t int) bool { return t%2 == 1 }
+
 // Parse reads one AutoSaved combat log, which holds one game or, after rematches, several. A
 // lobby opened after the last game but never played isn't returned.
 func Parse(r io.Reader) ([]Game, error) {

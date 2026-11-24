@@ -2,16 +2,12 @@ package gui
 
 import (
 	"bytes"
-	"context"
 	"errors"
-	"fmt"
 	"image"
 	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/VTGare/logpose/internal/gui/page"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/transfer"
@@ -19,58 +15,20 @@ import (
 
 	"github.com/VTGare/logpose/internal/arts"
 	"github.com/VTGare/logpose/internal/cards"
+	"github.com/VTGare/logpose/internal/gui/page"
 	"github.com/VTGare/logpose/internal/sim"
 )
 
-func (a *app) simArt() *sim.SimArt {
-	in := a.install()
-	if in == nil {
-		return nil
+func simArtInfo(st arts.SimStatus) page.SimArtInfo {
+	if st.Err != nil {
+		return page.SimArtInfo{Err: "Couldn't read the sim's art: " + st.Err.Error()}
 	}
-	a.simArtMu.Lock()
-	defer a.simArtMu.Unlock()
-	if a.simArtObj == nil || a.simArtObj.Install.Root != in.Root {
-		a.simArtObj = &sim.SimArt{Install: *in, Dir: a.opts.SimArtDir}
-	}
-	return a.simArtObj
-}
-
-// readSimArt is what the sim shows for the card. A file of the user's is compared with the
-// card's printings once, so one that is a printing shows as that printing.
-func (a *app) readSimArt(ctx context.Context, card cards.Card) page.SimArtInfo {
-	art := a.simArt()
-	if art == nil {
-		return page.SimArtInfo{NoSim: true}
-	}
-	cur, err := art.Current(card.Code)
-	if err != nil {
-		return page.SimArtInfo{Err: "Couldn't read the sim's art: " + err.Error()}
-	}
-	if cur.Kind == sim.ArtFile && a.firstMatch(card.Code) {
-		if img, err := page.Decode(art.Install.Override(card.Code)); err == nil {
-			if key, ok := a.gallery.Match(ctx, card, img); ok && art.Matched(card.Code, key.String()) == nil {
-				cur = sim.ArtChoice{Kind: sim.ArtPrint, Key: key.String()}
-			}
-		}
-	}
-	return page.SimArtInfo{Cur: cur, OwnFile: art.OwnFile(card.Code)}
-}
-
-// firstMatch reports whether the card's file hasn't been compared yet this run.
-func (a *app) firstMatch(code string) bool {
-	a.simArtMu.Lock()
-	defer a.simArtMu.Unlock()
-	if a.matched == nil {
-		a.matched = make(map[string]bool)
-	}
-	first := !a.matched[code]
-	a.matched[code] = true
-	return first
+	return page.SimArtInfo{NoSim: st.NoSim, Cur: st.Cur, OwnFile: st.OwnFile}
 }
 
 func (x *appActions) LoadSimArt(card cards.Card) {
 	go func() {
-		info := x.a.readSimArt(x.ctx, card)
+		info := simArtInfo(x.a.simArt.Inspect(x.ctx, card))
 		x.a.win.Update(func() { x.a.view.SimArt.Set(card.Code, info) })
 	}()
 }
@@ -83,48 +41,24 @@ func (x *appActions) LoadArts(card cards.Card, gen int) {
 
 func (x *appActions) ScanSimArt() {
 	go func() {
-		var codes []string
-		if in := x.a.install(); in != nil {
-			codes = in.Overrides()
-		}
+		codes := x.a.simArt.Scan()
 		x.a.win.Update(func() { x.a.view.SimArt.SetChanged(codes) })
 	}()
 }
 
 func (x *appActions) UseSimArt(card cards.Card, choice, prev sim.ArtChoice) {
 	go func() {
-		err := x.a.useSimArt(card, choice)
-		info := x.a.readSimArt(x.ctx, card)
+		st, err := x.a.simArt.Use(x.ctx, card, choice)
 		if err != nil {
 			x.a.opts.Log.Warn("sim art", "card", card.Code, "err", err)
 		}
+		info := simArtInfo(st)
 		x.a.win.Update(func() { x.a.view.SimArt.Done(&x.a.view.Env, card, choice, info, prev, err) })
 	}()
 }
 
-func (a *app) useSimArt(card cards.Card, choice sim.ArtChoice) error {
-	art := a.simArt()
-	if art == nil {
-		return sim.ErrNotFound
-	}
-	switch choice.Kind {
-	case sim.ArtOwn:
-		return art.UseOwn(card.Code)
-	case sim.ArtFile:
-		return art.UseFile(card.Code)
-	}
-	if a.web == nil {
-		return arts.ErrNoPicture
-	}
-	img, err := page.PrintRef(choice.Key).Read(nil, a.web, page.ArtLarge, false)
-	if err != nil {
-		return fmt.Errorf("download %s: %w", choice.Key, err)
-	}
-	return art.UsePrint(card.Code, choice.Key, img)
-}
-
 func (a *app) artImage(key string) (image.Image, error) {
-	return page.ParseArtRef(key).Read(a.install(), a.web, page.ArtLarge, false)
+	return a.simArt.Resolve(arts.ParseRef(key), arts.SizeFull, false, false)
 }
 
 func (x *appActions) SaveArt(key string) {
@@ -137,7 +71,7 @@ func (x *appActions) SaveArt(key string) {
 		dir, _ := os.UserHomeDir()
 		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
 			Parent: x.a.win, Title: "Save the card's picture", ButtonLabel: "Save",
-			DefaultPath: filepath.Join(dir, "Pictures", page.ParseArtRef(key).FileName()),
+			DefaultPath: filepath.Join(dir, "Pictures", arts.ParseRef(key).FileName()),
 			Filters:     []mygo.FileFilter{{Name: "PNG image", Extensions: []string{"png"}}},
 		})
 		if err != nil || path == "" {

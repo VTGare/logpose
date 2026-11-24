@@ -118,10 +118,7 @@ type Host struct {
 	// The Nav calls go to these when set.
 	MatchOpener func(m stats.Match)
 	CardsOpener func(code string)
-	ArtViewer   func(code string)
-	ArtViewerAt func(code, key string)
 	GameMenus   func(m stats.Match) func(*ui.Menu)
-	CardMenus   func(card cards.Card) func(*ui.Menu)
 	HandsShown  func() bool
 	HandsOpener func(code string)
 }
@@ -188,6 +185,7 @@ func (h *Host) build(c *ui.Context) {
 		size := h.Prefs.SideWidth
 		ui.Split(c, &size, func() { h.sidebar(c) }, body).Fill()
 	})
+	h.Viewer.Draw(c, &h.Env)
 }
 
 func (h *Host) OpenMatch(m stats.Match) {
@@ -202,32 +200,9 @@ func (h *Host) OpenInCards(code string) {
 	}
 }
 
-func (h *Host) ViewArt(code string) {
-	if h.ArtViewer != nil {
-		h.ArtViewer(code)
-	}
-}
-
-func (h *Host) ViewArtAt(code, key string) {
-	if h.ArtViewerAt != nil {
-		h.ArtViewerAt(code, key)
-		return
-	}
-	if h.ArtViewer != nil {
-		h.ArtViewer(code)
-	}
-}
-
 func (h *Host) GameMenu(m stats.Match) func(*ui.Menu) {
 	if h.GameMenus != nil {
 		return h.GameMenus(m)
-	}
-	return func(*ui.Menu) {}
-}
-
-func (h *Host) CardMenu(card cards.Card) func(*ui.Menu) {
-	if h.CardMenus != nil {
-		return h.CardMenus(card)
 	}
 	return func(*ui.Menu) {}
 }
@@ -303,6 +278,9 @@ func (f *EnvActions) ScanSimArt() { f.Calls = append(f.Calls, "scan art") }
 func (f *EnvActions) UseSimArt(card cards.Card, choice, _ sim.ArtChoice) {
 	f.Calls = append(f.Calls, "use art "+card.Code+" "+choice.Key)
 }
+func (f *EnvActions) SaveArt(key string) { f.Calls = append(f.Calls, "save art "+key) }
+func (f *EnvActions) CopyArt(key string) { f.Calls = append(f.Calls, "copy art "+key) }
+func (f *EnvActions) OpenURL(url string) { f.Calls = append(f.Calls, "open url "+url) }
 
 // After keeps the timer for a spec to fire with Fire.
 func (f *EnvActions) After(_ time.Duration, fn func()) { f.timers = append(f.timers, fn) }

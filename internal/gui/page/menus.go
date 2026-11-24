@@ -60,7 +60,7 @@ func (e *Env) leaderCardItems(m *ui.Menu, code string) {
 		e.Nav.OpenInCards(code)
 	}
 	if m.Item("View art").Chosen() {
-		e.Nav.ViewArt(code)
+		e.ViewArt(code)
 	}
 }
 

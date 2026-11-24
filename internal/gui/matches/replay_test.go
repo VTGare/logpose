@@ -145,9 +145,9 @@ var _ = Describe("replay", func() {
 		v.OpenMatch(v.Snap.Matches[0])
 		v.matches.SetTimeline(MatchTimeline{
 			Fingerprint: "0", Replayable: true, Me: []int{5, 4, 3}, Opp: []int{5, 5, 4},
-			Moments: []simlog.Moment{{
+			Moments: []replay.Moment{{
 				Turn: 5, Player: "Bob#2222", Line: line,
-				Reasons: []simlog.Reason{{Kind: simlog.ReasonLifeLost, Player: "Alice#1111", N: 2}},
+				Reasons: []replay.Reason{{Kind: replay.ReasonLifeLost, Player: "Alice#1111", N: 2}},
 			}},
 		})
 		tt.Frame()
@@ -156,6 +156,18 @@ var _ = Describe("replay", func() {
 		v.matches.SetReplay(l)
 		Expect(at(19)).To(BeTrue())
 		Expect(tt.HasText("Rocks D. Xebec attacked Monkey D. Garp")).To(BeTrue())
+	})
+
+	It("reuses a pre-built replay from the timeline without waiting for a second build", func() {
+		l := sixTurns()
+		v.Page = page.Matches
+		v.OpenMatch(v.Snap.Matches[0])
+		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0", Replayable: true, Game: l.Game, Replay: l.Replay})
+		tt.Frame()
+		Expect(tt.Click("Watch replay")).To(Succeed())
+		Expect(fa.replays).To(Equal([]string{"0"}))
+		Expect(tt.HasText("Building the replay")).To(BeFalse())
+		Expect(at(0)).To(BeTrue())
 	})
 
 	It("steps with the buttons and the arrow keys, and goes to either end", func() {

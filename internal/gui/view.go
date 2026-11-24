@@ -82,7 +82,10 @@ var pages = []pageDef{
 			v.cards.Note = v.settings.NoteOn(settings.NoteCards)
 			v.cards.Draw(c, &v.Env)
 		},
-		any: "<code>", open: func(v *view, code string) { v.cards.State.Selected, v.cards.State.Viewer = code, true },
+		any: "<code>", open: func(v *view, code string) {
+			v.cards.Select(code)
+			v.ViewArt(code)
+		},
 	},
 	{id: page.Formats, icon: kit.IconFormats, label: "Formats", group: groupSetup, draw: func(v *view, c *ui.Context) { v.formats.Draw(c, &v.Env) }},
 	{id: page.Settings, icon: kit.IconSettings, label: "Settings", group: groupSetup, draw: func(v *view, c *ui.Context) { v.settings.Draw(c, &v.Env) }},
@@ -161,6 +164,7 @@ func (v *view) openSub() {
 // off the main thread and sends a new snapshot.
 type actions interface {
 	page.EnvActions
+	page.ArtActions
 	formats.Actions
 	settings.Actions
 	matches.Actions
@@ -194,7 +198,7 @@ type view struct {
 
 // setActions gives the view, the env and each page the app's actions.
 func (v *view) setActions(a actions) {
-	v.act, v.Act, v.formats.Act, v.settings.Act, v.matches.Act, v.decks.Act, v.cards.Act = a, a, a, a, a, a, a
+	v.act, v.Act, v.ArtAct, v.formats.Act, v.settings.Act, v.matches.Act, v.decks.Act, v.cards.Act = a, a, a, a, a, a, a, a
 }
 
 // The setters below are how the app changes what the view shows. It calls them on the main
@@ -272,10 +276,7 @@ func (v *view) build(c *ui.Context) {
 			v.DragPane(page.PrefSideWidth, &v.sideDrag, size-shown, page.SnapSide)
 		}
 	})
-	// A card's menu opens the art viewer on any page. The Cards page draws its own.
-	if v.cards.State.Viewer && v.Page != page.Cards && v.Snap.Cards != nil {
-		v.cards.ArtViewer(c, &v.Env, v.Snap.Cards.Card(v.cards.State.Selected))
-	}
+	v.Viewer.Draw(c, &v.Env)
 }
 
 func (v *view) wakeAtMidnight() {
@@ -424,17 +425,11 @@ func (v *view) OpenMatch(m stats.Match) { v.matches.OpenMatch(&v.Env, m) }
 
 func (v *view) GameMenu(m stats.Match) func(*ui.Menu) { return v.matches.GameMenu(&v.Env, m) }
 
-func (v *view) CardMenu(card cards.Card) func(*ui.Menu) { return v.cards.CardMenu(&v.Env, card) }
-
 func (v *view) OpenInCards(code string) {
-	v.cards.Select(code, false)
+	v.cards.Select(code)
+	v.Viewer.Close()
 	v.Page = page.Cards
 }
-
-// ViewArt opens the art viewer over the page, which build draws off the Cards page.
-func (v *view) ViewArt(code string) { v.cards.Select(code, true) }
-
-func (v *view) ViewArtAt(code, key string) { v.cards.SelectKey(code, key, true) }
 
 // ShowsHands reports whether the page is a Decks tab where "Show hands with" fits a card.
 func (v *view) ShowsHands() bool {

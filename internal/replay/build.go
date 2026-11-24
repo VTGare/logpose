@@ -605,25 +605,65 @@ func (b *builder) move(step int, m simlog.Move) {
 	if inPlace && m.Rested && !in.Rested {
 		b.rested[in.ID] = true
 	}
-	if !inPlace && m.From == simlog.ZoneCharacter && m.FromSlot >= 0 && m.FromSlot < len(s.Characters) &&
-		s.Characters[m.FromSlot].ID == b.defenderID {
-		b.left = s.Characters[m.FromSlot]
-		if bt := b.steps[step].Battle; bt != nil {
-			left := b.left
-			bt.Left, bt.LeftSlot = &left, m.FromSlot
-		}
-	}
+	leavingID := b.beforeMove(step, s, m, inPlace)
 	for _, d := range s.apply(m) {
 		b.issues = append(b.issues, Issue{Kind: IssueMove, Step: step, Seq: m.Seq, Line: -1, Owner: m.Owner, Detail: d})
 	}
-	if !inPlace && m.To == simlog.ZoneCharacter && len(s.Characters) > 0 {
-		s.Characters[min(max(m.ToSlot, 0), len(s.Characters)-1)].played = b.steps[step].Turn
+	if !inPlace {
+		b.recordMoveEvents(step, s, m, leavingID)
 	}
 	if !hasCheck {
 		return
 	}
 	for _, d := range countIssues(s, c) {
 		b.issues = append(b.issues, Issue{Kind: IssueCount, Step: step, Seq: m.Seq, Line: -1, Owner: m.Owner, Detail: d})
+	}
+}
+
+func (b *builder) beforeMove(step int, s *Side, m simlog.Move, inPlace bool) int {
+	if inPlace || m.From != simlog.ZoneCharacter {
+		return 0
+	}
+	if m.FromSlot >= 0 && m.FromSlot < len(s.Characters) && s.Characters[m.FromSlot].ID == b.defenderID {
+		b.left = s.Characters[m.FromSlot]
+		if bt := b.steps[step].Battle; bt != nil {
+			left := b.left
+			bt.Left, bt.LeftSlot = &left, m.FromSlot
+		}
+	}
+	if m.To == simlog.ZoneCharacter {
+		return 0
+	}
+	if m.FromSlot >= 0 && m.FromSlot < len(s.Characters) {
+		return s.Characters[m.FromSlot].ID
+	}
+	if i := slices.IndexFunc(s.Characters, func(c Card) bool { return c.Code == m.Card }); i >= 0 {
+		return s.Characters[i].ID
+	}
+	return 0
+}
+
+func (b *builder) recordMoveEvents(step int, s *Side, m simlog.Move, leavingID int) {
+	if m.From == simlog.ZoneCharacter && m.To != simlog.ZoneCharacter {
+		b.steps[step].boardEvents = append(b.steps[step].boardEvents, boardEvent{
+			kind: boardLeaveChar, owner: m.Owner, card: m.Card, id: leavingID, line: m.Line,
+		})
+	}
+	if m.To == simlog.ZoneCharacter && m.From != simlog.ZoneCharacter {
+		id := 0
+		if len(s.Characters) > 0 {
+			slot := min(max(m.ToSlot, 0), len(s.Characters)-1)
+			s.Characters[slot].played = b.steps[step].Turn
+			id = s.Characters[slot].ID
+		}
+		b.steps[step].boardEvents = append(b.steps[step].boardEvents, boardEvent{
+			kind: boardEnterChar, owner: m.Owner, card: m.Card, id: id, line: m.Line,
+		})
+	}
+	if m.To == simlog.ZoneStage && m.From != simlog.ZoneStage {
+		b.steps[step].boardEvents = append(b.steps[step].boardEvents, boardEvent{
+			kind: boardEnterStage, owner: m.Owner, card: m.Card, line: m.Line,
+		})
 	}
 }
 

@@ -68,6 +68,27 @@ type Step struct {
 	Board Board
 	// starter is the index of the line the step starts on, or -1.
 	starter int
+	// counterDiscard distinguishes a discarded counter card from a counter event.
+	counterDiscard bool
+	actionEffects  []ActionEffect
+	boardEvents    []boardEvent
+}
+
+type boardEventKind uint8
+
+const (
+	boardEnterChar boardEventKind = iota + 1
+	boardLeaveChar
+	boardEnterStage
+)
+
+type boardEvent struct {
+	kind  boardEventKind
+	owner int
+	card  string
+	id    int
+	line  int
+	ko    bool
 }
 
 // Battle is an attack's cards and their power at a step.
@@ -113,6 +134,7 @@ type Replay struct {
 	PowerChecks []PowerCheck
 	// PowerCompared counts the powers compared with "vs" lines.
 	PowerCompared int
+	turnPlayers   []string
 }
 
 // Version goes up whenever Build gives different steps or boards for the same game, so facts
@@ -158,7 +180,23 @@ func Build(g *simlog.Game, power func(code string) int, opts ...Option) (*Replay
 			break
 		}
 	}
+	maxTurn := g.LastTurn()
+	if n := len(r.Steps); n > 0 && r.Steps[n-1].Turn > maxTurn {
+		maxTurn = r.Steps[n-1].Turn
+	}
+	r.turnPlayers = make([]string, maxTurn+1)
+	for t := 1; t <= maxTurn; t++ {
+		r.turnPlayers[t] = g.TurnPlayer(t)
+	}
 	return r, nil
+}
+
+// TurnPlayer is the ID of the player whose turn t was, or "" when unknown.
+func (r *Replay) TurnPlayer(t int) string {
+	if r == nil || t < 0 || t >= len(r.turnPlayers) {
+		return ""
+	}
+	return r.turnPlayers[t]
 }
 
 // StepAtLine is the step that holds the readable line, or the first after it, such as for

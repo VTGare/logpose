@@ -9,7 +9,6 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/VTGare/logpose/internal/cards"
-	"github.com/VTGare/logpose/internal/sim"
 	"github.com/VTGare/logpose/internal/stats"
 )
 
@@ -21,20 +20,15 @@ type EnvActions interface {
 	After(d time.Duration, fn func())
 	// CopyText writes text to the clipboard and shows toast on success.
 	CopyText(text string, toast ui.Toast)
-	ChooseSimFolder()
-	LoadSimArt(card cards.Card)
-	LoadArts(card cards.Card, gen int)
-	ScanSimArt()
-	// UseSimArt makes the sim show choice for the card. prev is what it showed, for Undo.
-	UseSimArt(card cards.Card, choice, prev sim.ArtChoice)
 }
 
 // Env is what the frame hands every page: the games, the prefs and the clock.
 type Env struct {
-	Snap  *Snapshot
-	Prefs Prefs
-	Act   EnvActions
-	Clock func() time.Time
+	Snap   *Snapshot
+	Prefs  Prefs
+	Act    EnvActions
+	ArtAct ArtActions
+	Clock  func() time.Time
 	// pending counts the calls to later by key, so only the last one runs.
 	pending map[string]int
 	// Entered is true in a page's first frame, when bars grow from zero and charts draw in.
@@ -46,6 +40,7 @@ type Env struct {
 	Art      *ArtCache
 	SimArt   SimArtState
 	Arts     ArtsState
+	Viewer   ArtViewer
 	Filter   filters
 	scope    scoped
 	periodUI periodState
@@ -63,10 +58,7 @@ type Env struct {
 type nav interface {
 	OpenMatch(m stats.Match)
 	OpenInCards(code string)
-	ViewArt(code string)
-	ViewArtAt(code, key string)
 	GameMenu(m stats.Match) func(*ui.Menu)
-	CardMenu(card cards.Card) func(*ui.Menu)
 	ShowsHands() bool
 	ShowHands(code string)
 	// PageLabel is the name the sidebar gives the page with the id.

@@ -23,18 +23,16 @@ const (
 type deckArtPick struct {
 	leader, title string
 	list          map[string]int
-	versionsCard  string
-	versionsHead  string
+	strip         page.ArtStripState
 }
 
 type deckArtItem struct {
-	card    cards.Card
-	copies  int
-	info    page.SimArtInfo
-	loaded  bool
-	ca      arts.CardArts
-	entries []page.ArtEntry
-	wide    bool
+	card   cards.Card
+	copies int
+	info   page.SimArtInfo
+	loaded bool
+	ca     arts.CardArts
+	wide   bool
 }
 
 func (pg *Page) openDeckArt(leader, title string, list map[string]int) {
@@ -67,12 +65,7 @@ func (pg *Page) deckArtPage(c *ui.Context, e *page.Env) {
 	if pg.artPick == nil {
 		return
 	}
-	if noSim {
-		page.NoSimBanner(c, e)
-	} else if e.Prefs.ArtOff {
-		ui.Text(c, "Card art downloads are off in Settings, so only the sim's own art and your own file can be used.").
-			FontSize(12).TextColor(t.TextMuted).Wrap()
-	}
+	page.SimArtNotice(c, e, noSim)
 
 	grid := kit.Panel(c).Padding(16).Gap(12)
 	grid.Children(func() {
@@ -126,7 +119,6 @@ func loadDeckArtItems(e *page.Env, ap *deckArtPick) (items []deckArtItem, change
 		card := e.Snap.Card(code)
 		info, loaded := e.SimArt.For(e, card)
 		ca, _ := e.Arts.For(e, card)
-		entries := page.ArtEntries(e, card, ca, info, loaded, "")
 		prints := len(ca.Arts)
 		if ca.Pending > 0 {
 			prints++
@@ -138,7 +130,7 @@ func loadDeckArtItems(e *page.Env, ap *deckArtPick) (items []deckArtItem, change
 		}
 		items = append(items, deckArtItem{
 			card: card, copies: copies, info: info, loaded: loaded,
-			ca: ca, entries: entries, wide: prints >= deckArtWideMin,
+			ca: ca, wide: prints >= deckArtWideMin,
 		})
 	}
 	if ap.leader != "" {
@@ -158,22 +150,11 @@ func (pg *Page) deckArtBox(c *ui.Context, e *page.Env, it *deckArtItem, half boo
 	}
 	box.Children(func() {
 		deckArtHeader(c, it)
-		ui.Row(c).Gap(10).Wrap().AlignItems(ui.Start).Children(func() {
-			pending := it.ca.Pending > 0
-			for _, en := range it.entries {
-				if en.Art == nil && pending {
-					page.PendingColumn(c, e, it.card, it.ca.Pending, true)
-					pending = false
-				}
-				pg.deckArtEntry(c, e, it, en)
-			}
-			if pending {
-				page.PendingColumn(c, e, it.card, it.ca.Pending, true)
-			}
+		page.ArtChoices(c, e, it.card, &pg.artPick.strip, page.ArtChoicesOpts{
+			Compact: true,
+			Subject: it.card.Name,
+			OnLook:  func(key string) { e.ViewArtAt(it.card.Code, key) },
 		})
-		if it.info.Err != "" {
-			ui.Text(c, it.info.Err).FontSize(12).TextColor(kit.LossColor(t)).Wrap()
-		}
 	})
 }
 
@@ -189,7 +170,7 @@ func deckArtHeader(c *ui.Context, it *deckArtItem) {
 			}
 			ui.Text(c, meta).FontSize(12).TextColor(kit.FaintColor(t)).SingleLine()
 		})
-		label, on := simArtStatus(it.ca, it.info, it.loaded)
+		label, on := page.SimArtStatus(it.ca, it.info, it.loaded)
 		if label == "" {
 			return
 		}
@@ -202,66 +183,4 @@ func deckArtHeader(c *ui.Context, it *deckArtItem) {
 		}
 		ui.Text(c, label).FontSize(12).TextColor(kit.FaintColor(t)).SingleLine()
 	})
-}
-
-func (pg *Page) deckArtEntry(c *ui.Context, e *page.Env, it *deckArtItem, en page.ArtEntry) {
-	ap := pg.artPick
-	card := it.card
-	if en.Art == nil {
-		_, look, use := page.ArtColumn(c, e, page.ArtColumnOpts{
-			Key: en.Key, Name: en.Name, Subject: card.Name, Versions: 1, InSim: en.InSim, Usable: en.Usable, Compact: true,
-		})
-		if look {
-			e.Nav.ViewArtAt(card.Code, en.Key)
-		}
-		if use {
-			e.SimArt.Use(e, card, en.Choice)
-		}
-		return
-	}
-	art := *en.Art
-	head := art.Head().Key.String()
-	col, look, use := page.ArtColumn(c, e, page.ArtColumnOpts{
-		Key: head, Name: en.Name, Subject: card.Name, Versions: len(art.Versions), InSim: en.InSim, Usable: en.Usable, Compact: true,
-	})
-	if look {
-		if len(art.Versions) > 1 {
-			ap.versionsCard, ap.versionsHead = card.Code, head
-		} else {
-			e.Nav.ViewArtAt(card.Code, en.Key)
-		}
-	}
-	if use {
-		e.SimArt.Use(e, card, en.Choice)
-	}
-	if len(art.Versions) <= 1 {
-		return
-	}
-	open := ap.versionsCard == card.Code && ap.versionsHead == head
-	page.VersionPopover(c, e, col, art, it.info, en.Usable, "", &open, func(k string) {
-		ap.versionsCard, ap.versionsHead = "", ""
-		e.Nav.ViewArtAt(card.Code, k)
-	}, func(ch sim.ArtChoice) {
-		e.SimArt.Use(e, card, ch)
-	})
-	if !open && ap.versionsCard == card.Code && ap.versionsHead == head {
-		ap.versionsCard, ap.versionsHead = "", ""
-	}
-}
-
-func simArtStatus(ca arts.CardArts, info page.SimArtInfo, loaded bool) (label string, changed bool) {
-	if !loaded || info.NoSim {
-		return "", false
-	}
-	switch info.Cur.Kind {
-	case sim.ArtOwn:
-		return "Sim's own", false
-	case sim.ArtFile:
-		return "Your file", true
-	default:
-		if art, _, ok := ca.Find(info.Cur.Key); ok {
-			return art.Name(), true
-		}
-		return "Other art", true
-	}
 }

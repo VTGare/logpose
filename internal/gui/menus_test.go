@@ -79,13 +79,18 @@ var _ = Describe("right-click menus", func() {
 		Expect(tt.Texts()).NotTo(ContainElement("All decks"))
 	})
 
-	It("opens a leader in Cards or its art over the page", func() {
+	It("opens a leader in Cards or its art over the page without changing Cards selection", func() {
 		v, tt := tester(guitest.Snapshot(3))
+		v.cards.Select("OP13-001")
+		v.cards.State.Viewed = "OP13-001_p1"
+
 		Expect(tt.RightClick("Show games vs Kaido")).To(Succeed())
 		Expect(guitest.Choose(tt, "View art")).To(Succeed())
 		Expect(tt.HasText("Close the viewer")).To(BeTrue())
 		Expect(tt.HasText("OP17-058")).To(BeTrue())
 		Expect(v.Page).To(Equal(page.Overview))
+		Expect(v.cards.State.Selected).To(Equal("OP13-001"))
+		Expect(v.cards.State.Viewed).To(Equal("OP13-001_p1"))
 		Expect(tt.Click("Close the viewer")).To(Succeed())
 
 		Expect(tt.RightClick("Show games vs Kaido")).To(Succeed())
@@ -93,6 +98,17 @@ var _ = Describe("right-click menus", func() {
 		Expect(v.Page).To(Equal(page.Cards))
 		Expect(v.cards.State.Selected).To(Equal("OP17-058"))
 		Expect(tt.HasText("Close the viewer")).To(BeFalse())
+	})
+
+	It("opens the Cards page and art viewer from a cards/<code> deep link", func() {
+		v, tt := tester(guitest.Snapshot(3))
+		v.open("cards/OP17-058")
+		tt.Frame()
+		Expect(v.Page).To(Equal(page.Cards))
+		Expect(v.cards.State.Selected).To(Equal("OP17-058"))
+		Expect(v.Viewer.IsOpen()).To(BeTrue())
+		Expect(v.Viewer.Code()).To(Equal("OP17-058"))
+		Expect(guitest.Labelled(tt, "Close the viewer")).To(BeTrue())
 	})
 
 	It("offers a card on a Decks tab its Cards page and its dealt hands", func() {

@@ -15,7 +15,6 @@ import (
 
 	"github.com/VTGare/logpose/internal/arts"
 	"github.com/VTGare/logpose/internal/cards"
-	"github.com/VTGare/logpose/internal/sim"
 )
 
 const (
@@ -70,9 +69,6 @@ func (pg *Page) Draw(c *ui.Context, e *page.Env) {
 			pg.cardSplit(c, e, list, func() { pg.cardDetail(c, e, card) })
 		})
 	})
-	if s.Viewer {
-		pg.ArtViewer(c, e, e.Snap.Cards.Card(s.Selected))
-	}
 }
 
 func (pg *Page) cardsMissing(c *ui.Context) {
@@ -612,9 +608,10 @@ func (pg *Page) cardTile(c *ui.Context, e *page.Env, card cards.Card, w float32)
 		box := ui.ButtonBase(c).Label(card.Name+" "+card.Code).Size(w, h).Radius(6).Background(ui.Transparent).
 			Padding(0).FocusRing(false)
 		if box.Clicked() {
-			s.Selected, s.Viewed, s.Versions = card.Code, "", ""
+			s.Selected, s.Viewed = card.Code, ""
+			s.artStrip.Close()
 		}
-		box.PopoverMenu(pg.CardMenu(e, card))
+		box.PopoverMenu(e.CardMenu(card))
 		// Hover and keyboard focus lift the card. It has a printed border of its own, so a ring
 		// around it reads as a second frame.
 		up := float32(0)
@@ -623,7 +620,7 @@ func (pg *Page) cardTile(c *ui.Context, e *page.Env, card cards.Card, w float32)
 		}
 		at := box.AnimateTo("lift", up, ui.Animation{Duration: kit.HoverTime})
 		box.Translate(0, -3*at).Shadow(0, 2+8*at, 6+14*at, 0, ui.RGBA(0, 0, 0, 0.3+0.25*at))
-		box.Children(func() { e.CardImage(c, page.ExactPrintRef(card.Code), w).Radius(6) })
+		box.Children(func() { e.CardImage(c, arts.ExactPrintRef(card.Code).String(), w).Radius(6) })
 		ui.Row(c).Height(captionH).Gap(6).AlignItems(ui.Center).Children(func() {
 			col := t.TextMuted
 			if selected {
@@ -711,11 +708,12 @@ func (pg *Page) cardRows(c *ui.Context, e *page.Env, shown []cards.Card) {
 			row.Background(t.Accent.Alpha(0.12))
 		}
 		if row.Clicked() {
-			s.Selected, s.Viewed, s.Versions = card.Code, "", ""
+			s.Selected, s.Viewed = card.Code, ""
+			s.artStrip.Close()
 		}
-		row.PopoverMenu(pg.CardMenu(e, card))
+		row.PopoverMenu(e.CardMenu(card))
 		row.Children(func() {
-			e.CardImage(c, page.ExactPrintRef(card.Code), rowArtW).Radius(6)
+			e.CardImage(c, arts.ExactPrintRef(card.Code).String(), rowArtW).Radius(6)
 			ui.Column(c).Width(rowNameW).Children(func() {
 				ui.Text(c, card.Name).FontWeight(600).MaxLines(1).Ellipsis("…")
 				ui.Text(c, card.Code+" · "+card.Type).FontSize(12).TextColor(t.TextMuted)
@@ -787,7 +785,7 @@ func (pg *Page) cardDetail(c *ui.Context, e *page.Env, card cards.Card) {
 	t := c.Theme()
 	info, loaded := e.SimArt.For(e, card)
 	ca, _ := e.Arts.For(e, card)
-	key := pg.viewedKey(card, info, ca)
+	key := page.ViewedArtKey(card, info, ca, pg.State.Viewed)
 	if e.Prefs.PanelWidth <= page.PanelStrip {
 		foldedPanel(c, e)
 		return
@@ -799,18 +797,18 @@ func (pg *Page) cardDetail(c *ui.Context, e *page.Env, card cards.Card) {
 		ui.Column(c).Padding(18).Gap(16).Children(func() {
 			ui.Row(c).Gap(18).AlignItems(ui.Start).Children(func() {
 				art := ui.ButtonBase(c).Label("View the art full size").Padding(0).Radius(6).Background(ui.Transparent).
-					FocusRing(false).Shadow(0, 4, 14, 0, ui.RGBA(0, 0, 0, 0.45)).PopoverMenu(pg.CardMenu(e, card))
+					FocusRing(false).Shadow(0, 4, 14, 0, ui.RGBA(0, 0, 0, 0.45)).PopoverMenu(e.CardMenu(card))
 				if art.Clicked() {
-					pg.State.Viewer = true
+					e.ViewArtAt(card.Code, key)
 				}
-				exactKey := page.ExactPrintRef(key)
+				exactKey := arts.ExactPrintRef(key).String()
 				art.Children(func() { e.CardImage(c, exactKey, artW).Radius(6) })
 				if page.NeedsPreview(c, artW) {
 					e.CardPreview(c, art, exactKey)
 				}
 				ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(8).Children(func() {
 					ui.Text(c, card.Name).FontSize(20).Bold().Wrap()
-					ui.Text(c, card.Code+" · "+colorNames(card.Colors)+" "+card.Type).FontSize(13).TextColor(t.TextMuted).Wrap()
+					ui.Text(c, card.Code+" · "+page.ColorNames(card.Colors)+" "+card.Type).FontSize(13).TextColor(t.TextMuted).Wrap()
 					if card.Rarity != card.Type {
 						ui.Text(c, card.Rarity).FontSize(13).TextColor(t.TextMuted)
 					}
@@ -820,9 +818,12 @@ func (pg *Page) cardDetail(c *ui.Context, e *page.Env, card cards.Card) {
 					cardStats(c, card)
 				})
 			})
-			pg.detailTabs(c, key, len(page.ArtEntries(e, card, ca, info, loaded, pg.State.Viewed)))
+			pg.detailTabs(c, e, card.Code, key, page.ArtCount(ca, info, loaded))
 			if pg.State.tab == tabArt {
-				pg.artChoices(c, e, card, info, loaded)
+				page.ArtChoices(c, e, card, &pg.State.artStrip, page.ArtChoicesOpts{
+					Viewed: pg.State.Viewed,
+					OnLook: func(k string) { pg.State.Viewed = k },
+				})
 				return
 			}
 			cardFacts(c, e, card)
@@ -837,7 +838,7 @@ const (
 
 // detailTabs switches the panel between the card's text and its art. key is the picture shown
 // large, which the buttons save and copy, and pictures how many the Art tab offers.
-func (pg *Page) detailTabs(c *ui.Context, key string, pictures int) {
+func (pg *Page) detailTabs(c *ui.Context, e *page.Env, code, key string, pictures int) {
 	t := c.Theme()
 	labels := []string{"Card", fmt.Sprintf("Art · %d", pictures)}
 	ui.Column(c).Children(func() {
@@ -846,10 +847,10 @@ func (pg *Page) detailTabs(c *ui.Context, key string, pictures int) {
 			ui.Spacer(c)
 			ui.Box(c).Padding(0, 0, 6, 0).Children(func() {
 				ui.Row(c).Gap(6).Children(func() {
-					if smallButton(c, "View full size", kit.IconExpand, false).Clicked() {
-						pg.State.Viewer = true
+					if page.SmallButton(c, "View full size", kit.IconExpand, false).Clicked() {
+						e.ViewArtAt(code, key)
 					}
-					pg.artButtons(c, key)
+					page.ArtButtons(c, e, key)
 				})
 			})
 		})
@@ -881,20 +882,11 @@ func (pg *Page) tabList(c *ui.Context, labels []string) {
 
 // simArtLine names the art the sim shows when it isn't the sim's own. A click opens the Art tab.
 func (pg *Page) simArtLine(c *ui.Context, ca arts.CardArts, info page.SimArtInfo, loaded bool) {
-	if !loaded || info.NoSim || info.Cur.Kind == sim.ArtOwn {
+	text := page.SimArtInSim(ca, info, loaded)
+	if text == "" {
 		return
 	}
-	name := "your own file"
-	if info.Cur.Kind == sim.ArtPrint {
-		name = "other art"
-		if art, _, ok := ca.Find(info.Cur.Key); ok {
-			name = art.Name()
-			if art.Name() == "Base" {
-				name = "the base card"
-			}
-		}
-	}
-	b := ui.ButtonBase(c).Label("In the sim: " + name).Background(ui.Transparent).Padding(0).Gap(6).AlignItems(ui.Center).
+	b := ui.ButtonBase(c).Label(text).Background(ui.Transparent).Padding(0).Gap(6).AlignItems(ui.Center).
 		AlignSelf(ui.Start)
 	if b.Clicked() {
 		pg.State.tab = tabArt
@@ -902,7 +894,7 @@ func (pg *Page) simArtLine(c *ui.Context, ca arts.CardArts, info page.SimArtInfo
 	b.Tooltip("Show the art")
 	b.Children(func() {
 		ui.Icon(c, kit.IconSim).Size(13, 13).TextColor(page.SimGold)
-		ui.Text(c, "In the sim: "+name).FontSize(12.5).TextColor(page.SimGold)
+		ui.Text(c, text).FontSize(12.5).TextColor(page.SimGold)
 	})
 }
 
@@ -943,14 +935,6 @@ func foldedPanel(c *ui.Context, e *page.Env) {
 	b.Children(func() {
 		ui.Column(c).AlignItems(ui.Center).Children(func() { ui.Icon(c, kit.IconPrevStep).Size(16, 16).TextColor(t.TextMuted) })
 	})
-}
-
-func colorNames(cols []cards.Color) string {
-	names := make([]string, len(cols))
-	for i, col := range cols {
-		names[i] = string(col)
-	}
-	return strings.Join(names, "/")
 }
 
 func legalityBadge(c *ui.Context, card cards.Card) {
@@ -1066,9 +1050,6 @@ func effectSpans(effect string, t *ui.Theme) []ui.Span {
 
 type Actions interface {
 	RefreshCards()
-	SaveArt(key string)
-	CopyArt(key string)
-	OpenURL(url string)
 }
 
 type Page struct {
@@ -1089,18 +1070,11 @@ func (pg *Page) do(fn func(Actions)) {
 	}
 }
 
-// Select makes the card the one the page shows, with the art viewer open or closed.
-func (pg *Page) Select(code string, viewer bool) {
+// Select makes the card the one the page shows.
+func (pg *Page) Select(code string) {
 	s := &pg.State
 	if s.Selected != code {
-		s.Selected, s.Viewed, s.Versions = code, "", ""
+		s.Selected, s.Viewed = code, ""
+		s.artStrip.Close()
 	}
-	s.Viewer = viewer
-}
-
-// SelectKey opens the card on a specific printing key, with the art viewer open or closed.
-func (pg *Page) SelectKey(code, key string, viewer bool) {
-	s := &pg.State
-	s.Selected, s.Viewed, s.Versions = code, key, ""
-	s.Viewer = viewer
 }

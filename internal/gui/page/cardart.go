@@ -3,6 +3,7 @@ package page
 import (
 	"github.com/egoist/mygo/ui"
 
+	"github.com/VTGare/logpose/internal/arts"
 	"github.com/VTGare/logpose/internal/gui/kit"
 )
 
@@ -43,7 +44,7 @@ func (e *Env) CardImage(c *ui.Context, ref string, w float32) ui.Element {
 		art = e.Art.Get(ref, ArtFull)
 	}
 	if art == nil {
-		return e.CardPlaceholder(c, ParseArtRef(ref).Card(), w, CardHeight(w))
+		return e.CardPlaceholder(c, arts.ParseRef(ref).Card(), w, CardHeight(w))
 	}
 	return ui.Image(c, art).Size(w, CardHeight(w)).Fit(ui.Cover).Radius(4).Border(1, kit.ImageEdge)
 }
@@ -61,7 +62,7 @@ func (e *Env) CardPlaceholder(c *ui.Context, code string, w, h float32) ui.Eleme
 // preview shows the whole Card large while the pointer rests on it, with notes under it.
 func (e *Env) Card(c *ui.Context, code string, w float32, notes ...string) ui.Element {
 	card := e.Snap.Card(code)
-	el := e.CardImage(c, code, w).Label(card.Name).PopoverMenu(e.Nav.CardMenu(card))
+	el := e.CardImage(c, code, w).Label(card.Name).PopoverMenu(e.CardMenu(card))
 	if NeedsPreview(c, w) {
 		e.CardPreview(c, el, code, notes...)
 	}
@@ -80,7 +81,7 @@ func (e *Env) CardPreview(c *ui.Context, anchor ui.Element, ref string, notes ..
 		tip.Radius(10).Shadow(0, 6, 24, 0, ui.RGBA(0, 0, 0, 0.5)).Background(kit.PanelDark).Children(func() {
 			ui.Column(c).Gap(6).Children(func() {
 				if art == nil {
-					ui.Text(c, e.Snap.Card(ParseArtRef(ref).Card()).Name).FontSize(13).TextColor(PillText).Padding(6, 10)
+					ui.Text(c, e.Snap.Card(arts.ParseRef(ref).Card()).Name).FontSize(13).TextColor(PillText).Padding(6, 10)
 				} else {
 					ui.Image(c, art).Size(pw, CardHeight(pw)).Fit(ui.Cover).Radius(10).Border(1, kit.ImageEdge)
 				}

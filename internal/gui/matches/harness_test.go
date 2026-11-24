@@ -7,6 +7,7 @@ import (
 
 	"github.com/VTGare/logpose/internal/gui/guitest"
 	"github.com/VTGare/logpose/internal/gui/page"
+	"github.com/VTGare/logpose/internal/replay"
 	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
@@ -44,7 +45,7 @@ func (f *fakeActions) SetBookmark(fingerprint string, on bool) {
 	f.bookmarks = append(f.bookmarks, fmt.Sprintf("%s=%t", fingerprint, on))
 }
 
-func (f *fakeActions) OpenReplay(fingerprint string, _ *simlog.Game) {
+func (f *fakeActions) OpenReplay(fingerprint string, _ *simlog.Game, _ *replay.Replay) {
 	f.replays = append(f.replays, fingerprint)
 }
 

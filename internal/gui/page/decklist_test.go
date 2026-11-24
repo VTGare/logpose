@@ -8,7 +8,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/VTGare/logpose/internal/cards"
-	"github.com/VTGare/logpose/internal/sim"
 )
 
 type copyStub struct {
@@ -16,14 +15,9 @@ type copyStub struct {
 	toasts []ui.Toast
 }
 
-func (*copyStub) SetSetting(string, string)                          {}
-func (*copyStub) ApplyPrefs(Prefs)                                   {}
-func (*copyStub) After(time.Duration, func())                        {}
-func (*copyStub) ChooseSimFolder()                                   {}
-func (*copyStub) LoadSimArt(cards.Card)                              {}
-func (*copyStub) LoadArts(cards.Card, int)                           {}
-func (*copyStub) ScanSimArt()                                        {}
-func (*copyStub) UseSimArt(cards.Card, sim.ArtChoice, sim.ArtChoice) {}
+func (*copyStub) SetSetting(string, string)   {}
+func (*copyStub) ApplyPrefs(Prefs)            {}
+func (*copyStub) After(time.Duration, func()) {}
 func (c *copyStub) CopyText(text string, toast ui.Toast) {
 	c.copied = append(c.copied, text)
 	c.toasts = append(c.toasts, toast)

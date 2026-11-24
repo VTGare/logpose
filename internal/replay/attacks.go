@@ -1,11 +1,5 @@
 package replay
 
-import (
-	"strings"
-
-	"github.com/VTGare/logpose/internal/simlog"
-)
-
 type AnswerKind int
 
 const (
@@ -25,12 +19,17 @@ type Answer struct {
 	Power int
 }
 
-// Action is a card the attacking player played, or whose effect they used, between two
-// attacks. Effects are the effect lines that act on other cards, after "Card [CODE]: ".
+// ActionEffect is one effect of an Action that acts on other cards. Text has card codes stripped.
+type ActionEffect struct {
+	Text    string
+	Targets []string
+}
+
+// Action is a card the attacking player played, or whose effect they used, between two attacks.
 type Action struct {
 	Card    string
 	Played  bool
-	Effects []string
+	Effects []ActionEffect
 }
 
 // TurnAttack is one attack of a turn and what came of it.
@@ -53,8 +52,8 @@ type TurnAttack struct {
 }
 
 // Attacks is every attack the turn's player made in turn t, in order.
-func (r *Replay) Attacks(g *simlog.Game, t int) []TurnAttack {
-	ar := attackReader{g: g, player: g.TurnPlayer(t)}
+func (r *Replay) Attacks(t int) []TurnAttack {
+	ar := attackReader{player: r.TurnPlayer(t)}
 	for _, s := range r.Steps {
 		if s.Turn == t {
 			ar.step(s)
@@ -64,7 +63,6 @@ func (r *Replay) Attacks(g *simlog.Game, t int) []TurnAttack {
 }
 
 type attackReader struct {
-	g      *simlog.Game
 	player string
 	out    []TurnAttack
 	// pending is what the player did since the last attack.
@@ -91,7 +89,7 @@ func (ar *attackReader) step(s Step) {
 		}
 	case KindCounter:
 		if len(s.Cards) > 0 {
-			a.Answers = append(a.Answers, ar.counter(s))
+			a.Answers = append(a.Answers, counterAnswer(s))
 		}
 	case KindBattleEffect:
 		if n := effectPower(s); n > 0 && s.Player != ar.player {
@@ -117,12 +115,10 @@ func (ar *attackReader) attack(s Step) {
 	ar.pending = nil
 }
 
-func (ar *attackReader) counter(s Step) Answer {
+func counterAnswer(s Step) Answer {
 	k := AnswerEvent
-	for _, li := range s.Lines {
-		if ar.g.Lines[li].Kind == simlog.LineCounterDiscard {
-			k = AnswerCounter
-		}
+	if s.counterDiscard {
+		k = AnswerCounter
 	}
 	return Answer{Kind: k, Card: s.Cards[0], Power: s.Counter}
 }
@@ -157,31 +153,8 @@ func (ar *attackReader) action(s Step) {
 	if s.Player != ar.player || len(s.Cards) == 0 {
 		return
 	}
-	act := Action{Card: s.Cards[0], Played: s.Kind == KindPlay, Effects: actsOn(ar.g, s)}
+	act := Action{Card: s.Cards[0], Played: s.Kind == KindPlay, Effects: s.actionEffects}
 	if act.Played || len(act.Effects) > 0 {
 		ar.pending = append(ar.pending, act)
 	}
-}
-
-// actsOn is the step's effect lines from its card that name another card, without the ones
-// that only count DON!! or cards or attach DON!!.
-func actsOn(g *simlog.Game, s Step) []string {
-	var out []string
-	for _, li := range s.Lines {
-		l := g.Lines[li]
-		if l.Kind != simlog.LineEffect || l.Source != s.Cards[0] {
-			continue
-		}
-		rest := l.EffectText()
-		if _, ok := counted(rest); ok || strings.HasPrefix(rest, "Attach ") {
-			continue
-		}
-		for _, c := range l.Cards[1:] {
-			if c != l.Source {
-				out = append(out, rest)
-				break
-			}
-		}
-	}
-	return out
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/VTGare/logpose/internal/gui/page"
 
 	"github.com/VTGare/logpose/internal/cards"
+	"github.com/VTGare/logpose/internal/replay"
 	"github.com/VTGare/logpose/internal/shortcut"
 	"github.com/VTGare/logpose/internal/sim"
 	"github.com/VTGare/logpose/internal/simlog"
@@ -66,7 +67,7 @@ func (*fakeActions) UpdateFormat(store.Format) {}
 func (*fakeActions) DeleteFormat(int64)        {}
 func (f *fakeActions) DismissSet(set string)   { f.dismissed = append(f.dismissed, set) }
 
-func (f *fakeActions) OpenReplay(fingerprint string, _ *simlog.Game) {
+func (f *fakeActions) OpenReplay(fingerprint string, _ *simlog.Game, _ *replay.Replay) {
 	f.replays = append(f.replays, fingerprint)
 }
 

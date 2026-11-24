@@ -85,4 +85,4 @@ func (v *view) setSnapshot(s *page.Snapshot) { v.Snap = s }
 func (v *view) setSystem(s System)           { v.settings.System = s }
 func (v *view) setArtUsage(u arts.Usage)     { v.settings.Art = &u }
 func (v *view) setSettingsInfo(info Info)    { v.settings.Info = &info }
-func (v *view) setActions(f *fakeActions)    { v.Act, v.settings.Act = f, f }
+func (v *view) setActions(f *fakeActions)    { v.Act, v.ArtAct, v.settings.Act = f, f, f }

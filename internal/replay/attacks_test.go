@@ -19,7 +19,7 @@ var _ = Describe("Attacks", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		as := r.Attacks(g, 15)
+		as := r.Attacks(15)
 		Expect(as).To(HaveLen(6))
 		attackers := make([]string, len(as))
 		for i, a := range as {
@@ -42,7 +42,11 @@ var _ = Describe("Attacks", func() {
 		}))
 
 		last := as[5]
-		Expect(last.Before).To(Equal([]Action{{Card: "OP15-032", Played: true, Effects: []string{"Rest Saint Gunko [OP18-065]"}}}))
+		Expect(last.Before).To(Equal([]Action{{
+			Card:    "OP15-032",
+			Played:  true,
+			Effects: []ActionEffect{{Text: "Rest Saint Gunko", Targets: []string{"OP18-065"}}},
+		}}))
 		Expect(last.Lethal).To(BeTrue())
 		Expect(last.Power).To(Equal(9000))
 		Expect(last.DonActive).To(Equal(0))

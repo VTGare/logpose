@@ -110,15 +110,19 @@ func (b *builder) detail(s *Step) {
 		b.turnStart(s)
 	case KindAttach:
 		s.Don = b.g.Lines[s.starter].N
+	case KindPlay:
+		s.actionEffects = b.actionEffects(s)
 	case KindCounter:
-		s.Counter = b.counter(s)
+		s.Counter, s.counterDiscard = b.counter(s)
 	case KindDamage:
 		s.Outcome = b.outcome(s)
 	case KindEffect:
 		s.Effect = b.effectDid(s)
+		s.actionEffects = b.actionEffects(s)
 	case KindBattleEffect:
 		s.Effect = b.battleEffectDid(s)
 	}
+	b.markKOs(s)
 }
 
 // turnStart counts the turn player's draws and DON, up to the first move after the DON.
@@ -157,12 +161,11 @@ func (b *builder) outcome(s *Step) []Outcome {
 	return out
 }
 
-// counter is the power a counter step gave: the counter of a discarded card, or else the
-// power its effect gave. It is 0 when the log doesn't say.
-func (b *builder) counter(s *Step) int {
+// counter returns the power a counter step gave and whether a card was discarded from hand.
+func (b *builder) counter(s *Step) (int, bool) {
 	for _, li := range s.Lines {
 		if l := b.g.Lines[li]; l.Kind == simlog.LineCounterDiscard {
-			return l.N
+			return l.N, true
 		}
 	}
 	n := 0
@@ -171,7 +174,61 @@ func (b *builder) counter(s *Step) int {
 			n += e.n
 		}
 	}
-	return max(n, 0)
+	return max(n, 0), false
+}
+
+var cardCodeTag = regexp.MustCompile(`\s*\[[A-Z0-9-]+\]`)
+
+// actionEffects collects effect lines from the step's card that name another card, skipping
+// counted effects and DON!! attachments.
+func (b *builder) actionEffects(s *Step) []ActionEffect {
+	if len(s.Cards) == 0 {
+		return nil
+	}
+	var out []ActionEffect
+	for _, li := range s.Lines {
+		l := b.g.Lines[li]
+		if l.Kind != simlog.LineEffect || l.Source != s.Cards[0] {
+			continue
+		}
+		rest := l.EffectText()
+		if _, ok := counted(rest); ok || strings.HasPrefix(rest, "Attach ") {
+			continue
+		}
+		var targets []string
+		for _, c := range l.Cards[1:] {
+			if c != l.Source {
+				targets = append(targets, c)
+			}
+		}
+		if len(targets) > 0 {
+			out = append(out, ActionEffect{
+				Text:    strings.TrimSpace(cardCodeTag.ReplaceAllString(rest, "")),
+				Targets: targets,
+			})
+		}
+	}
+	return out
+}
+
+func (b *builder) markKOs(s *Step) {
+	if len(s.boardEvents) == 0 {
+		return
+	}
+	for _, li := range s.Lines {
+		l := b.g.Lines[li]
+		if l.Kind != simlog.LineKO || len(l.Cards) != 1 {
+			continue
+		}
+		owner := b.owner[l.Player]
+		for i := range s.boardEvents {
+			ev := &s.boardEvents[i]
+			if ev.kind == boardLeaveChar && !ev.ko && ev.owner == owner && ev.card == l.Cards[0] {
+				ev.ko = true
+				break
+			}
+		}
+	}
 }
 
 // sourceLines are the step's lines from the effect of its first card.

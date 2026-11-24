@@ -12,6 +12,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/chart"
 
+	"github.com/VTGare/logpose/internal/replay"
 	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
 )
@@ -21,7 +22,7 @@ import (
 type flowSeries struct {
 	label   string
 	me, opp []int
-	marks   simlog.MarkKind
+	marks   replay.MarkKind
 	pips    bool
 }
 
@@ -46,9 +47,9 @@ func (pg *Page) flowTile(c *ui.Context, e *page.Env, m stats.Match) ui.Element {
 			return
 		}
 		rows := []flowSeries{
-			{label: "Life", me: l.Me, opp: l.Opp, marks: simlog.MarkTrigger, pips: true},
+			{label: "Life", me: l.Me, opp: l.Opp, marks: replay.MarkTrigger, pips: true},
 			{label: "Hand", me: l.MeHand, opp: l.OppHand},
-			{label: "Board", me: l.MeBoard, opp: l.OppBoard, marks: simlog.MarkRemoved, pips: true},
+			{label: "Board", me: l.MeBoard, opp: l.OppBoard, marks: replay.MarkRemoved, pips: true},
 		}
 		rows = slices.DeleteFunc(rows, func(r flowSeries) bool { return len(r.me) != len(l.Me) || len(r.opp) != len(l.Me) })
 		labels := make([]string, len(rows))
@@ -101,7 +102,7 @@ func flowSummary(m stats.Match, rows []flowSeries, i int) string {
 	return when + "\n" + line(you) + "\n" + line(you.Other())
 }
 
-func markLines(e *page.Env, m stats.Match, marks []simlog.Mark, turn int, skipRemoved bool) []string {
+func markLines(e *page.Env, m stats.Match, marks []replay.Mark, turn int, skipRemoved bool) []string {
 	var removed, triggers []string
 	for _, mk := range marks {
 		if mk.Turn != turn {
@@ -111,7 +112,7 @@ func markLines(e *page.Env, m stats.Match, marks []simlog.Mark, turn int, skipRe
 		if s := page.SideOf(m, mk.Player); !s.Mine {
 			name += " (" + s.Name() + ")"
 		}
-		if mk.Kind == simlog.MarkRemoved {
+		if mk.Kind == replay.MarkRemoved {
 			removed = append(removed, name)
 		} else {
 			triggers = append(triggers, name)
@@ -158,7 +159,7 @@ func newPipPlot(t *ui.Theme, m stats.Match, l *MatchTimeline, r flowSeries) pipP
 		pp.half = float32(pp.slots*pipGap + 6)
 	}
 	for _, mk := range l.Marks {
-		if r.marks == simlog.MarkTrigger && mk.Kind == simlog.MarkTrigger {
+		if r.marks == replay.MarkTrigger && mk.Kind == replay.MarkTrigger {
 			pp.triggers[fmt.Sprint(page.SideOf(m, mk.Player).Mine, mk.Turn)] = true
 		}
 	}
@@ -208,7 +209,7 @@ func (pp pipPlot) column(p *ui.Painter, rect ui.Rect, cx float32, counts []int, 
 		return
 	}
 	ring := col
-	if pp.r.marks == simlog.MarkRemoved {
+	if pp.r.marks == replay.MarkRemoved {
 		ring = kit.LossColor(pp.t)
 	}
 	for k := range pp.slots {
@@ -311,11 +312,11 @@ func pipLegend(c *ui.Context, r flowSeries, m stats.Match) {
 	if r.pips {
 		item(func() { ui.Box(c).Size(10, 10).Radius(5).Background(you) }, r.label)
 		taken, col := "Taken that turn", you
-		if r.marks == simlog.MarkRemoved {
+		if r.marks == replay.MarkRemoved {
 			taken, col = "Removed that turn", kit.LossColor(t)
 		}
 		item(func() { ui.Box(c).Size(10, 10).Radius(5).Border(1.5, col) }, taken)
-		if r.marks == simlog.MarkTrigger {
+		if r.marks == replay.MarkTrigger {
 			item(func() { ui.Text(c, "T").FontSize(10).Bold().TextColor(you) }, "Trigger")
 		}
 	}

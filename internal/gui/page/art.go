@@ -4,18 +4,12 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
-
-	// Registers the JPEG decoder for the sim's card images.
-	_ "image/jpeg"
-	_ "image/png"
-	"os"
 	"sync"
 
 	"github.com/egoist/mygo/ui"
 	xdraw "golang.org/x/image/draw"
 
 	"github.com/VTGare/logpose/internal/arts"
-	"github.com/VTGare/logpose/internal/sim"
 )
 
 type artKind int
@@ -40,21 +34,24 @@ const (
 	ArtFaceTheirs
 )
 
-// fromThumb reports whether the kind is made from a Limitless thumb rather than the full image.
-func (k artKind) fromThumb() bool {
-	return k == ArtFull || k == ArtCard
+func (k artKind) size() arts.Size {
+	switch k {
+	case ArtFull:
+		return arts.SizeSmall
+	case ArtCard:
+		return arts.SizeThumb
+	default:
+		return arts.SizeFull
+	}
 }
 
 // WebSmallWidth is how wide a Limitless image is kept for artFull, the size small cards and
 // thumbnails use. Limitless only has 600 px images.
-const WebSmallWidth = 150
+const WebSmallWidth = arts.SmallWidth
 
 // CardArtWidth keeps cards sharp up to about 190 DIPs wide at 125% scaling, at a third of the
 // memory of a full image.
 const CardArtWidth = 240
-
-// largeArtWidth caps mirrored custom overrides so huge PNGs don't bloat hover previews.
-const largeArtWidth = 600
 
 // artCard is scaled from the thumb, and scaling only shrinks. This fails to compile when the
 // thumb is narrower than cardArtWidth.
@@ -68,10 +65,7 @@ type artKey struct {
 // ArtCache decodes card images on goroutines and keeps them as bitmaps. Bitmaps are made on the
 // main thread, through redraw, since views use them there.
 type ArtCache struct {
-	install *sim.Install
-	// web is Limitless's and Bandai's art, tried before the sim's. Nil without a folder to keep
-	// it in.
-	web    *arts.Store
+	mgr    *arts.SimManager
 	redraw func(func())
 
 	mu      sync.Mutex
@@ -82,10 +76,9 @@ type ArtCache struct {
 	bitmaps map[artKey]*ui.Bitmap
 }
 
-func NewArtCache(install *sim.Install, web *arts.Store, redraw func(func())) *ArtCache {
+func NewArtCache(mgr *arts.SimManager, redraw func(func())) *ArtCache {
 	return &ArtCache{
-		install: install,
-		web:     web,
+		mgr:     mgr,
 		redraw:  redraw,
 		ver:     make(map[string]int),
 		images:  make(map[artKey]image.Image),
@@ -133,7 +126,7 @@ func (a *ArtCache) Invalidate(code string) {
 // Get returns the card's bitmap, or nil while it loads or when there's no image for it. code
 // can name an alternate printing, as "OP14-020_p1". It runs on the main thread.
 func (a *ArtCache) Get(code string, kind artKind) *ui.Bitmap {
-	if a == nil || (a.install == nil && a.web == nil) || code == "" {
+	if a == nil || !a.mgr.HasSource() || code == "" {
 		return nil
 	}
 	k := artKey{code, kind}
@@ -187,37 +180,11 @@ func (a *ArtCache) load(k artKey, ver int) {
 	a.redraw(func() {})
 }
 
-// source is the sim's override when mirroring is on, then Limitless or Bandai, then the sim's own
-// image.
 func (a *ArtCache) source(k artKey) (image.Image, error) {
 	a.mu.Lock()
 	mirror := a.mirror
 	a.mu.Unlock()
-	ref := ParseArtRef(k.code)
-	if mirror && a.install != nil && ref.kind == refPrint {
-		if path := a.install.Override(ref.code); path != "" {
-			if img, err := Decode(path); err == nil {
-				switch k.kind {
-				case ArtFull:
-					img = arts.ScaleToWidth(img, WebSmallWidth)
-				case ArtLarge:
-					img = arts.ScaleToWidth(img, largeArtWidth)
-				}
-				return img, nil
-			}
-		}
-	}
-	return ref.Read(a.install, a.web, k.kind, true)
-}
-
-func Decode(path string) (image.Image, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-	img, _, err := image.Decode(f)
-	return img, err
+	return a.mgr.Resolve(arts.ParseRef(k.code), k.kind.size(), mirror, true)
 }
 
 // portrait crops a card to its art: the top of the card, under the cost and above the text box.

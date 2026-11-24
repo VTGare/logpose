@@ -53,6 +53,7 @@ var _ = Describe("SimArt", func() {
 		Expect(art.UsePrint("OP07-019", "OP07-019_p1", card(color.White))).To(Succeed())
 		Expect(current()).To(Equal(sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP07-019_p1"}))
 		Expect(art.Install.Override("OP07-019")).To(Equal(path("OP07-019_OVERRIDE.png")))
+		Expect(art.Install.Overrides()).To(Equal([]string{"OP07-019"}))
 
 		f, err := os.Open(path("OP07-019_small_OVERRIDE.jpg"))
 		Expect(err).NotTo(HaveOccurred())
@@ -118,5 +119,35 @@ var _ = Describe("SimArt", func() {
 		Expect(art.Matched("OP07-019", "OP07-019_p1")).To(Succeed())
 		Expect(current()).To(Equal(sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP07-019_p1"}))
 		Expect(art.OwnFile("OP07-019")).To(BeEmpty())
+	})
+
+	It("inspects override, hash and kept file in one pass and records matches by hash", func() {
+		st, err := art.Inspect("OP07-019")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st).To(Equal(sim.ArtState{Choice: sim.ArtChoice{Kind: sim.ArtOwn}}))
+
+		Expect(os.WriteFile(path("OP07-019_OVERRIDE.png"), []byte("custom art"), 0o600)).To(Succeed())
+		st, err = art.Inspect("OP07-019")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Choice).To(Equal(sim.ArtChoice{Kind: sim.ArtFile}))
+		Expect(st.OwnFile).To(Equal(path("OP07-019_OVERRIDE.png")))
+		Expect(st.Override).To(Equal(path("OP07-019_OVERRIDE.png")))
+		Expect(st.OverrideHash).To(HaveLen(64))
+
+		Expect(art.UsePrint("OP07-019", "OP07-019_p1", card(color.White))).To(Succeed())
+		st, err = art.Inspect("OP07-019")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Choice).To(Equal(sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP07-019_p1"}))
+		Expect(filepath.Base(st.OwnFile)).To(Equal("OP07-019_OVERRIDE.png"))
+
+		Expect(art.UseFile("OP07-019")).To(Succeed())
+		st, err = art.Inspect("OP07-019")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(art.RecordMatch(st.OverrideHash, "OP07-019_p2")).To(Succeed())
+
+		st, err = art.Inspect("OP07-019")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.Choice).To(Equal(sim.ArtChoice{Kind: sim.ArtPrint, Key: "OP07-019_p2"}))
+		Expect(st.OwnFile).To(BeEmpty())
 	})
 })

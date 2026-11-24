@@ -256,10 +256,10 @@ var _ = Describe("match detail", func() {
 		s.Matches[0].End = simlog.End{Kind: simlog.EndLethal, Loser: "Opp#2"}
 		v, tt := open(s)
 		v.OpenMatch(s.Matches[0])
-		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0", Moments: []simlog.Moment{
+		v.matches.SetTimeline(MatchTimeline{Fingerprint: "0", Moments: []replay.Moment{
 			{
 				Turn: 3, Player: guitest.Me,
-				Reasons:    []simlog.Reason{{Kind: simlog.ReasonBoard, Player: guitest.Me, N: 3}},
+				Reasons:    []replay.Reason{{Kind: replay.ReasonBoard, Player: guitest.Me, N: 3}},
 				Played:     []string{"OP13-001", "OP17-058", "OP17-058"},
 				Characters: []string{"OP13-001", "OP17-058", "OP17-058"},
 				Board:      []string{"OP17-058", "OP13-001"},
@@ -268,15 +268,15 @@ var _ = Describe("match detail", func() {
 			},
 			{
 				Turn: 4, Player: "Opp#2",
-				Reasons: []simlog.Reason{{Kind: simlog.ReasonRemoved, Player: "Opp#2", N: 2}},
+				Reasons: []replay.Reason{{Kind: replay.ReasonRemoved, Player: "Opp#2", N: 2}},
 				Removed: []string{"OP17-058", "OP17-058"},
 			},
 			{
 				Turn: 5, Player: guitest.Me,
-				Reasons: []simlog.Reason{
-					{Kind: simlog.ReasonLifeLost, Player: "Opp#2", N: 2},
-					{Kind: simlog.ReasonAtZero, Player: "Opp#2"},
-					{Kind: simlog.ReasonFinish, Player: "Opp#2"},
+				Reasons: []replay.Reason{
+					{Kind: replay.ReasonLifeLost, Player: "Opp#2", N: 2},
+					{Kind: replay.ReasonAtZero, Player: "Opp#2"},
+					{Kind: replay.ReasonFinish, Player: "Opp#2"},
 				},
 			},
 		}})
@@ -299,21 +299,21 @@ var _ = Describe("match detail", func() {
 			Fingerprint: "0",
 			Me:          []int{4, 4, 4, 4, 4}, Opp: []int{4, 4, 4, 4, 0},
 			MeHand: []int{5, 5, 5, 5, 5}, OppHand: []int{5, 5, 5, 3, 1},
-			Moments: []simlog.Moment{
+			Moments: []replay.Moment{
 				{
 					Turn: 3, Player: guitest.Me,
-					Reasons:   []simlog.Reason{{Kind: simlog.ReasonHandDrain, Player: "Opp#2", N: 4}},
+					Reasons:   []replay.Reason{{Kind: replay.ReasonHandDrain, Player: "Opp#2", N: 4}},
 					Countered: []string{"OP17-058", "OP17-058"},
 					Removed:   []string{"OP17-058"},
 					CameBack:  []string{"OP17-058"},
-					Locks:     []simlog.Lock{{Source: "OP13-001", Cards: []string{"OP17-058"}, Rested: true}},
+					Locks:     []replay.Lock{{Source: "OP13-001", Cards: []string{"OP17-058"}, Rested: true}},
 				},
 				{
 					Turn: 4, Player: "Opp#2",
-					Reasons:  []simlog.Reason{{Kind: simlog.ReasonLifeLost, Player: guitest.Me, N: 2}},
-					Defended: []simlog.Defense{{Card: "OP13-001", Cards: 2}},
+					Reasons:  []replay.Reason{{Kind: replay.ReasonLifeLost, Player: guitest.Me, N: 2}},
+					Defended: []replay.Defense{{Card: "OP13-001", Cards: 2}},
 				},
-				{Turn: 5, Player: guitest.Me, Reasons: []simlog.Reason{{Kind: simlog.ReasonFinish, Player: "Opp#2"}}},
+				{Turn: 5, Player: guitest.Me, Reasons: []replay.Reason{{Kind: replay.ReasonFinish, Player: "Opp#2"}}},
 			},
 			Finish: []replay.TurnAttack{
 				{
@@ -323,7 +323,7 @@ var _ = Describe("match detail", func() {
 				},
 				{
 					Attacker: "OP13-001", Target: "OP17-058", Power: 9000, DonActive: 4, Lethal: true,
-					Before: []replay.Action{{Card: "OP13-001", Played: true, Effects: []string{"Rest Kaido [OP17-058]"}}},
+					Before: []replay.Action{{Card: "OP13-001", Played: true, Effects: []replay.ActionEffect{{Text: "Rest Kaido", Targets: []string{"OP17-058"}}}}},
 				},
 			},
 		})

@@ -3,6 +3,7 @@ package matches
 import (
 	"github.com/VTGare/logpose/internal/gui/kit"
 	"github.com/VTGare/logpose/internal/gui/page"
+	"github.com/VTGare/logpose/internal/replay"
 	"github.com/VTGare/logpose/internal/simlog"
 	"github.com/VTGare/logpose/internal/stats"
 	"github.com/VTGare/logpose/internal/store"
@@ -27,8 +28,8 @@ var _ = Describe("sides", func() {
 
 	It("says who hit whom from the side that lost life", func() {
 		m := match("emog")
-		Expect(hitText(m, simlog.Reason{Player: "Me#1", N: 2})).To(Equal("emog hit you for 2"))
-		Expect(hitText(m, simlog.Reason{Player: "emog#2", N: 1})).To(Equal("You hit emog for 1"))
+		Expect(hitText(m, replay.Reason{Player: "Me#1", N: 2})).To(Equal("emog hit you for 2"))
+		Expect(hitText(m, replay.Reason{Player: "emog#2", N: 1})).To(Equal("You hit emog for 1"))
 	})
 
 	It("takes the turns from who ended them, and from turn order for the turn the game ended in", func() {
